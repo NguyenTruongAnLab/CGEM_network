@@ -1,0 +1,4 @@
+# NodeID, Type, FilePath
+1, DISCHARGE, forcing/tri_an_Q.csv
+2, DISCHARGE, forcing/dau_tieng_Q.csv
+4, LEVEL, forcing/vung_tau_H.csv

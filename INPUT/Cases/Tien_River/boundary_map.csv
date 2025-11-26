@@ -1,0 +1,15 @@
+# ============================================================================
+# BOUNDARY CONDITIONS: TIEN RIVER CASE
+# ============================================================================
+# Node 1 (Upstream): Discharge boundary at Tan Chau
+# Nodes 3,4,5 (Downstream): Tidal level boundaries at distributary mouths
+#
+# Node_ID, Type, FilePath
+
+# Upstream discharge (Tan Chau gauge)
+1, DISCHARGE, forcing_data/Tien_Input.csv
+
+# Downstream tidal elevations (individual distributary mouths)
+3, LEVEL, forcing_data/MyTho_Tide.csv
+4, LEVEL, forcing_data/HamLuong_Tide.csv
+5, LEVEL, forcing_data/CoChien_Tide.csv

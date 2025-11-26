@@ -1,0 +1,35 @@
+# ============================================================================
+# CASE CONFIGURATION: HAU RIVER (SIMPLIFIED SINGLE-BRANCH)
+# ============================================================================
+# Model: High-performance Savenije convergence-length approach
+# Purpose: Demonstrate ideal alluvial estuary with stable dispersion
+#
+# Scientific notes:
+#   - Represents 40% of Mekong total discharge
+#   - Merged mouth branches for geometric consistency
+#   - Suitable for salt intrusion and tidal propagation analysis
+# ============================================================================
+
+CaseName = Hau_River
+
+# Input files
+Topology = topology.csv
+Boundaries = boundary_map.csv
+
+# Simulation period
+StartDate = 2017-01-01
+Duration = 365
+Warmup_Days = 30
+
+# Numerical parameters
+TimeStepSeconds = 300
+DELTI = 300
+DELXI = 2000
+
+# Physical parameters (initial conditions / reference values)
+TidalAmplitude = 2.1
+RiverDischarge = 6000.0
+
+# Output settings
+WriteCSV = 1
+WriteNetCDF = 0

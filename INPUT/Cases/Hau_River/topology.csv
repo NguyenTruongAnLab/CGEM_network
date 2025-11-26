@@ -1,0 +1,18 @@
+# ============================================================================
+# CASE 1: HAU RIVER - Single Branch Model
+# ============================================================================
+# Scientific Justification: Merged Dinh An + Tran De mouths into equivalent
+# single outlet to create stable convergence length (Lb) for Savenije solver
+#
+# Data sources:
+#   - Geometry: Nguyen et al. (2006), Vo Quoc Thanh (2021)
+#   - Flow split: Jordan et al. (2019) - 40% of total Mekong discharge
+#
+# Branch_ID, Name, NodeUp, NodeDown, Length_m, Width_Up_m, Width_Down_m, Depth_m, Chezy, Group
+
+# Hau Main: Chau Doc (Node 1) to Combined Mouth (Node 2)
+# Length: 190 km (full estuary from border to sea)
+# Width: Converges from 600m (upstream at Chau Doc) to 2300m (combined mouth)
+# Depth: 12.5m (weighted average of Dinh An + Tran De)
+# Chezy: 60 (typical for sandy alluvial estuary)
+1, Hau_Main, 1, 2, 190000, 600, 2300, 12.5, 60, 1

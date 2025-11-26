@@ -1,0 +1,19 @@
+CaseName = Mekong
+
+Topology = topology.csv
+Boundaries = boundary_map.csv
+
+StartDate = 2017-01-01
+Duration = 5
+Warmup_Days = 2
+
+# Simulation parameters
+TimeStepSeconds = 300
+DELTI = 300
+DELXI = 2000
+TidalAmplitude = 2.5
+RiverDischarge = 3500.0
+
+# Output settings
+WriteCSV = 1
+WriteNetCDF = 1

@@ -1,0 +1,13 @@
+# ============================================================================
+# BOUNDARY CONDITIONS: HAU RIVER CASE
+# ============================================================================
+# Node 1 (Upstream): Discharge boundary at Chau Doc
+# Node 2 (Downstream): Tidal level boundary at combined mouth
+#
+# Node_ID, Type, FilePath
+
+# Upstream discharge (Chau Doc gauge equivalent)
+1, DISCHARGE, ../../forcing_data/Hau_Input.csv
+
+# Downstream tidal elevation (Combined Dinh An + Tran De)
+2, LEVEL, ../../forcing_data/Hau_Combined_Tide.csv
