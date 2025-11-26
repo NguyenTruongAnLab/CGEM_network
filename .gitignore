@@ -1,0 +1,26 @@
+# Ignore build, output, and generated files
+/bin/
+/bin/Debug/
+/OUTPUT/
+/CGEM_fortran/
+/CGEM_single_branch/
+/.vscode/
+/*.o
+/*.exe
+/*.log
+
+/.github/
+
+# Python/VSCode
+__pycache__/
+*.pyc
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Misc
+.DS_Store
+
+# Local config
+local_config.json

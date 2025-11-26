@@ -1,0 +1,41 @@
+# ============================================================================
+# CASE 2: TIEN RIVER - Multi-Branch Model
+# ============================================================================
+# Scientific Justification: Three distributaries are long enough (>60 km)
+# to support independent salt intrusion and require separate representation
+# per Savenije (2012) convergence-length criterion (Lc/L > 1.5)
+#
+# Data sources:
+#   - Geometry: Nguyen et al. (2006), Vo Quoc Thanh (2021)
+#   - Flow split: Jordan et al. (2019) - 60% of total Mekong discharge
+#   - Bifurcation location: My Thuan / Vinh Long area
+#
+# Branch_ID, Name, NodeUp, NodeDown, Length_m, Width_Up_m, Width_Down_m, Depth_m, Chezy, Group
+
+# 1. Tien Main Stem: Tan Chau (Node 1) to My Thuan Split (Node 2)
+# Length: 100 km (Tan Chau gauge to first major bifurcation)
+# Width: Converges from 1000m to 1800m
+# Depth: 15m (main channel depth at MSL)
+# Chezy: 60 (sandy alluvial bed)
+1, Tien_Main, 1, 2, 100000, 1000, 1800, 15.0, 60, 2
+
+# 2. Ham Luong Branch: Split (Node 2) to Ham Luong Mouth (Node 3)
+# Length: 85 km (merged small creeks into main channel)
+# Width: Converges from 800m to 1500m
+# Depth: 12m (distributary typical depth)
+# Chezy: 55 (slightly more vegetation/friction)
+2, My_Tho, 2, 3, 85000, 800, 1500, 12.0, 55, 2
+
+# 3. Co Chien Branch: Split (Node 2) to Co Chien Mouth (Node 4)
+# Length: 82 km (merged Cung Hau mouth into Co Chien)
+# Width: Converges from 850m to 1800m
+# Depth: 12m
+# Chezy: 55
+3, Ham_Luong, 2, 4, 82000, 850, 1800, 12.0, 55, 2
+
+# 4. My Tho Branch: Split (Node 2) to My Tho Mouth (Node 5)
+# Length: 65 km (represents Cua Dai / Cua Tieu merged)
+# Width: Converges from 700m to 1400m
+# Depth: 11m (shallower distributary)
+# Chezy: 55
+4, Co_Chien, 2, 5, 65000, 700, 1400, 11.0, 55, 2

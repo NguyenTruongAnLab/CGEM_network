@@ -1,0 +1,6 @@
+# Node_ID, Type, FilePath
+1, DISCHARGE, forcing/TanChau_discharge.csv
+3, LEVEL, forcing/CanTho_tide.csv
+5, LEVEL, forcing/HamLuong_tide.csv
+6, LEVEL, forcing/CoChien_tide.csv
+7, LEVEL, forcing/MyTho_tide.csv

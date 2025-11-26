@@ -1,0 +1,36 @@
+# ============================================================================
+# CASE CONFIGURATION: TIEN RIVER (MULTI-BRANCH DISTRIBUTARIES)
+# ============================================================================
+# Model: High-performance multi-branch with Savenije theory
+# Purpose: Demonstrate bifurcating delta with independent salt intrusion
+#
+# Scientific notes:
+#   - Represents 60% of Mekong total discharge
+#   - Three distributaries modeled explicitly (Ham Luong, Co Chien, My Tho)
+#   - Each branch long enough for independent convergence length
+#   - Suitable for flow distribution and differential salinity analysis
+# ============================================================================
+
+CaseName = Tien_River
+
+# Input files
+Topology = topology.csv
+Boundaries = boundary_map.csv
+
+# Simulation period
+StartDate = 2017-01-01
+Duration = 15
+Warmup_Days = 10
+
+# Numerical parameters
+TimeStepSeconds = 300
+DELTI = 300
+DELXI = 2000
+
+# Physical parameters (initial conditions / reference values)
+TidalAmplitude = 1.9
+RiverDischarge = 9000.0
+
+# Output settings
+WriteCSV = 1
+WriteNetCDF = 1

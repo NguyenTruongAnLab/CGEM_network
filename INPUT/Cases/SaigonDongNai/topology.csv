@@ -1,0 +1,4 @@
+# ID, Name, UpNode, DownNode, Length(m), Width_Up(m), Width_Down(m), Depth(m), CalibGroup
+1, DongNai_Riv, 1, 3, 45000, 500, 600, 12, 2
+2, Saigon_Riv, 2, 3, 80000, 250, 350, 10, 2
+3, SoaiRap_Est, 3, 4, 60000, 1500, 12000, 15, 1
