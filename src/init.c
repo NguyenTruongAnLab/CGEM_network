@@ -128,8 +128,16 @@ void init_species_bc(Branch *b, int num_species) {
     }
 
     /* =================================================================
-     * Initialize concentration profiles with linear interpolation
-     * For upstream branches (no ocean at downstream), use constant river values
+     * Initialize concentration profiles 
+     * 
+     * For salinity (species 0), use Savenije (2005) exponential profile:
+     *   S(x) = S0 * exp(-x / L_s)
+     * where L_s is the salt intrusion length.
+     * 
+     * This provides a physically realistic initial condition that allows
+     * the transport solver to maintain proper gradients.
+     * 
+     * Reference: Savenije (2005) "Salinity and Tides in Alluvial Estuaries"
      * ================================================================= */
     for (int sp = 0; sp < num_species; ++sp) {
         if (!b->conc || !b->conc[sp]) continue;
@@ -146,10 +154,25 @@ void init_species_bc(Branch *b, int num_species) {
                 b->conc[sp][i] = c_up;
             }
         } else {
-            /* Ocean at downstream: linear gradient from ocean to river */
-            for (int i = 0; i <= b->M + 1; ++i) {
-                double s = (double)i / (double)b->M;
-                b->conc[sp][i] = c_down + (c_up - c_down) * s;
+            /* Ocean at downstream: use exponential profile for salinity,
+             * linear for other species */
+            if (sp == CGEM_SPECIES_SALINITY) {
+                /* Typical salt intrusion length for Mekong: 30-60 km during dry season
+                 * Reference: Nguyen et al. (2008), Vo Quoc Thanh (2021) */
+                double L_intrusion = 40000.0;  /* 40 km initial intrusion length */
+                for (int i = 0; i <= b->M + 1; ++i) {
+                    double x = i * b->dx;  /* Distance from mouth */
+                    double S_exp = c_down * exp(-x / L_intrusion);
+                    /* Clamp to background salinity */
+                    if (S_exp < c_up) S_exp = c_up;
+                    b->conc[sp][i] = S_exp;
+                }
+            } else {
+                /* Linear gradient for other species */
+                for (int i = 0; i <= b->M + 1; ++i) {
+                    double s = (double)i / (double)b->M;
+                    b->conc[sp][i] = c_down + (c_up - c_down) * s;
+                }
             }
         }
     }
