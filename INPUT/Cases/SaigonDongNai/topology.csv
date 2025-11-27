@@ -1,4 +1,60 @@
-# ID, Name, UpNode, DownNode, Length(m), Width_Up(m), Width_Down(m), Depth(m), CalibGroup
-1, DongNai_Riv, 1, 3, 45000, 500, 600, 12, 2
-2, Saigon_Riv, 2, 3, 80000, 250, 350, 10, 2
-3, SoaiRap_Est, 3, 4, 60000, 1500, 12000, 15, 1
+# ============================================================================
+# CASE: SAIGON-DONG NAI RIVER SYSTEM - Complete 4-Branch Model (Y-into-Y)
+# ============================================================================
+# Network Topology:
+#   Node 1 (Tri An Dam) ----[Dong Nai]----> Node 3 (Confluence)
+#   Node 2 (Dau Tieng)  ----[Saigon]------> Node 3 (Confluence)
+#   Node 3 (Confluence) ----[Soai Rap]----> Node 4 (Soai Rap Mouth)
+#   Node 3 (Confluence) ----[Long Tau]----> Node 5 (Long Tau Mouth)
+#
+# Scientific Configuration:
+#   - Dong Nai River: Rural, relatively clean from Tri An reservoir
+#   - Saigon River: Urban, high organic matter from HCMC (kox=0.30)
+#   - Soai Rap: Wide main outlet channel (lower RS, sandy substrate)
+#   - Long Tau: Narrow winding channel through Can Gio mangroves (high RS=7.0)
+#
+# Column format:
+#   ID, Name, NodeUp, NodeDown, Length_m, Width_Up_m, Width_Down_m, Depth_m, Chezy, Group, RS, BiogeoParams
+#
+# RS (Storage Ratio) values:
+#   - 1.0: Prismatic river channel (Dong Nai, Saigon)
+#   - 2.0: Wide estuarine channel (Soai Rap - some tidal flats)
+#   - 7.0: Mangrove-dominated channel (Long Tau - Can Gio core)
+#         Reference: Savenije (2012), tropical mangrove RS typically 5-10
+
+# ============================================================================
+# UPSTREAM BRANCHES (Reservoir → Junction)
+# ============================================================================
+
+# 1. Dong Nai River: Tri An Dam (Node 1) to Confluence (Node 3)
+# Rural river with forested catchment, relatively clean water
+# Length: 45 km from Tri An to Nha Be confluence area
+# RS: 1.0 (channelized river)
+# BiogeoParams: Low decay rates (kox=0.05, natural system)
+1, DongNai, 1, 3, 45000, 500, 600, 12.0, 55, 1, 1.0, biogeo_rural.txt
+
+# 2. Saigon River: Dau Tieng Reservoir (Node 2) to Confluence (Node 3)
+# Urban river receiving HCMC wastewater, industrial discharge
+# Length: 80 km from Dau Tieng through HCMC to Nha Be
+# RS: 1.0 (channelized, concrete-lined in urban sections)
+# BiogeoParams: High decay rates (kox=0.30, high BOD/nutrients)
+2, Saigon, 2, 3, 80000, 250, 350, 10.0, 50, 1, 1.0, biogeo_urban.txt
+
+# ============================================================================
+# DOWNSTREAM BRANCHES (Junction → Ocean)
+# ============================================================================
+
+# 3. Soai Rap: Confluence (Node 3) to Soai Rap Mouth (Node 4)
+# Main shipping channel - wide, deep, relatively sandy substrate
+# Lower RS than Long Tau because it's a massive open channel
+# Length: 60 km to the ocean
+# BiogeoParams: Mixed water, moderate parameters (uses rural as base)
+3, SoaiRap, 3, 4, 60000, 1500, 4000, 15.0, 65, 2, 2.0, biogeo_rural.txt
+
+# 4. Long Tau: Confluence (Node 3) to Long Tau Mouth (Node 5)
+# CRITICAL: Winding channel through Can Gio Mangrove Biosphere Reserve
+# This is where the mangrove physics (RS=7.0, high benthic) belong
+# Narrower, deeper, with extensive tidal flats and mangrove forest
+# Length: 55 km through the mangrove system
+# BiogeoParams: High benthic respiration (120 mmol C/m²/day), CO2 hotspot
+4, LongTau, 3, 5, 55000, 800, 1200, 18.0, 45, 2, 7.0, biogeo_mangrove.txt

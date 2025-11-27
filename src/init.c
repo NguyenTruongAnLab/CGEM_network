@@ -21,7 +21,9 @@ int LoadBiogeoParams(const char *path);
  * @brief Initialize species boundary conditions for a branch
  *
  * Sets smart defaults for ocean (downstream) and river (upstream) boundaries
- * for all water quality species.
+ * for all water quality species. Only sets ocean BC values for branches
+ * actually connected to ocean (LEVEL_BC) - junction-connected branches
+ * will get their values from junction mixing.
  *
  * @param b Branch to initialize
  * @param num_species Number of species
@@ -38,38 +40,49 @@ void init_species_bc(Branch *b, int num_species) {
     }
 
     /* =================================================================
-     * Ocean boundary conditions (downstream - typical coastal values)
+     * Ocean boundary conditions (downstream - only for LEVEL_BC branches)
+     * For junction-connected branches, values will come from mixing
      * ================================================================= */
     if (b->conc_down) {
-        b->conc_down[CGEM_SPECIES_SALINITY] = 35.0;     /* Salinity [PSU] */
-
-        /* Phytoplankton */
-        b->conc_down[CGEM_SPECIES_PHY1] = 0.5;          /* Diatoms [µM C] */
-        b->conc_down[CGEM_SPECIES_PHY2] = 1.0;          /* Non-siliceous [µM C] */
-
-        /* Nutrients */
-        b->conc_down[CGEM_SPECIES_DSI] = 5.0;           /* Dissolved Si [µM] */
-        b->conc_down[CGEM_SPECIES_NO3] = 2.0;           /* Nitrate [µM] */
-        b->conc_down[CGEM_SPECIES_NH4] = 0.5;           /* Ammonium [µM] */
-        b->conc_down[CGEM_SPECIES_PO4] = 0.2;           /* Phosphate [µM] */
-
-        /* Dissolved gases */
-        b->conc_down[CGEM_SPECIES_O2] = 250.0;          /* Oxygen [µM] */
-
-        /* Organic matter */
-        b->conc_down[CGEM_SPECIES_TOC] = 50.0;          /* TOC [µM C] */
-
-        /* Suspended matter */
-        b->conc_down[CGEM_SPECIES_SPM] = 5.0;           /* SPM [mg/L] */
-
-        /* Carbon chemistry */
-        b->conc_down[CGEM_SPECIES_DIC] = 2000.0;        /* DIC [µM] */
-        b->conc_down[CGEM_SPECIES_AT] = 2300.0;         /* Total alkalinity [µM] */
-        b->conc_down[CGEM_SPECIES_PCO2] = 400.0;        /* pCO2 [µatm] */
-        b->conc_down[CGEM_SPECIES_CO2] = 10.0;          /* CO2 [µM] */
-        b->conc_down[CGEM_SPECIES_PH] = 8.1;            /* pH */
-        b->conc_down[CGEM_SPECIES_HS] = 0.0;            /* Hydrogen sulfide [µM] */
-        b->conc_down[CGEM_SPECIES_ALKC] = 2300.0;       /* Carbonate alkalinity [µM] */
+        /* Default to river-like values (will be overwritten for ocean BC) */
+        b->conc_down[CGEM_SPECIES_SALINITY] = 1.0;      /* Low default [PSU] */
+        b->conc_down[CGEM_SPECIES_PHY1] = 0.2;
+        b->conc_down[CGEM_SPECIES_PHY2] = 0.3;
+        b->conc_down[CGEM_SPECIES_DSI] = 30.0;
+        b->conc_down[CGEM_SPECIES_NO3] = 10.0;
+        b->conc_down[CGEM_SPECIES_NH4] = 2.0;
+        b->conc_down[CGEM_SPECIES_PO4] = 1.0;
+        b->conc_down[CGEM_SPECIES_O2] = 220.0;
+        b->conc_down[CGEM_SPECIES_TOC] = 80.0;
+        b->conc_down[CGEM_SPECIES_SPM] = 15.0;
+        b->conc_down[CGEM_SPECIES_DIC] = 1800.0;
+        b->conc_down[CGEM_SPECIES_AT] = 1800.0;
+        b->conc_down[CGEM_SPECIES_PCO2] = 500.0;
+        b->conc_down[CGEM_SPECIES_CO2] = 12.0;
+        b->conc_down[CGEM_SPECIES_PH] = 7.9;
+        b->conc_down[CGEM_SPECIES_HS] = 0.0;
+        b->conc_down[CGEM_SPECIES_ALKC] = 1800.0;
+        
+        /* Only set ocean values if downstream is actually an ocean BC */
+        if (b->down_node_type == NODE_LEVEL_BC) {
+            b->conc_down[CGEM_SPECIES_SALINITY] = 35.0;     /* Salinity [PSU] */
+            b->conc_down[CGEM_SPECIES_PHY1] = 0.5;          /* Diatoms [µM C] */
+            b->conc_down[CGEM_SPECIES_PHY2] = 1.0;          /* Non-siliceous [µM C] */
+            b->conc_down[CGEM_SPECIES_DSI] = 5.0;           /* Dissolved Si [µM] */
+            b->conc_down[CGEM_SPECIES_NO3] = 2.0;           /* Nitrate [µM] */
+            b->conc_down[CGEM_SPECIES_NH4] = 0.5;           /* Ammonium [µM] */
+            b->conc_down[CGEM_SPECIES_PO4] = 0.2;           /* Phosphate [µM] */
+            b->conc_down[CGEM_SPECIES_O2] = 250.0;          /* Oxygen [µM] */
+            b->conc_down[CGEM_SPECIES_TOC] = 50.0;          /* TOC [µM C] */
+            b->conc_down[CGEM_SPECIES_SPM] = 5.0;           /* SPM [mg/L] */
+            b->conc_down[CGEM_SPECIES_DIC] = 2000.0;        /* DIC [µM] */
+            b->conc_down[CGEM_SPECIES_AT] = 2300.0;         /* Total alkalinity [µM] */
+            b->conc_down[CGEM_SPECIES_PCO2] = 400.0;        /* pCO2 [µatm] */
+            b->conc_down[CGEM_SPECIES_CO2] = 10.0;          /* CO2 [µM] */
+            b->conc_down[CGEM_SPECIES_PH] = 8.1;            /* pH */
+            b->conc_down[CGEM_SPECIES_HS] = 0.0;            /* Hydrogen sulfide [µM] */
+            b->conc_down[CGEM_SPECIES_ALKC] = 2300.0;       /* Carbonate alkalinity [µM] */
+        }
     }
 
     /* =================================================================
@@ -116,6 +129,7 @@ void init_species_bc(Branch *b, int num_species) {
 
     /* =================================================================
      * Initialize concentration profiles with linear interpolation
+     * For upstream branches (no ocean at downstream), use constant river values
      * ================================================================= */
     for (int sp = 0; sp < num_species; ++sp) {
         if (!b->conc || !b->conc[sp]) continue;
@@ -123,10 +137,20 @@ void init_species_bc(Branch *b, int num_species) {
         double c_down = b->conc_down ? b->conc_down[sp] : 0.0;
         double c_up = b->conc_up ? b->conc_up[sp] : 0.0;
 
-        /* Linear initial profile from downstream to upstream */
-        for (int i = 0; i <= b->M + 1; ++i) {
-            double s = (double)i / (double)b->M;
-            b->conc[sp][i] = c_down + (c_up - c_down) * s;
+        /* For branches without ocean at downstream (junction-connected),
+         * initialize with river-like values throughout - junction mixing
+         * will establish proper gradients during simulation */
+        if (b->down_node_type != NODE_LEVEL_BC) {
+            /* Use upstream (river) values as initial profile */
+            for (int i = 0; i <= b->M + 1; ++i) {
+                b->conc[sp][i] = c_up;
+            }
+        } else {
+            /* Ocean at downstream: linear gradient from ocean to river */
+            for (int i = 0; i <= b->M + 1; ++i) {
+                double s = (double)i / (double)b->M;
+                b->conc[sp][i] = c_down + (c_up - c_down) * s;
+            }
         }
     }
 }
@@ -211,7 +235,11 @@ void initializeNetworkSediment(Network *net) {
  *
  * Sets up water quality parameters, phytoplankton kinetics,
  * nutrient cycling, and gas exchange for each branch.
- * If a biogeo_params.txt file exists in the case directory, loads parameters from it.
+ * 
+ * Supports per-branch parameter files (specified in topology.csv column 11):
+ *   - If branch has biogeo_params_path, loads that file (relative to case_dir)
+ *   - Otherwise uses global biogeo_params.txt from case directory
+ *   - Enables spatial heterogeneity (e.g., urban vs rural water quality)
  *
  * @param net Pointer to network structure
  * @param case_dir Case directory path (for finding biogeo_params.txt)
@@ -221,7 +249,7 @@ void initializeNetworkBiogeochemistry(Network *net, const char *case_dir) {
 
     printf("Initializing biogeochemistry for %zu branches...\n", net->num_branches);
 
-    /* Try to load biogeo parameters from case directory */
+    /* Try to load global biogeo parameters from case directory */
     if (case_dir) {
         char biogeo_path[CGEM_MAX_PATH];
         snprintf(biogeo_path, sizeof(biogeo_path), "%s/biogeo_params.txt", case_dir);
@@ -233,6 +261,14 @@ void initializeNetworkBiogeochemistry(Network *net, const char *case_dir) {
     for (size_t i = 0; i < net->num_branches; ++i) {
         Branch *branch = net->branches[i];
         if (!branch) continue;
+
+        /* If branch has a branch-specific biogeo path, resolve it relative to case_dir */
+        if (branch->biogeo_params_path[0] != '\0' && case_dir) {
+            char full_path[CGEM_MAX_PATH];
+            snprintf(full_path, sizeof(full_path), "%s/%s", case_dir, branch->biogeo_params_path);
+            /* Store the full resolved path back in the branch */
+            snprintf(branch->biogeo_params_path, sizeof(branch->biogeo_params_path), "%s", full_path);
+        }
 
         InitializeBiogeoParameters(branch);
     }
@@ -334,6 +370,13 @@ int initializeNetwork(Network *net, CaseConfig *config) {
     printf("  C-GEM Network Engine - Initialization\n");
     printf("==================================================\n");
 
+    /* Step 0: Set branch node types FIRST - needed for correct BC initialization */
+    for (size_t b = 0; b < net->num_branches; ++b) {
+        Branch *branch = net->branches[b];
+        branch->up_node_type = net->nodes[branch->node_up].type;
+        branch->down_node_type = net->nodes[branch->node_down].type;
+    }
+
     /* Step 1: Set network-wide defaults */
     initializeNetworkDefaults(net);
 
@@ -359,6 +402,7 @@ int initializeNetwork(Network *net, CaseConfig *config) {
     initializeNetworkBiogeochemistry(net, case_dir[0] ? case_dir : NULL);
 
     /* Step 5: Initialize species boundary conditions */
+    /* NOTE: Requires branch node types to be set first! */
     initializeNetworkSpeciesBC(net);
 
     /* Step 6: Initialize node junction arrays */
@@ -368,13 +412,6 @@ int initializeNetwork(Network *net, CaseConfig *config) {
     if (cgem_init_output(net, config) != 0) {
         fprintf(stderr, "Failed to initialize binary output\n");
         return -1;
-    }
-
-    /* Set branch node types */
-    for (size_t b = 0; b < net->num_branches; ++b) {
-        Branch *branch = net->branches[b];
-        branch->up_node_type = net->nodes[branch->node_up].type;
-        branch->down_node_type = net->nodes[branch->node_down].type;
     }
 
     printf("==================================================\n");

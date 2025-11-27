@@ -236,10 +236,10 @@ int cgem_init_output(Network *net, CaseConfig *config) {
  * Write timestep data
  * -------------------------------------------------------------------------- */
 
-int cgem_write_timestep(Network *net, double time_s) {
+int cgem_write_timestep(Network *net, CaseConfig *config, double time_s) {
     int num_hydro = CGEM_NUM_HYDRO;
     int num_species = net->num_species;
-    int num_reactions = CGEM_NUM_REACTIONS;
+    int num_reactions = (config && config->write_reaction_rates) ? CGEM_NUM_REACTIONS : 0;
 
     for (size_t b = 0; b < net->num_branches; ++b) {
         Branch *branch = net->branches[b];

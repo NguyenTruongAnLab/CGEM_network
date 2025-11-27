@@ -1,4 +1,23 @@
-# NodeID, Type, FilePath
+# ============================================================================
+# BOUNDARY CONDITIONS: SAIGON-DONG NAI CASE (Y-into-Y Network)
+# ============================================================================
+# Network: 2 upstream discharge BCs → Junction → 2 downstream tidal BCs
+#
+# Node 1: Tri An Dam discharge (Dong Nai upstream)
+# Node 2: Dau Tieng Reservoir discharge (Saigon upstream)
+# Node 3: Nha Be Confluence (Junction - no BC needed)
+# Node 4: Soai Rap Mouth (tidal level)
+# Node 5: Long Tau Mouth (tidal level)
+#
+# Format: NodeID, Type, FilePath
+# ============================================================================
+
+# UPSTREAM DISCHARGE BOUNDARIES (Reservoir releases)
 1, DISCHARGE, forcing/tri_an_Q.csv
 2, DISCHARGE, forcing/dau_tieng_Q.csv
+
+# DOWNSTREAM TIDAL BOUNDARIES (Ocean mouths)
+# Note: Can use same tidal forcing if mouths are close, or separate files
+# for phase differences between Soai Rap and Long Tau
 4, LEVEL, forcing/vung_tau_H.csv
+5, LEVEL, forcing/long_tau_H.csv

@@ -223,6 +223,88 @@ int LoadBiogeoParams(const char *path) {
     return 0;
 }
 
+/**
+ * Load biogeochemistry parameters from file into a specific BiogeoParams struct
+ * Used for per-branch parameter loading
+ * 
+ * @param path Path to biogeo_params.txt
+ * @param params Pointer to BiogeoParams struct to populate
+ * @return 0 on success, -1 on file not found (params unchanged)
+ */
+static int LoadBiogeoParamsToStruct(const char *path, BiogeoParams *params) {
+    if (!path || !params) return -1;
+    
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        return -1;
+    }
+    
+    printf("  Loading branch-specific biogeo params from: %s\n", path);
+    
+    char line[256];
+    while (fgets(line, sizeof(line), fp)) {
+        char *text = biogeo_trim(line);
+        if (*text == '\0' || *text == '#') continue;
+        
+        char *eq = strchr(text, '=');
+        if (!eq) continue;
+        
+        *eq = '\0';
+        char *key = biogeo_trim(text);
+        char *val = biogeo_trim(eq + 1);
+        double v = strtod(val, NULL);
+        
+        /* Match parameter names - only override non-zero values */
+        if (strcmp(key, "water_temp") == 0) params->water_temp = v;
+        else if (strcmp(key, "ws") == 0) params->ws = v;
+        else if (strcmp(key, "I0") == 0) params->I0 = v;
+        else if (strcmp(key, "kd1") == 0) params->kd1 = v;
+        else if (strcmp(key, "kd2_spm") == 0) params->kd2_spm = v;
+        else if (strcmp(key, "kd2_phy1") == 0) params->kd2_phy1 = v;
+        else if (strcmp(key, "kd2_phy2") == 0) params->kd2_phy2 = v;
+        else if (strcmp(key, "alpha1") == 0) params->alpha1 = v;
+        else if (strcmp(key, "alpha2") == 0) params->alpha2 = v;
+        else if (strcmp(key, "pbmax1") == 0) params->pbmax1 = v;
+        else if (strcmp(key, "pbmax2") == 0) params->pbmax2 = v;
+        else if (strcmp(key, "kexc1") == 0) params->kexc1 = v;
+        else if (strcmp(key, "kexc2") == 0) params->kexc2 = v;
+        else if (strcmp(key, "kgrowth1") == 0) params->kgrowth1 = v;
+        else if (strcmp(key, "kgrowth2") == 0) params->kgrowth2 = v;
+        else if (strcmp(key, "kmaint1") == 0) params->kmaint1 = v;
+        else if (strcmp(key, "kmaint2") == 0) params->kmaint2 = v;
+        else if (strcmp(key, "kmort1") == 0) params->kmort1 = v;
+        else if (strcmp(key, "kmort2") == 0) params->kmort2 = v;
+        else if (strcmp(key, "kdsi1") == 0) params->kdsi1 = v;
+        else if (strcmp(key, "kn1") == 0) params->kn1 = v;
+        else if (strcmp(key, "kpo41") == 0) params->kpo41 = v;
+        else if (strcmp(key, "kn2") == 0) params->kn2 = v;
+        else if (strcmp(key, "kpo42") == 0) params->kpo42 = v;
+        else if (strcmp(key, "kox") == 0) params->kox = v;
+        else if (strcmp(key, "kdenit") == 0) params->kdenit = v;
+        else if (strcmp(key, "knit") == 0) params->knit = v;
+        else if (strcmp(key, "ktox") == 0) params->ktox = v;
+        else if (strcmp(key, "ko2") == 0) params->ko2 = v;
+        else if (strcmp(key, "ko2_nit") == 0) params->ko2_nit = v;
+        else if (strcmp(key, "kno3") == 0) params->kno3 = v;
+        else if (strcmp(key, "knh4") == 0) params->knh4 = v;
+        else if (strcmp(key, "kino2") == 0) params->kino2 = v;
+        else if (strcmp(key, "redn") == 0) params->redn = v;
+        else if (strcmp(key, "redp") == 0) params->redp = v;
+        else if (strcmp(key, "redsi") == 0) params->redsi = v;
+        else if (strcmp(key, "pco2_atm") == 0) params->pco2_atm = v;
+        /* Enhanced pCO2 parameters */
+        else if (strcmp(key, "wind_speed") == 0) params->wind_speed = v;
+        else if (strcmp(key, "wind_coeff") == 0) params->wind_coeff = v;
+        else if (strcmp(key, "schmidt_exp") == 0) params->schmidt_exp = v;
+        else if (strcmp(key, "current_k_factor") == 0) params->current_k_factor = v;
+        else if (strcmp(key, "benthic_resp_20C") == 0) params->benthic_resp_20C = v;
+        else if (strcmp(key, "benthic_Q10") == 0) params->benthic_Q10 = v;
+    }
+    
+    fclose(fp);
+    return 0;
+}
+
 /* -------------------------------------------------------------------------- */
 
 typedef enum {
@@ -555,7 +637,19 @@ static double calculate_carbonate_system(Branch *branch, int idx, double temp,
 
 /**
  * Initialize biogeochemical parameters for a branch
- * Uses values from global parameters (loaded from config file or defaults)
+ * 
+ * If the branch has a biogeo_params_path specified, load those values
+ * (overriding global defaults). This enables spatial heterogeneity in
+ * water quality processes (e.g., high kox in urban Saigon vs low kox
+ * in rural Dong Nai).
+ * 
+ * Scientific motivation:
+ *   - Urban rivers typically have higher organic matter decay rates
+ *     (kox ~ 0.2-0.3 /day) due to high inputs and warmer temperatures
+ *   - Rural/natural rivers have lower decay rates (kox ~ 0.05-0.1 /day)
+ *   - Mangrove estuaries have high benthic respiration (60-100 mmol C/m²/day)
+ * 
+ * Reference: Volta et al. (2016), Regnier et al. (2013)
  */
 void InitializeBiogeoParameters(Branch *branch) {
     if (!branch) return;
@@ -565,56 +659,70 @@ void InitializeBiogeoParameters(Branch *branch) {
         LoadBiogeoParams(NULL);  /* Load defaults */
     }
     
+    /* Start with global parameters */
+    BiogeoParams params = g_biogeo_params;
+    
+    /* Override with branch-specific parameters if specified */
+    if (branch->biogeo_params_path[0] != '\0') {
+        /* Load branch-specific params (overlay on global) */
+        if (LoadBiogeoParamsToStruct(branch->biogeo_params_path, &params) == 0) {
+            printf("  Branch '%s' using custom biogeo parameters\n", branch->name);
+        } else {
+            fprintf(stderr, "Warning: Could not load branch biogeo params from '%s', using global defaults\n",
+                    branch->biogeo_params_path);
+        }
+    }
+    
     /* Water and environmental parameters */
-    branch->water_temp = g_biogeo_params.water_temp;
-    branch->ws = g_biogeo_params.ws;
+    branch->water_temp = params.water_temp;
+    branch->ws = params.ws;
     
     /* Light parameters */
-    branch->I0 = g_biogeo_params.I0;
-    branch->kd1 = g_biogeo_params.kd1;
-    branch->kd2_spm = g_biogeo_params.kd2_spm;
-    branch->kd2_phy1 = g_biogeo_params.kd2_phy1;
-    branch->kd2_phy2 = g_biogeo_params.kd2_phy2;
+    branch->I0 = params.I0;
+    branch->kd1 = params.kd1;
+    branch->kd2_spm = params.kd2_spm;
+    branch->kd2_phy1 = params.kd2_phy1;
+    branch->kd2_phy2 = params.kd2_phy2;
     
     /* Phytoplankton parameters */
-    branch->alpha1 = g_biogeo_params.alpha1;
-    branch->alpha2 = g_biogeo_params.alpha2;
-    branch->pbmax1 = g_biogeo_params.pbmax1;
-    branch->pbmax2 = g_biogeo_params.pbmax2;
-    branch->kexc1 = g_biogeo_params.kexc1;
-    branch->kexc2 = g_biogeo_params.kexc2;
-    branch->kgrowth1 = g_biogeo_params.kgrowth1;
-    branch->kgrowth2 = g_biogeo_params.kgrowth2;
-    branch->kmaint1 = g_biogeo_params.kmaint1;
-    branch->kmaint2 = g_biogeo_params.kmaint2;
-    branch->kmort1 = g_biogeo_params.kmort1;
-    branch->kmort2 = g_biogeo_params.kmort2;
+    branch->alpha1 = params.alpha1;
+    branch->alpha2 = params.alpha2;
+    branch->pbmax1 = params.pbmax1;
+    branch->pbmax2 = params.pbmax2;
+    branch->kexc1 = params.kexc1;
+    branch->kexc2 = params.kexc2;
+    branch->kgrowth1 = params.kgrowth1;
+    branch->kgrowth2 = params.kgrowth2;
+    branch->kmaint1 = params.kmaint1;
+    branch->kmaint2 = params.kmaint2;
+    branch->kmort1 = params.kmort1;
+    branch->kmort2 = params.kmort2;
     
     /* Nutrient limitation parameters */
-    branch->kdsi1 = g_biogeo_params.kdsi1;
-    branch->kn1 = g_biogeo_params.kn1;
-    branch->kpo41 = g_biogeo_params.kpo41;
-    branch->kn2 = g_biogeo_params.kn2;
-    branch->kpo42 = g_biogeo_params.kpo42;
+    branch->kdsi1 = params.kdsi1;
+    branch->kn1 = params.kn1;
+    branch->kpo41 = params.kpo41;
+    branch->kn2 = params.kn2;
+    branch->kpo42 = params.kpo42;
     
     /* Decomposition parameters */
-    branch->kox = g_biogeo_params.kox;
-    branch->kdenit = g_biogeo_params.kdenit;
-    branch->knit = g_biogeo_params.knit;
-    branch->ktox = g_biogeo_params.ktox;
-    branch->ko2 = g_biogeo_params.ko2;
-    branch->ko2_nit = g_biogeo_params.ko2_nit;
-    branch->kno3 = g_biogeo_params.kno3;
-    branch->knh4 = g_biogeo_params.knh4;
-    branch->kino2 = g_biogeo_params.kino2;
+    branch->kox = params.kox;
+    branch->kdenit = params.kdenit;
+    branch->knit = params.knit;
+    branch->ktox = params.ktox;
+    branch->ko2 = params.ko2;
+    branch->ko2_nit = params.ko2_nit;
+    branch->kno3 = params.kno3;
+    branch->knh4 = params.knh4;
+    branch->kino2 = params.kino2;
     
     /* Stoichiometric ratios */
-    branch->redn = g_biogeo_params.redn;
-    branch->redp = g_biogeo_params.redp;
-    branch->redsi = g_biogeo_params.redsi;
+    branch->redn = params.redn;
+    branch->redp = params.redp;
+    branch->redsi = params.redsi;
     
     /* Gas exchange */
-    branch->pco2_atm = g_biogeo_params.pco2_atm;
+    branch->pco2_atm = params.pco2_atm;
 }
 int Biogeo_Branch(Branch *branch, double dt) {
     if (!branch || branch->M <= 0 || branch->num_species < CGEM_NUM_SPECIES || !branch->reaction_rates) {

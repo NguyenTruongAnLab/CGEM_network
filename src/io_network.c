@@ -187,6 +187,20 @@ int LoadTopology(const char *path, Network *net) {
         }
         /* Parse fields first to know length to choose M for allocation */
 
+        /* Parse topology columns:
+         * 0: ID
+         * 1: Name
+         * 2: NodeUp
+         * 3: NodeDown
+         * 4: Length_m
+         * 5: Width_Up_m
+         * 6: Width_Down_m
+         * 7: Depth_m
+         * 8: Chezy
+         * 9: Group (optional, default 0)
+         * 10: RS (optional, default 1.0) - Storage width ratio for mangroves
+         * 11: BiogeoParams (optional) - Path to branch-specific biogeo params file
+         */
         int column = 0;
         int tmp_id = -1;
         char tmp_name[CGEM_MAX_BRANCH_NAME] = {0};
@@ -198,9 +212,10 @@ int LoadTopology(const char *path, Network *net) {
         double tmp_depth = 0.0;
         double tmp_chezy = 0.0;
         int tmp_group = 0;
-        int tmp_has_biogeo = 1;
+        double tmp_storage_ratio = 1.0;      /* Default RS = 1.0 (prismatic channel) */
+        char tmp_biogeo_path[CGEM_MAX_PATH] = {0}; /* Empty = use global defaults */
         char *token = strtok(text, ",");
-        while (token && column < 11) {
+        while (token && column < 12) {
             char *value = trim_in_place(token);
             switch (column) {
                 case 0:
@@ -234,7 +249,13 @@ int LoadTopology(const char *path, Network *net) {
                     tmp_group = (int)strtol(value, NULL, 10);
                     break;
                 case 10:
-                    tmp_has_biogeo = (int)strtol(value, NULL, 10) != 0;
+                    /* RS: Storage width ratio - critical for mangrove/tidal flat branches */
+                    tmp_storage_ratio = strtod(value, NULL);
+                    if (tmp_storage_ratio < 0.1) tmp_storage_ratio = 1.0;  /* Sanity check */
+                    break;
+                case 11:
+                    /* BiogeoParams: Path to branch-specific biogeochemistry parameters */
+                    snprintf(tmp_biogeo_path, sizeof(tmp_biogeo_path), "%s", value);
                     break;
                 default:
                     break;
@@ -249,9 +270,14 @@ int LoadTopology(const char *path, Network *net) {
             goto cleanup;
         }
 
-        if (column < 11) {
-            tmp_has_biogeo = 1;
+        /* Defaults for optional columns */
+        if (column < 10) {
+            tmp_group = 0;
         }
+        if (column < 11) {
+            tmp_storage_ratio = 1.0;
+        }
+        /* tmp_biogeo_path defaults to empty string (use global params) */
 
         if (tmp_length <= 0.0) {
             tmp_length = CGEM_DEFAULT_BRANCH_CELLS * CGEM_DEFAULT_DX_METERS;
@@ -290,7 +316,16 @@ int LoadTopology(const char *path, Network *net) {
         branch->depth_m = tmp_depth > 0.0 ? tmp_depth : CGEM_MIN_DEPTH;
         branch->chezy = tmp_chezy;
         branch->group_id = tmp_group;
-        branch->has_biogeo = tmp_has_biogeo;
+        branch->storage_ratio = tmp_storage_ratio;  /* RS for mangrove/tidal flat storage */
+        branch->has_biogeo = 1;  /* Always enable biogeo for now */
+        snprintf(branch->biogeo_params_path, sizeof(branch->biogeo_params_path), "%s", tmp_biogeo_path);
+        
+        /* Diagnostic output for configuration verification */
+        printf("  Parsed branch %d: %s (RS=%.1f", tmp_id, tmp_name, tmp_storage_ratio);
+        if (tmp_biogeo_path[0] != '\0') {
+            printf(", biogeo=%s", tmp_biogeo_path);
+        }
+        printf(")\n");
 
         branches[count++] = branch;
     }
