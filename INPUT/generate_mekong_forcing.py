@@ -27,7 +27,11 @@ import random
 # ============================================================================
 
 YEAR = 2017
-OUTPUT_DIR = "forcing_data"
+# Output directories for each case
+TIEN_FORCING_DIR = os.path.join("Cases", "Tien_River", "forcing_data")
+HAU_FORCING_DIR = os.path.join("Cases", "Hau_River", "forcing_data")
+# Also output to root forcing_data for convenience
+ROOT_FORCING_DIR = os.path.join("..", "forcing_data")
 
 # Discharge parameters (m³/s) - Based on MRC official data
 Q_BASE = 2000.0          # Dry season base flow
@@ -40,17 +44,17 @@ RATIO_HAU = 0.40
 
 # Tidal parameters - M2 (semi-diurnal) + K1 (diurnal) components
 # Amplitudes from Nguyen et al. (2006) field measurements
-TIDAL_STATIONS = {
-    # Hau Combined: Aggregate of Dinh An + Tran De mouths
-    'Hau_Combined_Tide.csv': {
-        'mean': 0.0, 
-        'A_M2': 2.1,   # Semi-diurnal amplitude (m)
-        'A_K1': 0.7,   # Diurnal amplitude (m)
-        'phi_M2': 0.0, 
-        'phi_K1': 0.0
+# Station names match boundary_map.csv in each case
+
+# Tien River case tidal stations
+TIEN_TIDAL_STATIONS = {
+    'MyTho_Tide.csv': {
+        'mean': 0.0,
+        'A_M2': 1.6,   # Semi-diurnal amplitude (m)
+        'A_K1': 0.5,   # Diurnal amplitude (m)
+        'phi_M2': 0.5,  # Phase offset
+        'phi_K1': 0.3
     },
-    
-    # Tien distributaries - Individual mouth characteristics
     'HamLuong_Tide.csv': {
         'mean': 0.0,
         'A_M2': 1.7,
@@ -58,21 +62,23 @@ TIDAL_STATIONS = {
         'phi_M2': -0.3,
         'phi_K1': 0.2
     },
-    
     'CoChien_Tide.csv': {
         'mean': 0.0,
         'A_M2': 2.1,
         'A_K1': 0.7,
         'phi_M2': 0.2,
         'phi_K1': -0.1
-    },
-    
-    'MyTho_Tide.csv': {
-        'mean': 0.0,
-        'A_M2': 1.6,
-        'A_K1': 0.5,
-        'phi_M2': 0.5,
-        'phi_K1': 0.3
+    }
+}
+
+# Hau River case tidal station
+HAU_TIDAL_STATIONS = {
+    'Hau_Combined_Tide.csv': {
+        'mean': 0.0, 
+        'A_M2': 2.1,
+        'A_K1': 0.7,
+        'phi_M2': 0.0, 
+        'phi_K1': 0.0
     }
 }
 
@@ -111,22 +117,23 @@ def flood_pulse_shape(day_of_year):
 # DISCHARGE GENERATION
 # ============================================================================
 
-def write_discharge_file(filename, split_ratio):
+def write_discharge_file(output_dir, filename, split_ratio):
     """
     Generate daily discharge time series for one year
     
     Args:
+        output_dir: Output directory path
         filename: Output CSV filename
         split_ratio: Fraction of total discharge for this branch
     """
-    filepath = os.path.join(OUTPUT_DIR, filename)
-    print(f"Generating {filename} (Flow split: {split_ratio*100:.0f}%)...")
+    filepath = os.path.join(output_dir, filename)
+    print(f"Generating {filepath} (Flow split: {split_ratio*100:.0f}%)...")
     
     random.seed(RANDOM_SEED)
     
-    with open(filepath, 'w') as f:
+    with open(filepath, 'w', newline='') as f:
         # Write header (required by model)
-        f.write('Date,Q\\n')
+        f.write('Date,Q\n')
         
         # Generate daily values for entire year
         current_date = datetime(YEAR, 1, 1)
@@ -149,8 +156,8 @@ def write_discharge_file(filename, split_ratio):
             # Apply flow split for this branch
             Q_branch = Q_total_with_noise * split_ratio
             
-            # Write to file
-            f.write(f"{current_date.strftime('%Y-%m-%d')},{Q_branch:.2f}\\n")
+            # Write to file - use actual newline
+            f.write(f"{current_date.strftime('%Y-%m-%d')},{Q_branch:.2f}\n")
             
             current_date += timedelta(days=1)
     
@@ -160,24 +167,25 @@ def write_discharge_file(filename, split_ratio):
 # TIDAL GENERATION
 # ============================================================================
 
-def write_tidal_file(filename, params):
+def write_tidal_file(output_dir, filename, params):
     """
     Generate hourly tidal elevation time series for one year
     
     Uses harmonic analysis: H(t) = mean + M2*sin() + K1*sin() + spring-neap
     
     Args:
+        output_dir: Output directory path
         filename: Output CSV filename
         params: Dictionary with tidal constituent amplitudes and phases
     """
-    filepath = os.path.join(OUTPUT_DIR, filename)
-    print(f"Generating {filename}...")
+    filepath = os.path.join(output_dir, filename)
+    print(f"Generating {filepath}...")
     
     random.seed(RANDOM_SEED)
     
-    with open(filepath, 'w') as f:
+    with open(filepath, 'w', newline='') as f:
         # Write header (required by model)
-        f.write('DateTime,H\\n')
+        f.write('DateTime,H\n')
         
         # Generate hourly values for entire year
         current_time = datetime(YEAR, 1, 1, 0, 0)
@@ -208,8 +216,8 @@ def write_tidal_file(filename, params):
             # Add small atmospheric/weather noise (±5 cm)
             h += random.gauss(0, 0.05)
             
-            # Write to file
-            f.write(f"{current_time.strftime('%Y-%m-%d %H:%M')},{h:.4f}\\n")
+            # Write to file - use actual newline
+            f.write(f"{current_time.strftime('%Y-%m-%d %H:%M')},{h:.4f}\n")
             
             current_time += timedelta(hours=1)
             hour_index += 1
@@ -220,6 +228,54 @@ def write_tidal_file(filename, params):
 # MAIN EXECUTION
 # ============================================================================
 
+def generate_tien_river_forcing():
+    """Generate all forcing files for Tien River case"""
+    print("\n" + "-" * 70)
+    print("Generating forcing for: Tien_River Case")
+    print("-" * 70)
+    
+    ensure_directory(TIEN_FORCING_DIR)
+    
+    # Discharge
+    write_discharge_file(TIEN_FORCING_DIR, 'Tien_Input.csv', RATIO_TIEN)
+    
+    # Tidal files
+    for filename, params in TIEN_TIDAL_STATIONS.items():
+        write_tidal_file(TIEN_FORCING_DIR, filename, params)
+
+def generate_hau_river_forcing():
+    """Generate all forcing files for Hau River case"""
+    print("\n" + "-" * 70)
+    print("Generating forcing for: Hau_River Case")
+    print("-" * 70)
+    
+    ensure_directory(HAU_FORCING_DIR)
+    
+    # Discharge
+    write_discharge_file(HAU_FORCING_DIR, 'Hau_Input.csv', RATIO_HAU)
+    
+    # Tidal files
+    for filename, params in HAU_TIDAL_STATIONS.items():
+        write_tidal_file(HAU_FORCING_DIR, filename, params)
+
+def generate_root_forcing():
+    """Generate forcing files in root forcing_data directory for convenience"""
+    print("\n" + "-" * 70)
+    print("Generating forcing in: root forcing_data (convenience copy)")
+    print("-" * 70)
+    
+    ensure_directory(ROOT_FORCING_DIR)
+    
+    # Both discharge files
+    write_discharge_file(ROOT_FORCING_DIR, 'Tien_Input.csv', RATIO_TIEN)
+    write_discharge_file(ROOT_FORCING_DIR, 'Hau_Input.csv', RATIO_HAU)
+    
+    # All tidal files
+    for filename, params in TIEN_TIDAL_STATIONS.items():
+        write_tidal_file(ROOT_FORCING_DIR, filename, params)
+    for filename, params in HAU_TIDAL_STATIONS.items():
+        write_tidal_file(ROOT_FORCING_DIR, filename, params)
+
 def main():
     """
     Main execution: Generate all forcing files for both cases
@@ -228,46 +284,38 @@ def main():
     print("MEKONG DELTA FORCING GENERATOR")
     print("Parallel Estuary Approach - Savenije (2012)")
     print("=" * 70)
-    print()
     
-    # Create output directory
-    ensure_directory(OUTPUT_DIR)
-    print()
-    
-    # Generate discharge files
-    print("STEP 1: Generating discharge forcing files")
-    print("-" * 70)
-    write_discharge_file('Hau_Input.csv', RATIO_HAU)
-    write_discharge_file('Tien_Input.csv', RATIO_TIEN)
-    print()
-    
-    # Generate tidal files
-    print("STEP 2: Generating tidal forcing files")
-    print("-" * 70)
-    for filename, params in TIDAL_STATIONS.items():
-        write_tidal_file(filename, params)
-    print()
+    # Generate forcing for each case
+    generate_tien_river_forcing()
+    generate_hau_river_forcing()
+    generate_root_forcing()
     
     # Summary
-    print("=" * 70)
+    print("\n" + "=" * 70)
     print("GENERATION COMPLETE")
     print("=" * 70)
-    print(f"Output directory: {OUTPUT_DIR}/")
     print()
-    print("Files generated:")
-    print("  Discharge (daily):")
-    print("    - Hau_Input.csv (40% of total)")
-    print("    - Tien_Input.csv (60% of total)")
-    print()
-    print("  Tidal elevation (hourly):")
-    print("    - Hau_Combined_Tide.csv")
+    print("Files generated for Tien_River case:")
+    print(f"  Directory: {TIEN_FORCING_DIR}/")
+    print("    - Tien_Input.csv (60% of total discharge)")
+    print("    - MyTho_Tide.csv")
     print("    - HamLuong_Tide.csv")
     print("    - CoChien_Tide.csv")
-    print("    - MyTho_Tide.csv")
     print()
-    print("Ready for simulation:")
-    print("  - Case Hau_River")
-    print("  - Case Tien_River")
+    print("Files generated for Hau_River case:")
+    print(f"  Directory: {HAU_FORCING_DIR}/")
+    print("    - Hau_Input.csv (40% of total discharge)")
+    print("    - Hau_Combined_Tide.csv")
+    print()
+    print("Discharge characteristics (2017):")
+    print(f"  - Dry season base: {Q_BASE:.0f} m³/s")
+    print(f"  - Flood peak: {Q_BASE + Q_FLOOD_PEAK:.0f} m³/s")
+    print(f"  - Tien branch max: {(Q_BASE + Q_FLOOD_PEAK) * RATIO_TIEN:.0f} m³/s")
+    print(f"  - Hau branch max: {(Q_BASE + Q_FLOOD_PEAK) * RATIO_HAU:.0f} m³/s")
+    print()
+    print("Tidal characteristics:")
+    print(f"  - M2 period: {M2_PERIOD:.2f} hours")
+    print(f"  - K1 period: {K1_PERIOD:.2f} hours")
     print("=" * 70)
 
 if __name__ == '__main__':

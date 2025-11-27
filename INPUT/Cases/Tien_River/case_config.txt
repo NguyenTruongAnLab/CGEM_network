@@ -19,8 +19,8 @@ Boundaries = boundary_map.csv
 
 # Simulation period
 StartDate = 2017-01-01
-Duration = 10
-Warmup_Days = 5
+Duration = 1365
+Warmup_Days = 1000
 
 # Numerical parameters
 TimeStepSeconds = 300
@@ -29,7 +29,7 @@ DELXI = 2000
 
 # Physical parameters (initial conditions / reference values)
 TidalAmplitude = 1.9
-RiverDischarge = 9000.0
+RiverDischarge = 2000.0
 
 # Output settings
 WriteCSV = 1
