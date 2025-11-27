@@ -81,6 +81,7 @@ int LoadCaseConfig(const char *path, CaseConfig *config) {
     config->warmup_days = 0;
     config->write_csv = 0;
     config->write_netcdf = 0;
+    config->write_reaction_rates = 0;
     config->dx_meters = CGEM_DEFAULT_DX_METERS;
     snprintf(config->start_date, sizeof(config->start_date), "1970-01-01");
 
@@ -163,6 +164,8 @@ int LoadCaseConfig(const char *path, CaseConfig *config) {
             config->write_csv = (int)strtol(value, NULL, 10);
         } else if (strcmp(key, "WriteNetCDF") == 0) {
             config->write_netcdf = (int)strtol(value, NULL, 10);
+        } else if (strcmp(key, "WriteReactionRates") == 0) {
+            config->write_reaction_rates = (int)strtol(value, NULL, 10);
         }
     }
 

@@ -34,3 +34,4 @@ RiverDischarge = 9000.0
 # Output settings
 WriteCSV = 1
 WriteNetCDF = 1
+WriteReactionRates = 1

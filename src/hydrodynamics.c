@@ -166,7 +166,10 @@ void InitializeBranchGeometry(Branch *branch, double target_dx) {
         /* Chezy coefficient (can be spatially varying) */
         /* Linear interpolation from downstream (Chezy_lb) to upstream (Chezy_ub) */
         double chezy_down = branch->chezy;
-        double chezy_up = branch->chezy * 0.6;  /* Typically lower upstream */
+        /* Upstream Chezy ratio: configurable, default 0.8 (was hardcoded 0.6) */
+        /* Higher values = less friction change upstream */
+        double chezy_ratio = 0.8;  /* TODO: Load from case config */
+        double chezy_up = branch->chezy * chezy_ratio;
         if (chezy_down <= 0) chezy_down = 50.0;
         if (chezy_up <= 0) chezy_up = 40.0;
         branch->chezyArray[i] = chezy_down + (chezy_up - chezy_down) * s;
@@ -283,8 +286,13 @@ static void assemble_matrix(Branch *b, double dt) {
         
         double friction = (fabs(U_i) / (C_i * C_i)) / H_i;
         
-        /* Convective term: disabled for stability */
+        /* Convective acceleration term: (U(i+2) - U(i-2)) / (4*g*dx)
+         * Matching Fortran Set_coefficient_matrix
+         * This term improves momentum balance for high Froude number flows */
         double convective = 0.0;
+        if (i >= 4 && i <= M - 4) {
+            convective = (b->velocity[i+2] - b->velocity[i-2]) / (4.0 * g * dx);
+        }
         
         b->tri_lower[i] = -inv_2dx / b->width[i-1];
         b->tri_diag[i] = 1.0/(g*dt) + friction + convective;

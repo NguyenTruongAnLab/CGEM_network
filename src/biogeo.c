@@ -4,7 +4,6 @@
  * 
  * Implements water quality reactions including phytoplankton growth,
  * nutrient cycling, oxygen dynamics, and carbon chemistry.
- * Matches Fortran CGEM_Biogeochem.f90 (simplified version)
  */
 
 #include "network.h"
@@ -12,6 +11,217 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+/* Seconds per day - for unit conversion */
+#define SECONDS_PER_DAY 86400.0
+
+/* Global biogeo parameters (loaded from config file) */
+typedef struct {
+    int loaded;
+    
+    /* Water and environmental */
+    double water_temp;
+    double ws;
+    
+    /* Light */
+    double I0;
+    double kd1;
+    double kd2_spm;
+    double kd2_phy1;
+    double kd2_phy2;
+    
+    /* Phytoplankton */
+    double alpha1, alpha2;
+    double pbmax1, pbmax2;
+    double kexc1, kexc2;
+    double kgrowth1, kgrowth2;
+    double kmaint1, kmaint2;
+    double kmort1, kmort2;
+    
+    /* Nutrients */
+    double kdsi1, kn1, kpo41;
+    double kn2, kpo42;
+    
+    /* Decomposition - NOTE: All rates stored as [1/day], converted to [1/s] in calculations */
+    double kox, kdenit, knit;
+    double ktox, ko2, ko2_nit, kno3, knh4, kino2;
+    
+    /* Stoichiometry */
+    double redn, redp, redsi;
+    
+    /* Gas exchange */
+    double pco2_atm;
+    
+    /* ========== ENHANCED pCO2 PARAMETERS ========== */
+    
+    /* Wind-driven gas exchange (Wanninkhof 2014) */
+    double wind_speed;          /* [m/s] - mean wind at 10m height */
+    double wind_coeff;          /* Wanninkhof coefficient (0.251 for long-term avg) */
+    double schmidt_exp;         /* Schmidt number exponent (-0.5 typical) */
+    double current_k_factor;    /* Current contribution factor (0.1-0.5) */
+    
+    /* Benthic respiration (major CO2 source in shallow estuaries) */
+    /* NOTE: Stored as [mmol C/m²/day], converted in calculations */
+    double benthic_resp_20C;    /* [mmol C/m²/day] at 20°C - sediment respiration */
+    double benthic_Q10;         /* Temperature coefficient (typically 2.0) */
+    
+} BiogeoParams;
+
+static BiogeoParams g_biogeo_params = {0};
+
+/**
+ * Helper: Trim whitespace in place
+ */
+static char *biogeo_trim(char *s) {
+    if (!s) return s;
+    while (*s && isspace((unsigned char)*s)) s++;
+    if (*s == '\0') return s;
+    char *end = s + strlen(s) - 1;
+    while (end > s && isspace((unsigned char)*end)) *end-- = '\0';
+    return s;
+}
+
+/**
+ * Load biogeochemistry parameters from a config file
+ * 
+ * File format (key = value pairs):
+ *   # Comment
+ *   water_temp = 25.0
+ *   I0 = 200.0
+ *   ...
+ * 
+ * @param path Path to biogeo_params.txt
+ * @return 0 on success, -1 on file not found (uses defaults)
+ */
+int LoadBiogeoParams(const char *path) {
+    /* Set defaults first */
+    g_biogeo_params.water_temp = 25.0;
+    g_biogeo_params.ws = 1e-3;
+    g_biogeo_params.I0 = 200.0;
+    g_biogeo_params.kd1 = 0.1;
+    g_biogeo_params.kd2_spm = 0.01;
+    g_biogeo_params.kd2_phy1 = 0.005;
+    g_biogeo_params.kd2_phy2 = 0.005;
+    g_biogeo_params.alpha1 = 0.02;
+    g_biogeo_params.alpha2 = 0.015;
+    g_biogeo_params.pbmax1 = 2.0;
+    g_biogeo_params.pbmax2 = 1.5;
+    g_biogeo_params.kexc1 = 0.1;
+    g_biogeo_params.kexc2 = 0.1;
+    g_biogeo_params.kgrowth1 = 0.1;
+    g_biogeo_params.kgrowth2 = 0.1;
+    g_biogeo_params.kmaint1 = 0.02;
+    g_biogeo_params.kmaint2 = 0.015;
+    g_biogeo_params.kmort1 = 0.05;
+    g_biogeo_params.kmort2 = 0.04;
+    g_biogeo_params.kdsi1 = 5.0;
+    g_biogeo_params.kn1 = 2.0;
+    g_biogeo_params.kpo41 = 0.5;
+    g_biogeo_params.kn2 = 3.0;
+    g_biogeo_params.kpo42 = 0.7;
+    g_biogeo_params.kox = 0.1;
+    g_biogeo_params.kdenit = 0.05;
+    g_biogeo_params.knit = 0.1;
+    g_biogeo_params.ktox = 50.0;
+    g_biogeo_params.ko2 = 10.0;
+    g_biogeo_params.ko2_nit = 5.0;
+    g_biogeo_params.kno3 = 5.0;
+    g_biogeo_params.knh4 = 2.0;
+    g_biogeo_params.kino2 = 5.0;
+    g_biogeo_params.redn = 0.151;
+    g_biogeo_params.redp = 0.01;
+    g_biogeo_params.redsi = 0.1;
+    g_biogeo_params.pco2_atm = 420.0;
+    
+    /* Enhanced pCO2 parameters - Mekong Delta defaults */
+    g_biogeo_params.wind_speed = 3.5;           /* Mean wind [m/s] - Mekong typical */
+    g_biogeo_params.wind_coeff = 0.251;         /* Wanninkhof (2014) for long-term avg */
+    g_biogeo_params.schmidt_exp = -0.5;         /* Standard Schmidt exponent */
+    g_biogeo_params.current_k_factor = 0.25;    /* Current contribution (25%) */
+    g_biogeo_params.benthic_resp_20C = 60.0;    /* [mmol C/m²/day] - tropical deltaic mud */
+    g_biogeo_params.benthic_Q10 = 2.0;          /* Temperature coefficient */
+    
+    if (!path) {
+        g_biogeo_params.loaded = 1;
+        return 0;
+    }
+    
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        /* File not found - use defaults silently */
+        g_biogeo_params.loaded = 1;
+        return -1;
+    }
+    
+    printf("Loading biogeochemistry parameters from: %s\n", path);
+    
+    char line[256];
+    while (fgets(line, sizeof(line), fp)) {
+        char *text = biogeo_trim(line);
+        if (*text == '\0' || *text == '#') continue;
+        
+        char *eq = strchr(text, '=');
+        if (!eq) continue;
+        
+        *eq = '\0';
+        char *key = biogeo_trim(text);
+        char *val = biogeo_trim(eq + 1);
+        double v = strtod(val, NULL);
+        
+        /* Match parameter names */
+        if (strcmp(key, "water_temp") == 0) g_biogeo_params.water_temp = v;
+        else if (strcmp(key, "ws") == 0) g_biogeo_params.ws = v;
+        else if (strcmp(key, "I0") == 0) g_biogeo_params.I0 = v;
+        else if (strcmp(key, "kd1") == 0) g_biogeo_params.kd1 = v;
+        else if (strcmp(key, "kd2_spm") == 0) g_biogeo_params.kd2_spm = v;
+        else if (strcmp(key, "kd2_phy1") == 0) g_biogeo_params.kd2_phy1 = v;
+        else if (strcmp(key, "kd2_phy2") == 0) g_biogeo_params.kd2_phy2 = v;
+        else if (strcmp(key, "alpha1") == 0) g_biogeo_params.alpha1 = v;
+        else if (strcmp(key, "alpha2") == 0) g_biogeo_params.alpha2 = v;
+        else if (strcmp(key, "pbmax1") == 0) g_biogeo_params.pbmax1 = v;
+        else if (strcmp(key, "pbmax2") == 0) g_biogeo_params.pbmax2 = v;
+        else if (strcmp(key, "kexc1") == 0) g_biogeo_params.kexc1 = v;
+        else if (strcmp(key, "kexc2") == 0) g_biogeo_params.kexc2 = v;
+        else if (strcmp(key, "kgrowth1") == 0) g_biogeo_params.kgrowth1 = v;
+        else if (strcmp(key, "kgrowth2") == 0) g_biogeo_params.kgrowth2 = v;
+        else if (strcmp(key, "kmaint1") == 0) g_biogeo_params.kmaint1 = v;
+        else if (strcmp(key, "kmaint2") == 0) g_biogeo_params.kmaint2 = v;
+        else if (strcmp(key, "kmort1") == 0) g_biogeo_params.kmort1 = v;
+        else if (strcmp(key, "kmort2") == 0) g_biogeo_params.kmort2 = v;
+        else if (strcmp(key, "kdsi1") == 0) g_biogeo_params.kdsi1 = v;
+        else if (strcmp(key, "kn1") == 0) g_biogeo_params.kn1 = v;
+        else if (strcmp(key, "kpo41") == 0) g_biogeo_params.kpo41 = v;
+        else if (strcmp(key, "kn2") == 0) g_biogeo_params.kn2 = v;
+        else if (strcmp(key, "kpo42") == 0) g_biogeo_params.kpo42 = v;
+        else if (strcmp(key, "kox") == 0) g_biogeo_params.kox = v;
+        else if (strcmp(key, "kdenit") == 0) g_biogeo_params.kdenit = v;
+        else if (strcmp(key, "knit") == 0) g_biogeo_params.knit = v;
+        else if (strcmp(key, "ktox") == 0) g_biogeo_params.ktox = v;
+        else if (strcmp(key, "ko2") == 0) g_biogeo_params.ko2 = v;
+        else if (strcmp(key, "ko2_nit") == 0) g_biogeo_params.ko2_nit = v;
+        else if (strcmp(key, "kno3") == 0) g_biogeo_params.kno3 = v;
+        else if (strcmp(key, "knh4") == 0) g_biogeo_params.knh4 = v;
+        else if (strcmp(key, "kino2") == 0) g_biogeo_params.kino2 = v;
+        else if (strcmp(key, "redn") == 0) g_biogeo_params.redn = v;
+        else if (strcmp(key, "redp") == 0) g_biogeo_params.redp = v;
+        else if (strcmp(key, "redsi") == 0) g_biogeo_params.redsi = v;
+        else if (strcmp(key, "pco2_atm") == 0) g_biogeo_params.pco2_atm = v;
+        /* Enhanced pCO2 parameters */
+        else if (strcmp(key, "wind_speed") == 0) g_biogeo_params.wind_speed = v;
+        else if (strcmp(key, "wind_coeff") == 0) g_biogeo_params.wind_coeff = v;
+        else if (strcmp(key, "schmidt_exp") == 0) g_biogeo_params.schmidt_exp = v;
+        else if (strcmp(key, "current_k_factor") == 0) g_biogeo_params.current_k_factor = v;
+        else if (strcmp(key, "benthic_resp_20C") == 0) g_biogeo_params.benthic_resp_20C = v;
+        else if (strcmp(key, "benthic_Q10") == 0) g_biogeo_params.benthic_Q10 = v;
+    }
+    
+    fclose(fp);
+    g_biogeo_params.loaded = 1;
+    printf("Biogeochemistry parameters loaded.\n");
+    return 0;
+}
 
 /* -------------------------------------------------------------------------- */
 
@@ -135,20 +345,45 @@ static double oxygen_saturation(double temp, double salinity) {
 }
 
 /**
- * Piston velocity for gas exchange [m/s]
- * Simplified version
+ * Enhanced piston velocity for CO2 gas exchange [m/s]
+ * Combines wind-driven (Wanninkhof 2014) and current-driven components
+ * Critical for accurate pCO2 flux calculation in estuaries
+ * 
+ * @param velocity Water velocity [m/s]
+ * @param depth Water depth [m]
+ * @param salinity Salinity [PSU]
+ * @param temp Temperature [°C]
+ * @return Gas transfer velocity k [m/s]
  */
 static double piston_velocity(double velocity, double depth, double salinity, double temp) {
     if (depth < CGEM_MIN_DEPTH) depth = CGEM_MIN_DEPTH;
+    (void)salinity; /* Salinity affects Schmidt number minimally for CO2 */
     
-    /* Wanninkhof (1992) parameterization - salinity not used in simplified version */
-    (void)salinity; /* Suppress unused parameter warning */
+    /* Schmidt number for CO2 in seawater (Wanninkhof 2014, Table 1) */
+    /* Sc = A - B*T + C*T² - D*T³ */
+    double Sc = 2116.8 - 136.25*temp + 4.7353*temp*temp - 0.092307*temp*temp*temp 
+                + 0.0007555*temp*temp*temp*temp;
+    if (Sc < 100.0) Sc = 100.0;  /* Prevent unrealistic values at high T */
     
-    double Sc = 1923.6 - 125.06*temp + 3.997*temp*temp - 0.050*temp*temp*temp; /* Schmidt number */
-    double U10 = velocity * 3600.0 / 1000.0; /* Convert to cm/hr */
-    double k = 0.31 * U10 * U10 / sqrt(Sc) * 0.00001; /* Convert to m/s */
+    /* Wind-driven component: k_wind = a * U10² * (Sc/660)^n */
+    /* Wanninkhof (2014): a = 0.251 for long-term average winds */
+    double U10 = g_biogeo_params.wind_speed;  /* Wind speed at 10m [m/s] */
+    double a = g_biogeo_params.wind_coeff;    /* 0.251 typical */
+    double n = g_biogeo_params.schmidt_exp;   /* -0.5 typical */
     
-    return k;
+    /* k in cm/hr, then convert to m/s */
+    double k_wind = a * U10 * U10 * pow(Sc / 660.0, n);  /* [cm/hr] */
+    
+    /* Current-driven component (O'Connor & Dobbins type, important in rivers) */
+    /* k_current ~ factor * sqrt(U/H) */
+    double abs_vel = fabs(velocity);
+    double k_current = g_biogeo_params.current_k_factor * sqrt(abs_vel / depth) * 100.0 * 3600.0;  /* [cm/hr] */
+    
+    /* Combined transfer velocity */
+    double k_total = sqrt(k_wind * k_wind + k_current * k_current);  /* Quadratic combination */
+    
+    /* Convert from cm/hr to m/s */
+    return k_total / (100.0 * 3600.0);
 }
 
 /**
@@ -289,7 +524,25 @@ static double calculate_carbonate_system(Branch *branch, int idx, double temp,
     double npp_nh4 = branch->reaction_rates[CGEM_REACTION_NPP_NH4][idx];
     double nitrif = branch->reaction_rates[CGEM_REACTION_NIT][idx];
 
-    branch->reaction_rates[CGEM_REACTION_DIC_REACT][idx] = co2_flux + aer_deg + denit - npp_total;
+    /* =========================================================================
+     * BENTHIC RESPIRATION (major pCO2 driver in shallow estuaries)
+     * CRITICAL: Proper unit conversion from [mmol/m²/day] to [µM/s]
+     * ========================================================================= */
+    
+    /* Temperature-corrected benthic respiration [mmol C/m²/day] */
+    double benthic_rate_day = g_biogeo_params.benthic_resp_20C * 
+                              pow(g_biogeo_params.benthic_Q10, (temp - 20.0) / 10.0);
+    
+    /* Convert [mmol/m²/day] → [µM/s] (mmol/m³/s):
+     * 1. Divide by depth (m) to get volumetric rate [mmol/m³/day]
+     * 2. Divide by 86400 to convert day to seconds */
+    double benthic_co2_source = benthic_rate_day / depth_eff / SECONDS_PER_DAY;
+
+    /* DIC source = CO2 flux + water column respiration + benthic + denitrification - NPP */
+    /* Note: aer_deg already converted to [1/s] in loop 1, so units are consistent */
+    branch->reaction_rates[CGEM_REACTION_DIC_REACT][idx] = co2_flux + aer_deg + denit 
+                                                           + benthic_co2_source - npp_total;
+    
     branch->reaction_rates[CGEM_REACTION_TA_REACT][idx] = (15.0 / 106.0) * aer_deg +
                                                           (93.4 / 106.0) * denit -
                                                           2.0 * nitrif +
@@ -302,61 +555,66 @@ static double calculate_carbonate_system(Branch *branch, int idx, double temp,
 
 /**
  * Initialize biogeochemical parameters for a branch
- * Sets up default values for all water quality parameters
+ * Uses values from global parameters (loaded from config file or defaults)
  */
 void InitializeBiogeoParameters(Branch *branch) {
     if (!branch) return;
     
+    /* Ensure global params are initialized */
+    if (!g_biogeo_params.loaded) {
+        LoadBiogeoParams(NULL);  /* Load defaults */
+    }
+    
     /* Water and environmental parameters */
-    branch->water_temp = 25.0;    /* Default temperature [°C] */
-    branch->ws = 1e-3;            /* Settling velocity [m/s] */
+    branch->water_temp = g_biogeo_params.water_temp;
+    branch->ws = g_biogeo_params.ws;
     
     /* Light parameters */
-    branch->I0 = 200.0;           /* Surface irradiance [W/m²] */
-    branch->kd1 = 0.1;            /* Base attenuation [1/m] */
-    branch->kd2_spm = 0.01;       /* SPM attenuation coefficient */
-    branch->kd2_phy1 = 0.005;     /* Phytoplankton attenuation */
-    branch->kd2_phy2 = 0.005;
+    branch->I0 = g_biogeo_params.I0;
+    branch->kd1 = g_biogeo_params.kd1;
+    branch->kd2_spm = g_biogeo_params.kd2_spm;
+    branch->kd2_phy1 = g_biogeo_params.kd2_phy1;
+    branch->kd2_phy2 = g_biogeo_params.kd2_phy2;
     
     /* Phytoplankton parameters */
-    branch->alpha1 = 0.02;        /* Initial slope for photosynthesis */
-    branch->alpha2 = 0.015;
-    branch->pbmax1 = 2.0;         /* Max photosynthetic rate [1/day] */
-    branch->pbmax2 = 1.5;
-    branch->kexc1 = 0.1;          /* Excretion fraction */
-    branch->kexc2 = 0.1;
-    branch->kgrowth1 = 0.1;       /* Growth respiration */
-    branch->kgrowth2 = 0.1;
-    branch->kmaint1 = 0.02;       /* Maintenance respiration [1/day] */
-    branch->kmaint2 = 0.015;
-    branch->kmort1 = 0.05;        /* Mortality [1/day] */
-    branch->kmort2 = 0.04;
+    branch->alpha1 = g_biogeo_params.alpha1;
+    branch->alpha2 = g_biogeo_params.alpha2;
+    branch->pbmax1 = g_biogeo_params.pbmax1;
+    branch->pbmax2 = g_biogeo_params.pbmax2;
+    branch->kexc1 = g_biogeo_params.kexc1;
+    branch->kexc2 = g_biogeo_params.kexc2;
+    branch->kgrowth1 = g_biogeo_params.kgrowth1;
+    branch->kgrowth2 = g_biogeo_params.kgrowth2;
+    branch->kmaint1 = g_biogeo_params.kmaint1;
+    branch->kmaint2 = g_biogeo_params.kmaint2;
+    branch->kmort1 = g_biogeo_params.kmort1;
+    branch->kmort2 = g_biogeo_params.kmort2;
     
     /* Nutrient limitation parameters */
-    branch->kdsi1 = 5.0;          /* Half-saturation for Si [µM] */
-    branch->kn1 = 2.0;            /* Half-saturation for N [µM] */
-    branch->kpo41 = 0.5;          /* Half-saturation for P [µM] */
-    branch->kn2 = 3.0;
-    branch->kpo42 = 0.7;
+    branch->kdsi1 = g_biogeo_params.kdsi1;
+    branch->kn1 = g_biogeo_params.kn1;
+    branch->kpo41 = g_biogeo_params.kpo41;
+    branch->kn2 = g_biogeo_params.kn2;
+    branch->kpo42 = g_biogeo_params.kpo42;
     
     /* Decomposition parameters */
-    branch->kox = 0.1;            /* Aerobic decay [1/day] */
-    branch->kdenit = 0.05;        /* Denitrification [1/day] */
-    branch->knit = 0.1;           /* Nitrification [1/day] */
-    branch->ktox = 50.0;          /* TOC half-saturation [µM] */
-    branch->ko2 = 10.0;           /* O2 half-saturation [µM] */
-    branch->ko2_nit = 5.0;        /* O2 half-saturation for nitrification */
-    branch->kno3 = 5.0;           /* NO3 half-saturation [µM] */
-    branch->knh4 = 2.0;           /* NH4 half-saturation [µM] */
-    branch->kino2 = 5.0;          /* Inverse O2 half-saturation */
+    branch->kox = g_biogeo_params.kox;
+    branch->kdenit = g_biogeo_params.kdenit;
+    branch->knit = g_biogeo_params.knit;
+    branch->ktox = g_biogeo_params.ktox;
+    branch->ko2 = g_biogeo_params.ko2;
+    branch->ko2_nit = g_biogeo_params.ko2_nit;
+    branch->kno3 = g_biogeo_params.kno3;
+    branch->knh4 = g_biogeo_params.knh4;
+    branch->kino2 = g_biogeo_params.kino2;
     
     /* Stoichiometric ratios */
-    branch->redn = 0.151;         /* N:C ratio */
-    branch->redp = 0.01;          /* P:C ratio */
-    branch->redsi = 0.1;          /* Si:C ratio */
+    branch->redn = g_biogeo_params.redn;
+    branch->redp = g_biogeo_params.redp;
+    branch->redsi = g_biogeo_params.redsi;
     
     /* Gas exchange */
-    branch->pco2_atm = 400.0;     /* Atmospheric pCO2 [µatm] */
+    branch->pco2_atm = g_biogeo_params.pco2_atm;
 }
 int Biogeo_Branch(Branch *branch, double dt) {
     if (!branch || branch->M <= 0 || branch->num_species < CGEM_NUM_SPECIES || !branch->reaction_rates) {
@@ -446,16 +704,21 @@ int Biogeo_Branch(Branch *branch, double dt) {
 
         double si_cons = fmin(0.0, -branch->redsi * (npp_nh41 + npp_nh42));
 
-        double aer_deg = temp_kin(TEMP_KIN_KHET, branch->kox, temp) *
+        /* CRITICAL: Convert rates from [1/day] to [1/s] */
+        double kox_s = branch->kox / SECONDS_PER_DAY;
+        double kdenit_s = branch->kdenit / SECONDS_PER_DAY;
+        double knit_s = branch->knit / SECONDS_PER_DAY;
+        
+        double aer_deg = temp_kin(TEMP_KIN_KHET, kox_s, temp) *
                          (toc[i] / (toc[i] + branch->ktox)) *
                          (o2[i] / (o2[i] + branch->ko2));
 
-        double denit = temp_kin(TEMP_KIN_KDENIT, branch->kdenit, temp) *
+        double denit = temp_kin(TEMP_KIN_KDENIT, kdenit_s, temp) *
                        (toc[i] / (toc[i] + branch->ktox)) *
                        (branch->kino2 / (o2[i] + branch->kino2)) *
                        (no3[i] / (no3[i] + branch->kno3));
 
-        double nitrif = temp_kin(TEMP_KIN_KNIT, branch->knit, temp) *
+        double nitrif = temp_kin(TEMP_KIN_KNIT, knit_s, temp) *
                         (o2[i] / (o2[i] + branch->ko2_nit)) *
                         (nh4[i] / (nh4[i] + branch->knh4));
 

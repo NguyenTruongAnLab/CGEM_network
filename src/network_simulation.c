@@ -205,16 +205,17 @@ int network_run_simulation(Network *net, CaseConfig *config) {
             fprintf(stderr, "Warning: Python not found on PATH, skipping .bin->.nc conversion and plotting.\n");
         } else {
             /* Convert .bin to .nc */
-            snprintf(cmd, sizeof(cmd), "python scripts/bin_to_nc.py %s", config->output_dir);
-            printf("Converting .bin to .nc: %s\n", cmd);
-            int rc_conv = system(cmd);
+            char script_cmd[CGEM_MAX_PATH + 64];
+            snprintf(script_cmd, sizeof(script_cmd), "python scripts/bin_to_nc.py %s", config->output_dir);
+            printf("Converting .bin to .nc: %s\n", script_cmd);
+            int rc_conv = system(script_cmd);
             if (rc_conv != 0) {
                 fprintf(stderr, "Warning: bin_to_nc conversion returned non-zero (%d). netCDF files may be missing.\n", rc_conv);
             } else {
                 /* Create plots */
-                snprintf(cmd, sizeof(cmd), "python scripts/plot_netcdf.py %s", config->output_dir);
-                printf("Creating plots from netCDFs: %s\n", cmd);
-                int rc_plot = system(cmd);
+                snprintf(script_cmd, sizeof(script_cmd), "python scripts/plot_netcdf.py %s", config->output_dir);
+                printf("Creating plots from netCDFs: %s\n", script_cmd);
+                int rc_plot = system(script_cmd);
                 if (rc_plot != 0) {
                     fprintf(stderr, "Warning: plot_netcdf returned non-zero (%d).\n", rc_plot);
                 }
@@ -226,7 +227,7 @@ int network_run_simulation(Network *net, CaseConfig *config) {
     printf("\nSimulation complete: %d steps in %.1f seconds (%.1f steps/s)\n",
            total_steps, total_elapsed, total_steps / total_elapsed);
     if (config->write_csv) {
-        char csv_dir[CGEM_MAX_PATH];
+        char csv_dir[CGEM_MAX_PATH + 16];
         snprintf(csv_dir, sizeof(csv_dir), "%s/CSV", config->output_dir);
         printf("CSV output written to: %s\n", csv_dir);
     }

@@ -15,8 +15,7 @@
 
 /* Forward declarations for functions defined in other modules */
 void InitializeSedimentParameters(Branch *branch);
-void InitializeBiogeoParameters(Branch *branch);
-void init_species_bc(Branch *branch, int num_species);
+int LoadBiogeoParams(const char *path);
 
 /**
  * @brief Initialize species boundary conditions for a branch
@@ -212,13 +211,24 @@ void initializeNetworkSediment(Network *net) {
  *
  * Sets up water quality parameters, phytoplankton kinetics,
  * nutrient cycling, and gas exchange for each branch.
+ * If a biogeo_params.txt file exists in the case directory, loads parameters from it.
  *
  * @param net Pointer to network structure
+ * @param case_dir Case directory path (for finding biogeo_params.txt)
  */
-void initializeNetworkBiogeochemistry(Network *net) {
+void initializeNetworkBiogeochemistry(Network *net, const char *case_dir) {
     if (!net || !net->branches) return;
 
     printf("Initializing biogeochemistry for %zu branches...\n", net->num_branches);
+
+    /* Try to load biogeo parameters from case directory */
+    if (case_dir) {
+        char biogeo_path[CGEM_MAX_PATH];
+        snprintf(biogeo_path, sizeof(biogeo_path), "%s/biogeo_params.txt", case_dir);
+        LoadBiogeoParams(biogeo_path);
+    } else {
+        LoadBiogeoParams(NULL);  /* Use defaults */
+    }
 
     for (size_t i = 0; i < net->num_branches; ++i) {
         Branch *branch = net->branches[i];
@@ -334,7 +344,19 @@ int initializeNetwork(Network *net, CaseConfig *config) {
     initializeNetworkSediment(net);
 
     /* Step 4: Initialize biogeochemical parameters */
-    initializeNetworkBiogeochemistry(net);
+    /* Extract case directory from topology path */
+    char case_dir[CGEM_MAX_PATH] = {0};
+    if (config->topology_path[0] != '\0') {
+        size_t len = strlen(config->topology_path);
+        if (len >= sizeof(case_dir)) len = sizeof(case_dir) - 1;
+        memcpy(case_dir, config->topology_path, len);
+        case_dir[len] = '\0';
+        char *last_slash = strrchr(case_dir, '/');
+        if (!last_slash) last_slash = strrchr(case_dir, '\\');
+        if (last_slash) *last_slash = '\0';
+        else case_dir[0] = '\0';
+    }
+    initializeNetworkBiogeochemistry(net, case_dir[0] ? case_dir : NULL);
 
     /* Step 5: Initialize species boundary conditions */
     initializeNetworkSpeciesBC(net);

@@ -138,5 +138,21 @@ void free_node(Node *node) {
     free(node->forcing_time);
     free(node->forcing_value);
     free(node->mixed_conc);
+    
+    /* Free species forcing arrays */
+    if (node->species_forcing_time) {
+        for (int sp = 0; sp < node->num_species_forcing; ++sp) {
+            free(node->species_forcing_time[sp]);
+        }
+        free(node->species_forcing_time);
+    }
+    if (node->species_forcing_value) {
+        for (int sp = 0; sp < node->num_species_forcing; ++sp) {
+            free(node->species_forcing_value[sp]);
+        }
+        free(node->species_forcing_value);
+    }
+    free(node->species_forcing_len);
+    
     free(node);
 }

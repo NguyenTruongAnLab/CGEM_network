@@ -1,0 +1,88 @@
+# ============================================================================
+# BIOGEOCHEMISTRY PARAMETERS: TIEN RIVER CASE
+# ============================================================================
+# This file defines water quality model parameters.
+# Format: key = value
+# Lines starting with # are comments.
+#
+# Reference values based on Mekong field data and Volta et al. (2016)
+# 
+# IMPORTANT: All rate parameters (kox, kdenit, knit, pbmax, etc.) are in [1/day]
+# The model internally converts to [1/s] by dividing by 86400.
+# ============================================================================
+
+# --- Water and Environmental ---
+water_temp = 29.0       # Mean water temperature [°C] - tropical
+ws = 1e-3               # Settling velocity [m/s]
+
+# --- Light Parameters ---
+I0 = 250.0              # Surface irradiance [W/m²] - tropical
+kd1 = 0.15              # Base light attenuation [1/m] - higher turbidity
+kd2_spm = 0.015         # SPM contribution to attenuation
+kd2_phy1 = 0.005        # Phytoplankton 1 contribution
+kd2_phy2 = 0.005        # Phytoplankton 2 contribution
+
+# --- Phytoplankton Parameters ---
+# PHY1 = Diatoms, PHY2 = Non-siliceous phytoplankton
+alpha1 = 0.02           # Initial slope P-I curve [molC/molChl/µmol photons/m²/s]
+alpha2 = 0.015
+pbmax1 = 2.5            # Max photosynthetic rate [1/day]
+pbmax2 = 2.0
+kexc1 = 0.1             # Excretion fraction [-]
+kexc2 = 0.1
+kgrowth1 = 0.1          # Growth respiration fraction [-]
+kgrowth2 = 0.1
+kmaint1 = 0.025         # Maintenance respiration [1/day]
+kmaint2 = 0.02
+kmort1 = 0.06           # Mortality rate [1/day]
+kmort2 = 0.05
+
+# --- Nutrient Limitation (Half-saturation constants) ---
+kdsi1 = 5.0             # Si half-saturation for diatoms [µM]
+kn1 = 2.0               # N half-saturation for PHY1 [µM]
+kpo41 = 0.5             # P half-saturation for PHY1 [µM]
+kn2 = 3.0               # N half-saturation for PHY2 [µM]
+kpo42 = 0.7             # P half-saturation for PHY2 [µM]
+
+# --- Decomposition & Nutrient Cycling Rates ---
+# NOTE: All rates in [1/day], converted internally to [1/s]
+kox = 0.15              # Aerobic TOC decay [1/day]
+kdenit = 0.05           # Denitrification rate [1/day]
+knit = 0.10             # Nitrification rate [1/day]
+
+# --- Monod Half-saturation Constants ---
+ktox = 50.0             # TOC half-saturation [µM]
+ko2 = 10.0              # O2 half-saturation for respiration [µM]
+ko2_nit = 5.0           # O2 half-saturation for nitrification [µM]
+kno3 = 5.0              # NO3 half-saturation for denitrification [µM]
+knh4 = 2.0              # NH4 half-saturation for nitrification [µM]
+kino2 = 5.0             # O2 inhibition constant for denitrification [µM]
+
+# --- Stoichiometric Ratios (Redfield-based) ---
+redn = 0.151            # N:C ratio (16/106)
+redp = 0.0094           # P:C ratio (1/106)
+redsi = 0.1             # Si:C ratio for diatoms
+
+# ============================================================================
+# ENHANCED pCO2 PARAMETERS
+# ============================================================================
+# These parameters significantly improve pCO2 simulation in tropical estuaries.
+# References: Wanninkhof (2014), Borges et al. (2018), Li et al. (2013)
+# ============================================================================
+
+# --- Atmospheric CO2 ---
+pco2_atm = 420.0        # Atmospheric pCO2 [µatm] - current global value
+
+# --- Wind-Driven Gas Exchange (Wanninkhof 2014) ---
+# Critical for CO2 air-water flux. Data: local met stations or ERA5 reanalysis.
+wind_speed = 3.5        # Mean wind speed at 10m height [m/s]
+wind_coeff = 0.251      # Wanninkhof coefficient for climatological winds
+schmidt_exp = -0.5      # Schmidt number exponent (standard = -0.5)
+current_k_factor = 0.25 # Current-induced gas transfer contribution (0.1-0.3)
+
+# --- Benthic Respiration (Major CO2 Source!) ---
+# Sediment respiration often dominates CO2 production in shallow estuaries.
+# Data: Sediment oxygen demand (SOD) measurements, benthic chamber incubations.
+# Typical tropical deltaic values: 30-80 mmol C/m²/day
+benthic_resp_20C = 60.0 # Benthic respiration at 20°C [mmol C/m²/day]
+benthic_Q10 = 2.0       # Temperature coefficient (standard = 2.0)
