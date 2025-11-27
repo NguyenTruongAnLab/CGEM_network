@@ -4,14 +4,16 @@ Topology = topology.csv
 Boundaries = boundary_map.csv
 
 StartDate = 2017-01-01
-Duration = 5
-Warmup_Days = 2
+Duration = 15
+Warmup_Days = 10
 
 # Simulation parameters
 TimeStepSeconds = 300
+DELXI = 2000
 TidalAmplitude = 2.0
 RiverDischarge = 100.0
 
 # Output settings
 WriteCSV = 1
-WriteNetCDF = 0
+WriteNetCDF = 1
+WriteReactionRates = 0

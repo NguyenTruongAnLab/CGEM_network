@@ -23,12 +23,11 @@
  * Write output to CSV files
  */
 static void write_output(Network *net, CaseConfig *config, double time_s, FILE *fp_hydro, FILE *fp_conc) {
-    (void)config;
     if (!net) return;
     
     /* Store in time series arrays for NetCDF */
     if (config->write_netcdf || config->write_csv) {
-        cgem_write_timestep(net, time_s);
+        cgem_write_timestep(net, config, time_s);
     }
     
     /* Write hydrodynamic output for each branch */
@@ -181,7 +180,7 @@ int network_run_simulation(Network *net, CaseConfig *config) {
     if (warmup_steps < total_steps) {
         /* Call cgem_write_timestep again for final per-variable snapshot */
         if (config->write_netcdf || config->write_csv) {
-            cgem_write_timestep(net, final_time - warmup_time);
+            cgem_write_timestep(net, config, final_time - warmup_time);
         }
         write_output(net, config, final_time - warmup_time, fp_hydro, fp_conc);
     }

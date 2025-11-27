@@ -1,0 +1,64 @@
+# ============================================================================
+# BIOGEOCHEMISTRY PARAMETERS: SAIGON RIVER (URBAN/POLLUTED)
+# ============================================================================
+# Branch: Saigon_Riv - Highly urbanized river receiving HCMC wastewater
+#
+# Scientific basis:
+#   - High organic matter decay (kox ~ 0.30 /day) - high BOD inputs
+#   - Elevated nutrient concentrations from sewage and industry
+#   - High benthic oxygen demand - organic-rich sediments
+#   - Potential hypoxia during low-flow conditions
+#
+# Reference: Nguyen et al. (2021) - Saigon River water quality
+#            Volta et al. (2016) - Scheldt urban estuary analogue
+# ============================================================================
+
+# --- Water and Environmental ---
+water_temp = 30.0       # Mean water temperature [°C] - urban heat island effect
+ws = 1e-3               # Settling velocity [m/s]
+
+# --- Light Parameters ---
+I0 = 220.0              # Surface irradiance [W/m²] - reduced due to urban haze
+kd1 = 0.20              # Base light attenuation [1/m] - turbid urban water
+kd2_spm = 0.020         # SPM contribution to attenuation - high sediment
+kd2_phy1 = 0.008        # Phytoplankton 1 contribution - can have blooms
+kd2_phy2 = 0.008        # Phytoplankton 2 contribution
+
+# --- Phytoplankton Parameters ---
+# Note: High nutrients but light-limited in turbid urban river
+alpha1 = 0.02           # Initial slope P-I curve
+alpha2 = 0.015
+pbmax1 = 2.5            # Max photosynthetic rate [1/day] - higher due to nutrients
+pbmax2 = 2.0
+kexc1 = 0.12            # Excretion fraction [-]
+kexc2 = 0.12
+kgrowth1 = 0.12         # Growth respiration fraction [-]
+kgrowth2 = 0.12
+kmaint1 = 0.025         # Maintenance respiration [1/day]
+kmaint2 = 0.020
+kmort1 = 0.08           # Mortality rate [1/day] - higher in polluted water
+kmort2 = 0.06
+
+# --- Nutrient Limitation (Half-saturation constants) ---
+# Lower values = nutrients less limiting due to high inputs
+kdsi1 = 4.0             # Si half-saturation for diatoms [µM]
+kn1 = 1.5               # N half-saturation for PHY1 [µM] - nutrients abundant
+kpo41 = 0.3             # P half-saturation for PHY1 [µM] - P often limiting
+kn2 = 2.0               # N half-saturation for PHY2 [µM]
+kpo42 = 0.4             # P half-saturation for PHY2 [µM]
+
+# --- Decomposition & Nutrient Cycling Rates ---
+# CRITICAL: High kox for polluted urban river (vs 0.05 for rural)
+kox = 0.30              # Aerobic TOC decay [1/day] - HIGH (high BOD)
+kdenit = 0.08           # Denitrification rate [1/day] - high NO3 available
+knit = 0.15             # Nitrification rate [1/day] - high NH4 inputs
+
+# --- Monod Half-saturation Constants ---
+ktox = 80.0             # TOC half-saturation [µM] - higher substrate
+ko2 = 15.0              # O2 half-saturation for respiration [µM]
+
+# --- Enhanced pCO2 Parameters ---
+wind_speed = 2.5        # Mean wind [m/s] - reduced in urban canyon
+wind_coeff = 0.251      # Wanninkhof coefficient
+benthic_resp_20C = 100.0 # [mmol C/m²/day] - HIGH (organic-rich sediments)
+benthic_Q10 = 2.2       # Temperature coefficient - slightly higher in warm water

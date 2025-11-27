@@ -60,11 +60,33 @@ def load_topology(output_dir, input_arg=None):
         if os.path.exists(p):
             print(f"Loaded topology from: {p}")
             try:
-                df = pd.read_csv(p, comment='#', skipinitialspace=True, 
-                                 names=['Branch_ID', 'Name', 'NodeUp', 'NodeDown', 
-                                        'Length', 'W_Up', 'W_Down', 'Depth', 'Chezy', 'Group'])
+                # Read with flexible column handling - topology may have 10-12 columns
+                # Columns: ID, Name, NodeUp, NodeDown, Length, W_Up, W_Down, Depth, Chezy, Group, [RS], [BiogeoParams]
+                df = pd.read_csv(p, comment='#', skipinitialspace=True, header=None)
+                
+                # Assign column names based on how many columns are present
+                base_cols = ['Branch_ID', 'Name', 'NodeUp', 'NodeDown', 
+                             'Length', 'W_Up', 'W_Down', 'Depth', 'Chezy', 'Group']
+                optional_cols = ['RS', 'BiogeoParams']
+                
+                ncols = len(df.columns)
+                if ncols >= 10:
+                    col_names = base_cols[:min(ncols, 10)]
+                    if ncols > 10:
+                        col_names.extend(optional_cols[:ncols-10])
+                    df.columns = col_names[:ncols]
+                else:
+                    # Fallback for minimal topology
+                    df.columns = base_cols[:ncols]
+                
+                # Strip whitespace from Name column
+                if 'Name' in df.columns:
+                    df['Name'] = df['Name'].str.strip()
+                
                 return df
-            except: continue
+            except Exception as e:
+                print(f"Warning: Failed to parse {p}: {e}")
+                continue
     print("Warning: topology.csv not found. Schematic maps will be skipped.")
     return None
 

@@ -55,6 +55,7 @@ typedef struct {
     double depth_up_m;      /* Depth at downstream (ocean side) */
     double depth_down_m;    /* Depth at upstream */
     double depth_m;         /* Reference depth (mean) */
+    double storage_ratio;   /* RS: Storage width ratio (1.0 for prismatic, 5-10 for mangroves) */
     int group_id;
 
     double chezy;
@@ -99,6 +100,7 @@ typedef struct {
     double *conc_up;        /* River-side concentrations [num_species] */
 
     int has_biogeo;
+    char biogeo_params_path[CGEM_MAX_PATH]; /* Path to branch-specific biogeo params (empty=use global) */
 
     /* Sediment transport parameters */
     double *tau_ero;           /* Erosion shear stress threshold [Pa] */
@@ -230,7 +232,7 @@ int network_run_simulation(Network *net, CaseConfig *config);
 /* Output */
 void write_branch_output(FILE *fp, Branch *branch, double time);
 int cgem_init_output(Network *net, CaseConfig *config);
-int cgem_write_timestep(Network *net, double time_s);
+int cgem_write_timestep(Network *net, CaseConfig *config, double time_s);
 int cgem_close_output(Network *net);
 // Removed: write_branch_matrix_csv is no longer used; matrix CSV outputs are disabled.
 

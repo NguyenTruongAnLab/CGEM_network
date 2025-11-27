@@ -1,0 +1,70 @@
+# ============================================================================
+# BIOGEOCHEMISTRY PARAMETERS: SOAI RAP ESTUARY (MANGROVE/CAN GIO)
+# ============================================================================
+# Branch: SoaiRap_Est - Can Gio Mangrove Biosphere Reserve
+#
+# Scientific basis:
+#   - High benthic respiration (80 mmol C/m²/day) - anoxic mangrove mud
+#   - Moderate water column decay - mixing of urban + rural waters
+#   - High CO2 outgassing - mangroves are significant CO2 sources
+#   - Tidal pumping of porewater organic matter
+#
+# Reference: Alongi (2014) - Carbon cycling in mangroves
+#            Kristensen et al. (2008) - Organic matter in mangrove sediments
+#            Bouillon et al. (2008) - Mangrove carbon budgets
+# ============================================================================
+
+# --- Water and Environmental ---
+water_temp = 29.0       # Mean water temperature [°C] - estuarine
+ws = 5e-4               # Settling velocity [m/s] - fine sediments
+
+# --- Light Parameters ---
+I0 = 260.0              # Surface irradiance [W/m²] - estuarine
+kd1 = 0.15              # Base light attenuation [1/m] - moderately turbid
+kd2_spm = 0.018         # SPM contribution to attenuation
+kd2_phy1 = 0.006        # Phytoplankton 1 contribution
+kd2_phy2 = 0.006        # Phytoplankton 2 contribution
+
+# --- Phytoplankton Parameters ---
+# Moderate primary production in estuary
+alpha1 = 0.018          # Initial slope P-I curve
+alpha2 = 0.012
+pbmax1 = 2.2            # Max photosynthetic rate [1/day]
+pbmax2 = 1.8
+kexc1 = 0.10            # Excretion fraction [-]
+kexc2 = 0.10
+kgrowth1 = 0.10         # Growth respiration fraction [-]
+kgrowth2 = 0.10
+kmaint1 = 0.022         # Maintenance respiration [1/day]
+kmaint2 = 0.018
+kmort1 = 0.06           # Mortality rate [1/day]
+kmort2 = 0.05
+
+# --- Nutrient Limitation (Half-saturation constants) ---
+kdsi1 = 5.0             # Si half-saturation for diatoms [µM]
+kn1 = 2.5               # N half-saturation for PHY1 [µM]
+kpo41 = 0.6             # P half-saturation for PHY1 [µM]
+kn2 = 3.5               # N half-saturation for PHY2 [µM]
+kpo42 = 0.8             # P half-saturation for PHY2 [µM]
+
+# --- Decomposition & Nutrient Cycling Rates ---
+# Moderate kox - mix of upstream inputs diluted by seawater
+kox = 0.12              # Aerobic TOC decay [1/day] - MODERATE (mixed waters)
+kdenit = 0.06           # Denitrification rate [1/day]
+knit = 0.10             # Nitrification rate [1/day]
+
+# --- Monod Half-saturation Constants ---
+ktox = 60.0             # TOC half-saturation [µM]
+ko2 = 12.0              # O2 half-saturation for respiration [µM]
+
+# --- Enhanced pCO2 Parameters ---
+# CRITICAL: High benthic respiration from mangrove sediments
+wind_speed = 4.0        # Mean wind [m/s] - exposed estuary
+wind_coeff = 0.251      # Wanninkhof coefficient
+benthic_resp_20C = 120.0 # [mmol C/m²/day] - VERY HIGH (Can Gio mangrove anoxic mud)
+benthic_Q10 = 2.0       # Temperature coefficient
+
+# Note: The RS=7.0 storage ratio in topology.csv accounts for the
+# tidal storage effect of the Can Gio mangrove floodplain.
+# This causes the tide to attenuate more quickly than in a prismatic
+# channel, which is physically realistic for mangrove systems.

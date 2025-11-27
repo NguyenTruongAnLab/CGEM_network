@@ -1,0 +1,60 @@
+# ============================================================================
+# BIOGEOCHEMISTRY PARAMETERS: DONG NAI RIVER (RURAL/NATURAL)
+# ============================================================================
+# Branch: DongNai_Riv - Relatively clean rural river
+#
+# Scientific basis:
+#   - Low organic matter decay (kox ~ 0.05 /day) - natural forested catchment
+#   - Lower nutrient inputs - minimal agricultural/urban sources
+#   - Moderate benthic respiration - sandy/gravel substrate
+#
+# Reference: Whitehead et al. (2019), Regnier et al. (2013)
+# ============================================================================
+
+# --- Water and Environmental ---
+water_temp = 28.0       # Mean water temperature [°C] - tropical
+ws = 1e-3               # Settling velocity [m/s]
+
+# --- Light Parameters ---
+I0 = 280.0              # Surface irradiance [W/m²] - tropical, less turbid
+kd1 = 0.10              # Base light attenuation [1/m] - clearer water
+kd2_spm = 0.012         # SPM contribution to attenuation
+kd2_phy1 = 0.005        # Phytoplankton 1 contribution
+kd2_phy2 = 0.005        # Phytoplankton 2 contribution
+
+# --- Phytoplankton Parameters ---
+alpha1 = 0.02           # Initial slope P-I curve
+alpha2 = 0.015
+pbmax1 = 2.0            # Max photosynthetic rate [1/day]
+pbmax2 = 1.5
+kexc1 = 0.1             # Excretion fraction [-]
+kexc2 = 0.1
+kgrowth1 = 0.1          # Growth respiration fraction [-]
+kgrowth2 = 0.1
+kmaint1 = 0.02          # Maintenance respiration [1/day]
+kmaint2 = 0.015
+kmort1 = 0.04           # Mortality rate [1/day] - lower natural mortality
+kmort2 = 0.03
+
+# --- Nutrient Limitation (Half-saturation constants) ---
+kdsi1 = 5.0             # Si half-saturation for diatoms [µM]
+kn1 = 2.0               # N half-saturation for PHY1 [µM]
+kpo41 = 0.5             # P half-saturation for PHY1 [µM]
+kn2 = 3.0               # N half-saturation for PHY2 [µM]
+kpo42 = 0.7             # P half-saturation for PHY2 [µM]
+
+# --- Decomposition & Nutrient Cycling Rates ---
+# CRITICAL: Low kox for clean rural river (vs 0.30 for urban)
+kox = 0.05              # Aerobic TOC decay [1/day] - LOW (natural system)
+kdenit = 0.03           # Denitrification rate [1/day]
+knit = 0.08             # Nitrification rate [1/day]
+
+# --- Monod Half-saturation Constants ---
+ktox = 50.0             # TOC half-saturation [µM]
+ko2 = 10.0              # O2 half-saturation for respiration [µM]
+
+# --- Enhanced pCO2 Parameters ---
+wind_speed = 3.0        # Mean wind [m/s]
+wind_coeff = 0.251      # Wanninkhof coefficient
+benthic_resp_20C = 30.0 # [mmol C/m²/day] - LOW (sandy substrate)
+benthic_Q10 = 2.0       # Temperature coefficient

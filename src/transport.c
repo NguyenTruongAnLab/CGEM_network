@@ -121,38 +121,40 @@ static void determine_boundary_config(const Branch *b, BranchBoundaryConfig *cfg
     if (!b || !cfg) return;
 
     int M = b->M;
-    double up_sign = 1.0;
-    double down_sign = -1.0;
-    int up_cell = M - 1;
-    int down_cell = 1;
+    
+    /* C-GEM Grid Convention:
+     * - Index 1 = downstream end (connects to node_down)
+     * - Index M = upstream end (connects to node_up)
+     * 
+     * For transport:
+     * - down_cell is where node_down connects (index 1)
+     * - up_cell is where node_up connects (index M-1, last center cell)
+     * 
+     * Flow sign convention:
+     * - Positive velocity = flow from upstream (M) to downstream (1)
+     * - At downstream boundary: inflow = negative velocity
+     * - At upstream boundary: inflow = positive velocity
+     */
+    cfg->down_cell = 1;           /* Downstream boundary cell (ocean side) */
+    cfg->up_cell = M - 1;         /* Upstream boundary cell (river side) */
+    cfg->down_sign = -1.0;        /* Positive U means outflow at downstream */
+    cfg->up_sign = 1.0;           /* Positive U means inflow at upstream */
 
-    /* When the downstream node is a level BC, the ocean is at the high-index end */
-    if (b->down_node_type == NODE_LEVEL_BC) {
-        down_cell = M - 1;
-        up_cell = 1;
-        down_sign = 1.0;
-        up_sign = -1.0;
-    }
+    /* Neighbor cells for gradient reconstruction */
+    cfg->down_neighbor = 3;       /* Interior neighbor of downstream cell */
+    cfg->up_neighbor = M - 3;     /* Interior neighbor of upstream cell */
+    if (cfg->down_neighbor > M - 1) cfg->down_neighbor = cfg->down_cell;
+    if (cfg->up_neighbor < 1) cfg->up_neighbor = cfg->up_cell;
 
-    cfg->up_cell = up_cell;
-    cfg->down_cell = down_cell;
-    cfg->up_sign = up_sign;
-    cfg->down_sign = down_sign;
+    /* Velocity indices at boundaries */
+    cfg->down_vel_idx = 2;        /* Interface velocity near downstream */
+    cfg->up_vel_idx = M;          /* Interface velocity near upstream */
 
-    cfg->up_neighbor = up_cell + ((up_sign < 0.0) ? 2 : -2);
-    if (cfg->up_neighbor < 1 || cfg->up_neighbor > M - 1) cfg->up_neighbor = up_cell;
-
-    cfg->down_neighbor = down_cell + ((down_sign < 0.0) ? 2 : -2);
-    if (cfg->down_neighbor < 1 || cfg->down_neighbor > M - 1) cfg->down_neighbor = down_cell;
-
-    cfg->up_vel_idx = (up_cell == 1) ? 2 : M - 1;
-    cfg->down_vel_idx = (down_cell == 1) ? 2 : M - 1;
-
-    cfg->up_ghost_primary = (up_cell == 1) ? 0 : M;
-    cfg->down_ghost_primary = (down_cell == 1) ? 0 : M;
-
-    cfg->up_ghost_secondary = (up_cell == M - 1) ? M + 1 : -1;
-    cfg->down_ghost_secondary = (down_cell == M - 1) ? M + 1 : -1;
+    /* Ghost cells for boundary extrapolation */
+    cfg->down_ghost_primary = 0;
+    cfg->down_ghost_secondary = -1;  /* No secondary ghost at downstream */
+    cfg->up_ghost_primary = M;
+    cfg->up_ghost_secondary = M + 1;
 }
 
 static void set_dirichlet_value(double *arr, int idx, int ghost_a, int ghost_b, double value, int max_idx) {
@@ -289,66 +291,37 @@ static int species_is_transported(int species) {
  * Apply open boundary conditions for transport
  * Open_Boundary_Conditions
  * 
- * Matches Fortran logic:
- * - If velocity is positive at lower boundary (inflow), relax toward ocean BC
- * - If velocity is negative (outflow), advect from interior
- * - Uses configurable OSBCdist (marine extension distance)
+ * C-GEM Grid Convention:
+ * - Index 1 = downstream (ocean side, connects to node_down)
+ * - Index M = upstream (river side, connects to node_up)
+ * 
+ * Boundary handling:
+ * - LEVEL_BC (ocean): Dirichlet with ocean concentration
+ * - JUNCTION: Dirichlet with mixed junction concentration
+ * - DISCHARGE_BC: Dirichlet with river concentration
  * 
  * @param branch Branch
  * @param species Species index
- * @param c_down Downstream (ocean) boundary concentration
- * @param c_up Upstream (river) boundary concentration
+ * @param c_down Downstream boundary concentration
+ * @param c_up Upstream boundary concentration
  * @param dt Time step [s]
  */
 static void apply_open_boundaries(Branch *b, int species, double c_down, 
                                    double c_up, double dt) {
     int M = b->M;
-    double dx = b->dx;
     double *conc = b->conc[species];
     BranchBoundaryConfig cfg;
     determine_boundary_config(b, &cfg);
 
-    /* Distance to open-sea boundary condition - configurable per Fortran OSBCdist */
-    /* Default: 10 km marine extension, can be overridden via branch parameter */
-    double OSBCdist = CGEM_DEFAULT_OSBC_DIST;
-    if (OSBCdist < 2.0 * dx) OSBCdist = 2.0 * dx; /* Minimum 2*dx for stability */
+    /* Handle downstream boundary (index 1, connects to node_down) */
+    /* All boundary types get Dirichlet: ocean BC, junction mix, or specified value */
+    set_dirichlet_value(conc, cfg.down_cell, cfg.down_ghost_primary,
+                        cfg.down_ghost_secondary, c_down, M + 1);
 
-    /* Handle downstream boundary */
-    if (b->down_node_type == NODE_LEVEL_BC) {
-        /* Dirichlet ocean boundary resides at the high-index side */
-        set_dirichlet_value(conc, cfg.down_cell, cfg.down_ghost_primary,
-                            cfg.down_ghost_secondary, c_down, M + 1);
-    } else {
-        double U_down = b->velocity[cfg.down_vel_idx];
-        double inward = (U_down * cfg.down_sign <= 0.0) ? fabs(U_down) : 0.0;
-        if (inward > 0.0) {
-            conc[cfg.down_cell] = conc[cfg.down_cell] - 
-                (conc[cfg.down_cell] - c_down) * inward * dt / OSBCdist;
-        } else if (cfg.down_neighbor != cfg.down_cell) {
-            conc[cfg.down_cell] = conc[cfg.down_cell] - 
-                (conc[cfg.down_neighbor] - conc[cfg.down_cell]) * U_down * dt / dx;
-        }
-        set_dirichlet_value(conc, cfg.down_cell, cfg.down_ghost_primary,
-                            cfg.down_ghost_secondary, conc[cfg.down_cell], M + 1);
-    }
-
-    /* Handle upstream boundary */
-    if (b->up_node_type == NODE_DISCHARGE_BC || b->up_node_type == NODE_JUNCTION) {
-        set_dirichlet_value(conc, cfg.up_cell, cfg.up_ghost_primary,
-                            cfg.up_ghost_secondary, c_up, M + 1);
-    } else {
-        double U_up = b->velocity[cfg.up_vel_idx];
-        double inward = (U_up * cfg.up_sign <= 0.0) ? fabs(U_up) : 0.0;
-        if (inward > 0.0) {
-            conc[cfg.up_cell] = conc[cfg.up_cell] - 
-                (conc[cfg.up_cell] - c_up) * inward * dt / OSBCdist;
-        } else if (cfg.up_neighbor != cfg.up_cell) {
-            conc[cfg.up_cell] = conc[cfg.up_cell] - 
-                (conc[cfg.up_cell] - conc[cfg.up_neighbor]) * U_up * dt / dx;
-        }
-        set_dirichlet_value(conc, cfg.up_cell, cfg.up_ghost_primary,
-                            cfg.up_ghost_secondary, conc[cfg.up_cell], M + 1);
-    }
+    /* Handle upstream boundary (index M-1, connects to node_up) */
+    /* All boundary types get Dirichlet: discharge BC, junction mix, or specified value */
+    set_dirichlet_value(conc, cfg.up_cell, cfg.up_ghost_primary,
+                        cfg.up_ghost_secondary, c_up, M + 1);
 }
 
 /* --------------------------------------------------------------------------
