@@ -42,7 +42,9 @@ static void write_output(Network *net, CaseConfig *config, double time_s, FILE *
             if (mid + 1 < branch->M) mid += 1;
             else if (mid > 1) mid -= 1;
         }
-        int locs[] = {1, mid, branch->M - 1};
+        int last = branch->M;
+        if (last < 1) last = 1;
+        int locs[] = {1, mid, last};
         
         for (int k = 0; k < 3; ++k) {
             int i = locs[k];

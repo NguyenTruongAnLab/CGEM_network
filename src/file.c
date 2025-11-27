@@ -128,7 +128,8 @@ int cgem_init_output(Network *net, CaseConfig *config) {
 
         int M = branch->M;
         double dx = branch->dx;
-        int max_idx = (M >= 3) ? (M - 3) : 0;
+        /* Output the entire physical reach (indices 1..M cover the resolved domain) */
+        int max_idx = (M >= 1) ? M : 1;
 
         /* ============================================================
          * Binary output (for NetCDF conversion)
@@ -246,7 +247,8 @@ int cgem_write_timestep(Network *net, CaseConfig *config, double time_s) {
         if (!branch) continue;
 
         int M = branch->M;
-        int max_idx = (M >= 3) ? (M - 3) : 0;
+        /* Output the entire physical reach (indices 1..M cover the resolved domain) */
+        int max_idx = (M >= 1) ? M : 1;
 
         /* ============================================================
          * Binary output

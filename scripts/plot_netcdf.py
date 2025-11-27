@@ -35,7 +35,7 @@ CURVATURE = 0.5       # Bezier curve strength
 # --- ACADEMIC CONFIGURATION ---
 # Set to True for "Seamless/Sankey" look (forces downstream sum = upstream width).
 # Set to False for "Physical/Exact" look (shows actual widths from topology.csv).
-BALANCE_JUNCTIONS = False 
+BALANCE_JUNCTIONS = True 
 
 def ensure_dir(path):
     if not os.path.isdir(path):

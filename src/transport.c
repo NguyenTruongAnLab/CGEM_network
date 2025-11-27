@@ -137,6 +137,9 @@ static void determine_boundary_config(const Branch *b, BranchBoundaryConfig *cfg
      */
     cfg->down_cell = 1;           /* Downstream boundary cell (ocean side) */
     cfg->up_cell = M - 1;         /* Upstream boundary cell (river side) */
+    if (cfg->down_cell < 1) cfg->down_cell = 1;
+    if (cfg->up_cell < 1) cfg->up_cell = cfg->down_cell;
+    if (cfg->up_cell > M - 1) cfg->up_cell = (M - 1 >= 1) ? (M - 1) : 1;
     cfg->down_sign = -1.0;        /* Positive U means outflow at downstream */
     cfg->up_sign = 1.0;           /* Positive U means inflow at upstream */
 
@@ -144,6 +147,8 @@ static void determine_boundary_config(const Branch *b, BranchBoundaryConfig *cfg
     cfg->down_neighbor = 3;       /* Interior neighbor of downstream cell */
     cfg->up_neighbor = M - 3;     /* Interior neighbor of upstream cell */
     if (cfg->down_neighbor > M - 1) cfg->down_neighbor = cfg->down_cell;
+    if (cfg->down_neighbor < 1) cfg->down_neighbor = cfg->down_cell;
+    if (cfg->up_neighbor > M - 1) cfg->up_neighbor = cfg->up_cell;
     if (cfg->up_neighbor < 1) cfg->up_neighbor = cfg->up_cell;
 
     /* Velocity indices at boundaries */
@@ -160,6 +165,17 @@ static void determine_boundary_config(const Branch *b, BranchBoundaryConfig *cfg
 static void set_dirichlet_value(double *arr, int idx, int ghost_a, int ghost_b, double value, int max_idx) {
     if (!arr || idx < 0 || idx > max_idx) return;
     arr[idx] = value;
+    if (ghost_a >= 0 && ghost_a <= max_idx) arr[ghost_a] = value;
+    if (ghost_b >= 0 && ghost_b <= max_idx) arr[ghost_b] = value;
+}
+
+/**
+ * Set ghost cells only for junction boundary conditions.
+ * Unlike set_dirichlet_value, this does NOT set the interior boundary cell,
+ * allowing the transport solver to compute a smooth gradient.
+ */
+static void set_junction_ghost_cells(double *arr, int ghost_a, int ghost_b, double value, int max_idx) {
+    if (!arr) return;
     if (ghost_a >= 0 && ghost_a <= max_idx) arr[ghost_a] = value;
     if (ghost_b >= 0 && ghost_b <= max_idx) arr[ghost_b] = value;
 }
@@ -219,6 +235,18 @@ static void ComputeDispersionCoefficient_Internal(Branch *branch, double Q_total
         D0 = 26.0 * sqrt(N * g) * pow(H0, 1.5);
     }
     
+    /*
+     * Only enforce the tidal-mixing floor on branches that touch the open
+     * ocean. Interior tributaries should keep their low junction-derived D0 so
+     * the freshwater cap is not eroded by excessive dispersion.
+     */
+    int has_ocean_boundary = (branch->down_node_type == NODE_LEVEL_BC) ||
+                             (branch->up_node_type == NODE_LEVEL_BC);
+
+    if (D0 < 0.0) D0 = 0.0;           /* Physical lower bound */
+    if (has_ocean_boundary && D0 < 100.0) D0 = 100.0;
+    if (D0 > 10000.0) D0 = 10000.0;
+
     branch->D0 = D0;
     branch->dispersion[0] = D0;
     branch->dispersion[1] = D0;
@@ -242,21 +270,36 @@ static void ComputeDispersionCoefficient_Internal(Branch *branch, double Q_total
         double K = 4.38 * pow(H0, 0.36) * pow(B0, -0.21) * pow(fabs(LC), -0.14);
         K = CGEM_CLAMP(K, 0.0, 1.0);
         
-        /* Beta coefficient */
+        /* Beta coefficient for Van den Burgh dispersion decay
+         * 
+         * Physical meaning (Savenije, 2005):
+         * - Beta > 0 means dispersion DECAYS moving upstream (normal estuary)
+         * - The formula is: D(x) = D0 * (1 - beta * (exp(x/Lc) - 1))
+         * - For river discharge Q > 0 (downstream), we want decay upstream
+         * 
+         * Sign convention fix:
+         * - K > 0, LCD > 0, Q_total > 0 (river discharge), D_prev > 0, A_prev > 0
+         * - Original: beta = -(K*LCD*Q)/(D*A) gives NEGATIVE beta (wrong!)
+         * - Corrected: beta = (K*LCD*|Q|)/(D*A) gives POSITIVE beta (decay)
+         */
         double D_prev = branch->dispersion[i-1];
         double A_prev = branch->totalArea[i-1];
         
         double beta = 0.0;
         if (D_prev > 0 && A_prev > 0) {
-            beta = -(K * LCD * Q_total) / (D_prev * A_prev);
+            /* Use absolute Q to ensure positive beta for decay */
+            beta = (K * LCD * fabs(Q_total)) / (D_prev * A_prev);
         }
+        /* Clamp beta to prevent numerical issues */
+        if (beta < 0.0) beta = 0.0;   /* No negative decay (would amplify D) */
+        if (beta > 0.9) beta = 0.9;   /* Prevent complete decay in single step */
         
         /* Dispersion at current location */
         double exp_term = exp(dx / LCD) - 1.0;
         double D_curr = D_prev * (1.0 - beta * exp_term);
         
-        /* Ensure non-negative dispersion */
-        if (D_curr < 0.0) D_curr = 0.0;
+        /* Ensure realistic dispersion bounds with elevated background mixing */
+        if (D_curr < 10.0) D_curr = 10.0;        /* Upstream river turbulence floor */
         if (D_curr > 10000.0) D_curr = 10000.0;  /* Cap at reasonable max */
         
         branch->dispersion[i] = D_curr;
@@ -296,9 +339,10 @@ static int species_is_transported(int species) {
  * - Index M = upstream (river side, connects to node_up)
  * 
  * Boundary handling:
- * - LEVEL_BC (ocean): Dirichlet with ocean concentration
- * - JUNCTION: Dirichlet with mixed junction concentration
- * - DISCHARGE_BC: Dirichlet with river concentration
+ * - LEVEL_BC (ocean): Dirichlet - sets interior cell and ghost cells
+ * - DISCHARGE_BC: Dirichlet - sets interior cell and ghost cells  
+ * - JUNCTION: Ghost-only - only sets ghost cells, lets transport compute interior
+ *   This allows smooth gradients across junctions via dispersion
  * 
  * @param branch Branch
  * @param species Species index
@@ -314,14 +358,26 @@ static void apply_open_boundaries(Branch *b, int species, double c_down,
     determine_boundary_config(b, &cfg);
 
     /* Handle downstream boundary (index 1, connects to node_down) */
-    /* All boundary types get Dirichlet: ocean BC, junction mix, or specified value */
-    set_dirichlet_value(conc, cfg.down_cell, cfg.down_ghost_primary,
-                        cfg.down_ghost_secondary, c_down, M + 1);
+    if (b->down_node_type == NODE_JUNCTION) {
+        /* Junction: only set ghost cells, let transport compute interior */
+        set_junction_ghost_cells(conc, cfg.down_ghost_primary,
+                                 cfg.down_ghost_secondary, c_down, M + 1);
+    } else {
+        /* Ocean or other BC: full Dirichlet */
+        set_dirichlet_value(conc, cfg.down_cell, cfg.down_ghost_primary,
+                            cfg.down_ghost_secondary, c_down, M + 1);
+    }
 
     /* Handle upstream boundary (index M-1, connects to node_up) */
-    /* All boundary types get Dirichlet: discharge BC, junction mix, or specified value */
-    set_dirichlet_value(conc, cfg.up_cell, cfg.up_ghost_primary,
-                        cfg.up_ghost_secondary, c_up, M + 1);
+    if (b->up_node_type == NODE_JUNCTION) {
+        /* Junction: only set ghost cells, let transport compute interior */
+        set_junction_ghost_cells(conc, cfg.up_ghost_primary,
+                                 cfg.up_ghost_secondary, c_up, M + 1);
+    } else {
+        /* Discharge or other BC: full Dirichlet */
+        set_dirichlet_value(conc, cfg.up_cell, cfg.up_ghost_primary,
+                            cfg.up_ghost_secondary, c_up, M + 1);
+    }
 }
 
 /* --------------------------------------------------------------------------
@@ -353,9 +409,13 @@ static void calculate_advection(Branch *b, int species, double dt) {
     double dx = b->dx;
     double *conc = b->conc[species];
     
-    /* Store old concentrations */
-    double cold[CGEM_MAX_BRANCH_CELLS + 2];
-    for (int j = 1; j <= M - 1; j += 2) {
+    /* Store old concentrations at ALL indices including ghost cells
+     * This prevents out-of-bounds access in gradient reconstruction */
+    double cold[CGEM_MAX_BRANCH_CELLS + 4];
+    memset(cold, 0, sizeof(cold));
+    
+    /* Copy all concentration values including ghost cells */
+    for (int j = 0; j <= M + 1; ++j) {
         cold[j] = conc[j];
     }
     
@@ -369,46 +429,62 @@ static void calculate_advection(Branch *b, int species, double dt) {
         double vx = b->velocity[iface];
         double cfl = fabs(vx) * dt / (2.0 * dx);
         
+        /* CFL stability check */
+        if (cfl > 1.0) cfl = 1.0;
+        
         double f, rg, philen, conc_face;
         
         if (vx > 0.0) {
-            /* Flow to the right (downstream to upstream in our convention) */
+            /* Flow to the right (downstream to upstream in our convention)
+             * Upwind cell is j, need gradient from j-2 to j */
             f = cold[j+2] - cold[j];
             
             if (fabs(f) > 1e-35) {
-                if (j > 1) {
+                if (j >= 3) {
                     /* Ratio of consecutive gradients */
                     rg = (cold[j] - cold[j-2]) / f;
                     /* Use Superbee limiter */
                     philen = superbee_limiter(rg);
                 } else {
-                    philen = 0.0;  /* No limiter at boundary */
-                }
-            } else {
-                philen = 0.0;
-            }
-            
-            /* Reconstructed face value */
-            conc_face = cold[j] + 0.5 * (1.0 - cfl) * philen * f;
-            flux[iface] = vx * b->totalArea[iface] * conc_face;
-            
-        } else if (vx < 0.0) {
-            /* Flow to the left (upstream to downstream) */
-            f = cold[j] - cold[j+2];
-            
-            if (fabs(f) > 1e-35) {
-                if (j < M - 2) {
-                    rg = (cold[j+2] - cold[j+4]) / f;
-                    /* Use Superbee limiter */
-                    philen = superbee_limiter(rg);
-                } else {
+                    /* At boundary: use first-order upwind (no reconstruction) */
                     philen = 0.0;
                 }
             } else {
                 philen = 0.0;
             }
             
+            /* Reconstructed face value - bounded by local min/max */
+            conc_face = cold[j] + 0.5 * (1.0 - cfl) * philen * f;
+            /* Ensure face value is bounded (TVD property) */
+            double cmin = CGEM_MIN(cold[j], cold[j+2]);
+            double cmax = CGEM_MAX(cold[j], cold[j+2]);
+            conc_face = CGEM_CLAMP(conc_face, cmin, cmax);
+            flux[iface] = vx * b->totalArea[iface] * conc_face;
+            
+        } else if (vx < 0.0) {
+            /* Flow to the left (upstream to downstream)
+             * Upwind cell is j+2, need gradient from j+2 to j+4 */
+            f = cold[j] - cold[j+2];
+            
+            if (fabs(f) > 1e-35) {
+                if (j + 4 <= M) {
+                    rg = (cold[j+2] - cold[j+4]) / f;
+                    /* Use Superbee limiter */
+                    philen = superbee_limiter(rg);
+                } else {
+                    /* At boundary: use first-order upwind */
+                    philen = 0.0;
+                }
+            } else {
+                philen = 0.0;
+            }
+            
+            /* Reconstructed face value - bounded by local min/max */
             conc_face = cold[j+2] + 0.5 * (1.0 - cfl) * philen * f;
+            /* Ensure face value is bounded (TVD property) */
+            double cmin = CGEM_MIN(cold[j], cold[j+2]);
+            double cmax = CGEM_MAX(cold[j], cold[j+2]);
+            conc_face = CGEM_CLAMP(conc_face, cmin, cmax);
             flux[iface] = vx * b->totalArea[iface] * conc_face;
         }
         /* If vx == 0, flux remains 0 */
@@ -437,16 +513,24 @@ static void calculate_advection(Branch *b, int species, double dt) {
  * Stores dispersive fluxes in global array for diagnostics.
  * Flux = -D * A * dC/dx (negative of Fick's law for convention)
  * 
+ * @param b Branch
+ * @param species Species index  
+ * @param dt Time step
+ * @param c_down Downstream Dirichlet BC value
+ * @param c_up Upstream Dirichlet BC value
+ * 
  * Reference: Fortran Calculate_Dispersion in CGEM_Transport.f90
  */
-static void calculate_dispersion(Branch *b, int species, double dt) {
+static void calculate_dispersion(Branch *b, int species, double dt, 
+                                  double c_down, double c_up) {
     int M = b->M;
     double dx = b->dx;
     double *conc = b->conc[species];
     
-    /* Store old concentrations for flux calculation */
-    double cold[CGEM_MAX_BRANCH_CELLS + 2];
-    for (int j = 1; j <= M - 1; j += 2) {
+    /* Store old concentrations for flux calculation (all indices) */
+    double cold[CGEM_MAX_BRANCH_CELLS + 4];
+    memset(cold, 0, sizeof(cold));
+    for (int j = 0; j <= M + 1; ++j) {
         cold[j] = conc[j];
     }
     
@@ -463,16 +547,17 @@ static void calculate_dispersion(Branch *b, int species, double dt) {
     double r[CGEM_MAX_BRANCH_CELLS + 2];  /* Explicit part (RHS before implicit) */
     double d[CGEM_MAX_BRANCH_CELLS + 2];  /* Full RHS */
     
-    /* Boundary conditions: Dirichlet (concentration fixed) */
+    /* Boundary conditions: Dirichlet (concentration fixed to BC values)
+     * This ensures salt from junction/ocean diffuses into the branch */
     a[1] = 0.0;
     bb[1] = 1.0;
     c[1] = 0.0;
-    d[1] = conc[1];
+    d[1] = c_down;  /* Use downstream BC value, not current cell */
     
     a[M-1] = 0.0;
     bb[M-1] = 1.0;
     c[M-1] = 0.0;
-    d[M-1] = conc[M-1];
+    d[M-1] = c_up;  /* Use upstream BC value, not current cell */
     
     /* Interior points */
     for (int i = 3; i <= M - 3; i += 2) {
@@ -496,12 +581,11 @@ static void calculate_dispersion(Branch *b, int species, double dt) {
         r[i] = -c[i] * cold[i+2] + r_coef * cold[i] - a[i] * cold[i-2];
     }
     
-    /* Copy r to d for the solve */
-    for (int i = 1; i <= M - 1; i += 2) {
+    /* Copy r to d for interior points only - boundary d values already set above */
+    for (int i = 3; i <= M - 3; i += 2) {
         d[i] = r[i];
     }
-    d[1] = conc[1];
-    d[M-1] = conc[M-1];
+    /* d[1] and d[M-1] remain set to c_down and c_up from above */
     
     /* Solve tridiagonal system (Thomas algorithm) */
     double gam[CGEM_MAX_BRANCH_CELLS + 2];
@@ -577,10 +661,9 @@ int Transport_Branch_Network(Branch *branch, double dt, void *network_ptr) {
     double Q_total;
     double D0_override = -1.0;
     
-    /* Determine which end connects to ocean vs junction */
+    /* Determine which end connects to ocean vs junction to estimate flow direction */
     if (branch->down_node_type == NODE_LEVEL_BC) {
         /* Ocean at downstream (index 1) - standard case */
-        /* Use upstream velocity for Q estimate */
         Q_total = branch->velocity[M] * branch->totalArea[M];
     } else if (branch->up_node_type == NODE_LEVEL_BC) {
         /* Ocean at upstream (rare, reversed branch) */
@@ -599,11 +682,33 @@ int Transport_Branch_Network(Branch *branch, double dt, void *network_ptr) {
         }
     }
     
-    ComputeDispersionCoefficient_Internal(branch, Q_total, D0_override);
+    /* === CRITICAL FIX: DISPERSION DISCHARGE CLAMP === */
+    /* The Van den Burgh equation relies on RESIDUAL (Freshwater) discharge.
+     * Using instantaneous tidal Q (~10,000 m3/s) causes massive over-dispersion.
+     * We must clamp Q to the Net River Discharge (~2,000 m3/s).
+     */
+    double Q_dispersion = fabs(Q_total);
+    if (network_ptr) {
+        Network *net = (Network *)network_ptr;
+        if (net->Q_river > 1.0) {
+            /* If instantaneous flow exceeds river discharge (e.g. during tide), 
+             * clamp it to the physical river discharge for mixing calculations. */
+            if (Q_dispersion > net->Q_river) {
+                Q_dispersion = net->Q_river;
+            }
+            /* Prevent D=0 at slack tide by enforcing a small floor (10% of river) */
+            if (Q_dispersion < net->Q_river * 0.1) {
+                Q_dispersion = net->Q_river * 0.1;
+            }
+        }
+    }
+
+    /* Pass Q_dispersion instead of Q_total */
+    ComputeDispersionCoefficient_Internal(branch, Q_dispersion, D0_override);
     
     /* Process each species - ONLY those with transport flag (env=1) */
     for (int sp = 0; sp < branch->num_species; ++sp) {
-        if (!branch->conc[sp]) continue;
+        if (!branch->conc || !branch->conc[sp]) continue;
         
         /* Skip diagnostic-only species (pH, pCO2, CO2, ALKC) */
         /* These are computed by biogeochemistry, not transported */
@@ -615,8 +720,9 @@ int Transport_Branch_Network(Branch *branch, double dt, void *network_ptr) {
         BranchBoundaryConfig cfg;
         determine_boundary_config(branch, &cfg);
 
-        double default_down = branch->conc[sp][cfg.down_cell];
-        double default_up = branch->conc[sp][cfg.up_cell];
+        /* Use Index 1 for Downstream, Index M for Upstream for defaults */
+        double default_down = (M >= 1) ? branch->conc[sp][1] : 0.0;
+        double default_up = (M >= 1) ? branch->conc[sp][M] : 0.0;
 
         double c_down = (branch->conc_down) ? branch->conc_down[sp] : default_down;
         double c_up = (branch->conc_up) ? branch->conc_up[sp] : default_up;
@@ -627,20 +733,35 @@ int Transport_Branch_Network(Branch *branch, double dt, void *network_ptr) {
         /* Calculate advection */
         calculate_advection(branch, sp, dt);
         
-        /* Calculate dispersion */
-        calculate_dispersion(branch, sp, dt);
+        /* Calculate dispersion - pass BC values for Dirichlet boundaries */
+        calculate_dispersion(branch, sp, dt, c_down, c_up);
         
-        /* Ensure non-negative concentrations */
+        /* Ensure physically valid concentrations */
         for (int i = 0; i <= M + 1; ++i) {
+            /* Non-negative constraint */
             if (branch->conc[sp][i] < 0.0) {
                 branch->conc[sp][i] = 0.0;
             }
+            
+            /* For salinity: enforce max = ocean boundary value (35 psu typical)
+             * Salinity cannot exceed the source concentration in a mixing system */
+            if (sp == CGEM_SPECIES_SALINITY) {
+                double max_sal = CGEM_MAX(c_down, c_up);
+                /* Allow small tolerance for numerical precision */
+                double sal_max = max_sal * 1.01;
+                if (sal_max < 35.0) sal_max = 35.0;  /* At least ocean typical */
+                if (branch->conc[sp][i] > sal_max) {
+                    branch->conc[sp][i] = max_sal;
+                }
+            }
         }
         
-        /* Copy concentration to ghost cells at boundaries for next timestep */
-        branch->conc[sp][0] = branch->conc[sp][1];
-        branch->conc[sp][M] = branch->conc[sp][M-1];
-        branch->conc[sp][M+1] = branch->conc[sp][M-1];
+        /* Set ghost cells to boundary values for next timestep's advection stencil
+         * Interior boundary cells (1 and M-1) evolve via dispersion but need
+         * ghost cells set to BC values for proper flux computation */
+        branch->conc[sp][0] = c_down;      /* Downstream ghost = BC value */
+        branch->conc[sp][M] = c_up;        /* Upstream ghost */
+        branch->conc[sp][M+1] = c_up;      /* Upstream ghost 2 */
     }
     
     return 0;
