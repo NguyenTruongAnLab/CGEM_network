@@ -131,8 +131,12 @@ static void mix_junction_concentrations(Network *net) {
              * temporarily clamped by Dirichlet BCs in the transport solver. This
              * prevents freshwater feedback loops when advection dominates.
              */
-            double numerator = 0.0;
-            double denominator = 0.0;
+            double adv_numerator = 0.0;
+            double adv_denominator = 0.0;
+            double disp_numerator = 0.0;
+            double disp_denominator = 0.0;
+            double total_Q_in = 0.0;
+            double total_G_disp = 0.0;
 
             for (int c = 0; c < node->num_connections; ++c) {
                 int branch_idx = node->connected_branches[c];
@@ -163,10 +167,13 @@ static void mix_junction_concentrations(Network *net) {
                 double Q_flow = vel * area;
                 double Q_mag = fabs(Q_flow);
 
-                /* Junctions act as energetic mixing basins; enforce a stronger dispersion floor */
+                /* Junction dispersion - use actual branch value
+                 * No artificial floor here - let branch dispersion control mixing
+                 * Reference: Fischer et al. (1979) Ch. 7 on junction mixing
+                 */
                 double raw_D = (b->dispersion) ? b->dispersion[boundary_cell] : 0.0;
                 if (raw_D < 0.0) raw_D = 0.0;
-                double D = fmax(raw_D, 50.0);   /* Minimum junction mixing (m^2/s) */
+                double D = fmax(raw_D, 1.0);    /* Minimal turbulence floor (m^2/s) */
 
                 double dx = (b->dx > 1e-6) ? b->dx : 1e-6;
 
@@ -175,38 +182,64 @@ static void mix_junction_concentrations(Network *net) {
                 if (dir == 1 && vel > 0.0) is_flowing_in = 1;
                 if (dir == -1 && vel < 0.0) is_flowing_in = 1;
 
-                /* 3. Sample concentrations for advection/dispersion terms */
+                /* 3. Sample concentrations */
                 double C_interior = b->conc[sp][interior_cell];
 
-                /* 4. Build the mass balance using PURE ADVECTIVE mixing
+                /* 4. Build advective and dispersive contributions
                  * 
-                 * Physical principle:
-                 * At a junction, only INFLOWS contribute mass to the node concentration.
-                 * Dispersion is handled within each branch's transport solver - the junction
-                 * simply routes the advected mass according to flow splits.
+                 * Physical principle (Savenije, 2012; Fischer et al., 1979):
+                 * - ADVECTION: Only inflows contribute mass to the node
+                 * - DISPERSION: Only INFLOWS contribute dispersive mass because:
+                 *   For an INFLOW branch, dispersion opposes advection and brings
+                 *   higher salinity (from ocean side) toward the junction.
+                 *   For an OUTFLOW branch, dispersion would bring mass FROM junction
+                 *   INTO the branch, not contribute TO the junction.
                  * 
-                 * This prevents the unphysical "backward diffusion" where ocean salinity
-                 * from one branch diffuses through the junction into a fresh river branch.
-                 * 
-                 * Reference: Fischer et al. (1979), Savenije (2012) - junctions are control
-                 * volumes where mass conservation applies to advective fluxes only.
+                 * This prevents the unphysical situation where an ocean-connected
+                 * branch (outflow) feeds its high salinity back into a junction
+                 * that should be dominated by fresh river inflow.
                  */
-                
+                double G_disp = (area * D) / dx;  /* Dispersive conductance */
+
+                /* Advective contribution (inflows only) */
                 if (is_flowing_in && Q_mag > 0.0) {
-                    /* Advective flux: branch is bringing water INTO junction */
-                    numerator += Q_mag * C_interior;
-                    denominator += Q_mag;
+                    adv_numerator += Q_mag * C_interior;
+                    adv_denominator += Q_mag;
+                    total_Q_in += Q_mag;
                 }
-                
-                /* Note: Dispersion is NOT added here. Each branch's transport solver
-                 * handles dispersion internally. The junction BC represents what the
-                 * branch "sees" from the river network perspective. */
+
+                /* Dispersive contribution (INFLOWS only - dispersion brings salt upstream) */
+                if (is_flowing_in && G_disp > 0.0) {
+                    disp_numerator += G_disp * C_interior;
+                    disp_denominator += G_disp;
+                    total_G_disp += G_disp;
+                }
             }
 
-            /* 5. Calculate Junction Concentration */
+            /* 5. Calculate Junction Concentration using PURE ADVECTIVE mixing
+             * 
+             * Physical basis (Savenije, 2012, Chapter 6):
+             * At a well-mixed junction, the node concentration is determined by
+             * mass balance of ADVECTIVE fluxes only. Dispersion acts WITHIN
+             * branches to spread gradients, but does not transport mass across
+             * the junction node itself.
+             * 
+             * This is the standard approach in 1D network models:
+             *   C_node = Sum(Q_in * C_in) / Sum(Q_in)
+             * 
+             * Reference: Savenije (2012) "Salinity and Tides in Alluvial Estuaries"
+             *            Fischer et al. (1979) "Mixing in Inland and Coastal Waters"
+             */
             double nodeC = 0.0;
-            if (denominator > 1e-9) {
-                nodeC = numerator / denominator;
+            
+            if (adv_denominator > 1e-9) {
+                /* Pure advective mixing: flow-weighted average of inflows */
+                nodeC = adv_numerator / adv_denominator;
+            } else {
+                /* No inflow - use area-weighted dispersive average as fallback */
+                if (disp_denominator > 1e-9) {
+                    nodeC = disp_numerator / disp_denominator;
+                }
             }
             
             /* Save node mixing concentration */
@@ -238,16 +271,8 @@ static void mix_junction_concentrations(Network *net) {
                 if (dir == 1 && vel > 0.0) is_inflow = 1;       /* Normal flow entering downstream node */
                 if (dir == -1 && vel < 0.0) is_inflow = 1;      /* Reverse flow entering upstream node */
                 
-                double bc_conc = nodeC; /* Default: Mixed Node Value */
-
-                /* If this branch is an INFLOW (supplying water), it shouldn't just see its own water back.
-                 * It should see the salt level of the OTHER branches to allow diffusion.
-                 * However, for stability, we blend towards the node concentration. */
-                if (is_inflow && denominator > 1e-9) {
-                    /* For inflows, use the full node mix - this allows the salt wedge 
-                     * to "pull" into this branch via dispersion at the junction */
-                    bc_conc = nodeC;
-                }
+                /* Use the Peclet-weighted node concentration for all branches */
+                double bc_conc = nodeC;
 
                 /* Apply to boundary */
                 if (dir == -1) {

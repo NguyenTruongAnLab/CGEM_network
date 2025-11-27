@@ -19,8 +19,8 @@ Boundaries = boundary_map.csv
 
 # Simulation period
 StartDate = 2017-01-01
-Duration = 1365
-Warmup_Days = 1000
+Duration = 120
+Warmup_Days = 60
 
 # Numerical parameters
 TimeStepSeconds = 300
