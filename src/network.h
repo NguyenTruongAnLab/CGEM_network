@@ -24,11 +24,21 @@ typedef struct {
     int connection_dir[CGEM_MAX_NODE_BRANCHES];
     int num_connections;
 
+    /* Time-varying hydrodynamic forcing */
     double *forcing_time;
     double *forcing_value;
     size_t forcing_len;
 
+    /* Junction concentration mixing */
     double *mixed_conc;
+    
+    /* Time-varying species boundary conditions */
+    /* species_forcing_time[sp] = array of times for species sp */
+    /* species_forcing_value[sp] = array of values for species sp */
+    double **species_forcing_time;
+    double **species_forcing_value;
+    size_t *species_forcing_len;
+    int num_species_forcing;  /* Number of species with time-varying BC */
 } Node;
 
 typedef struct {
@@ -131,8 +141,8 @@ typedef struct {
     /* Binary output file handle */
     FILE *bin_fp;
 
-    /* CSV output file handles */
-    FILE *csv_fps[25];
+    /* CSV output file handles (hydro + species + reactions) */
+    FILE *csv_fps[60];
     int num_csv_fps;
 } Branch;
 
@@ -172,6 +182,7 @@ typedef struct {
     int warmup_days;
     int write_csv;
     int write_netcdf;
+    int write_reaction_rates;  /* Output reaction rates to CSV (for debugging pCO2) */
     double dt;              /* Time step [s] */
     double dx_meters;       /* Grid spacing [m] specified in case config (DELXI) */
     double tidal_amplitude; /* [m] */
@@ -200,7 +211,14 @@ double TotalDischarge(Branch *branch, int loc, double Q_river);
 
 /* Transport */
 int Transport_Branch(Branch *branch, double dt);
+int Transport_Branch_Network(Branch *branch, double dt, void *network_ptr);
 void ComputeDispersionCoefficient(Branch *branch, double Q_total);
+double ComputeJunctionDispersion(Branch *branch, void *network_ptr);
+
+/* Biogeochemistry */
+int LoadBiogeoParams(const char *path);
+void InitializeBiogeoParameters(Branch *branch);
+int Biogeo_Branch(Branch *branch, double dt);
 
 /* Initialization */
 int initializeNetwork(Network *net, CaseConfig *config);

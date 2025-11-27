@@ -9,7 +9,7 @@
 #include <string.h>
 
 #define MAX_ITER 100
-#define TOLERANCE 1e-3
+#define TOLERANCE 100.0  /* Q tolerance [m³/s] - junction mass balance */
 #define RELAXATION_FACTOR 0.05
 #define RELAXATION_MIN 0.01
 #define RELAXATION_MAX 0.2
@@ -67,6 +67,19 @@ static void set_node_boundary_conc(Branch *b, int species, double value, int nod
     }
 }
 
+/**
+ * Mix concentrations at junction nodes for transport boundary conditions
+ * 
+ * This implements flow-weighted mixing at junctions:
+ *   mixed_conc = Σ(Q_inflow * C_inflow) / Σ(Q_inflow)
+ * 
+ * For branches receiving flow FROM the junction, we assign the mixed concentration
+ * (excluding that branch's own contribution to avoid feedback).
+ * 
+ * Only mixes species with transport flag (env=1); diagnostic species are skipped.
+ * 
+ * Reference: Fischer et al. (1979), Savenije (2012) junction mixing theory
+ */
 static void mix_junction_concentrations(Network *net) {
     if (!net) return;
 
@@ -75,11 +88,18 @@ static void mix_junction_concentrations(Network *net) {
         if (node->type != NODE_JUNCTION || !node->mixed_conc) continue;
 
         for (int sp = 0; sp < net->num_species; ++sp) {
+            /* Skip diagnostic-only species - they don't get transported/mixed */
+            if (sp < CGEM_NUM_SPECIES && !CGEM_SPECIES_TRANSPORT_FLAG[sp]) {
+                continue;
+            }
+            
             double weights[CGEM_MAX_NODE_BRANCHES] = {0};
             double conc_samples[CGEM_MAX_NODE_BRANCHES] = {0};
             double sum_weight = 0.0;
             double sum_weighted_conc = 0.0;
+            int flow_dirs[CGEM_MAX_NODE_BRANCHES] = {0}; /* Track inflow vs outflow */
 
+            /* First pass: gather flow and concentrations from all connected branches */
             for (int c = 0; c < node->num_connections; ++c) {
                 int branch_idx = node->connected_branches[c];
                 Branch *b = net->branches[branch_idx];
@@ -88,54 +108,85 @@ static void mix_junction_concentrations(Network *net) {
                 int dir = node->connection_dir[c];
                 double Q_branch = 0.0;
                 double C_branch = 0.0;
+                int is_inflow = 0;
 
                 if (dir == 1) {
+                    /* Node is at downstream end of branch (index 1) */
                     Q_branch = b->velocity[1] * b->totalArea[1];
-                    int idx = (b->M >= 3) ? 2 : 1;
+                    int idx = (b->M >= 3) ? 3 : 1; /* Use interior cell, not boundary */
                     C_branch = b->conc[sp][idx];
+                    /* Positive velocity means flow INTO junction */
+                    is_inflow = (Q_branch > 0) ? 1 : 0;
                 } else if (dir == -1) {
+                    /* Node is at upstream end of branch (index M) */
                     Q_branch = b->velocity[b->M] * b->totalArea[b->M];
                     int idx = (b->M >= 3) ? (b->M - 2) : b->M - 1;
                     C_branch = b->conc[sp][idx];
+                    /* Positive velocity means flow OUT of junction */
+                    is_inflow = (Q_branch < 0) ? 1 : 0;
                 }
 
                 double weight = fabs(Q_branch);
                 weights[c] = weight;
                 conc_samples[c] = C_branch;
-                if (weight > 0.0) {
+                flow_dirs[c] = is_inflow;
+                
+                /* Only count inflows for mixing calculation */
+                if (is_inflow && weight > 0.0) {
                     sum_weight += weight;
                     sum_weighted_conc += weight * C_branch;
                 }
             }
 
+            /* Calculate mixed concentration from all inflows */
             double nodeC = 0.0;
             if (sum_weight > 0.0) {
                 nodeC = sum_weighted_conc / sum_weight;
             } else {
+                /* No inflow - use previous mixed concentration or simple average */
                 nodeC = node->mixed_conc ? node->mixed_conc[sp] : 0.0;
+                if (nodeC == 0.0) {
+                    /* Fallback: average all connected concentrations */
+                    double sum_c = 0.0;
+                    int count = 0;
+                    for (int c = 0; c < node->num_connections; ++c) {
+                        if (weights[c] > 0.0 || conc_samples[c] > 0.0) {
+                            sum_c += conc_samples[c];
+                            count++;
+                        }
+                    }
+                    if (count > 0) nodeC = sum_c / count;
+                }
             }
 
-            /* Save node mixing concentration for reference */
+            /* Save node mixing concentration for reference and output */
             if (node->mixed_conc) node->mixed_conc[sp] = nodeC;
 
-            /* Second pass: assign concentrations to branch boundaries */
+            /* Second pass: assign boundary concentrations to outflow branches */
             for (int c = 0; c < node->num_connections; ++c) {
                 int branch_idx = node->connected_branches[c];
                 Branch *b = net->branches[branch_idx];
                 if (!b) continue;
 
                 int dir = node->connection_dir[c];
-                double branch_weight = weights[c];
-                double branch_conc = conc_samples[c];
+                int is_inflow = flow_dirs[c];
+                
+                /* For outflow branches: use mixed concentration (excluding own contribution) */
                 double nodeC_excl = nodeC;
-                double remaining = sum_weight - branch_weight;
-                if (remaining > 0.0) {
-                    nodeC_excl = (sum_weighted_conc - branch_weight * branch_conc) / remaining;
+                if (is_inflow && sum_weight > weights[c]) {
+                    /* Exclude this branch's contribution from the mix it receives */
+                    double remaining = sum_weight - weights[c];
+                    if (remaining > 0.0) {
+                        nodeC_excl = (sum_weighted_conc - weights[c] * conc_samples[c]) / remaining;
+                    }
                 }
                 
+                /* Assign to the appropriate boundary of this branch */
                 if (dir == -1) {
+                    /* Junction is at upstream end of this branch */
                     set_node_boundary_conc(b, sp, nodeC_excl, 1);
                 } else if (dir == 1) {
+                    /* Junction is at downstream end of this branch */
                     set_node_boundary_conc(b, sp, nodeC_excl, 0);
                 }
             }
@@ -219,7 +270,7 @@ int solve_network_step(Network *net, double current_time_seconds) {
             
             double sum_Q_in = 0.0;
             double sum_Q_out = 0.0;
-            double storage_area = 1000.0; /* Minimum storage */
+            double storage_area = 0.0;
 
             for (int c = 0; c < node->num_connections; ++c) {
                 int branch_idx = node->connected_branches[c];
@@ -240,7 +291,8 @@ int solve_network_step(Network *net, double current_time_seconds) {
                      if (Q_branch > 0) sum_Q_in += Q_branch;
                      else sum_Q_out += -Q_branch;
                      
-                     storage_area += b->width[1] * b->dx;
+                     /* Use actual cross-section for storage (matches Fortran AA-based residual) */
+                     storage_area += b->totalArea[1];
                 } 
                 else if (dir == -1) {
                     /* Flow at index M is the inlet of the branch */
@@ -250,9 +302,13 @@ int solve_network_step(Network *net, double current_time_seconds) {
                     if (Q_branch > 0) sum_Q_out += Q_branch;
                     else sum_Q_in += -Q_branch;
                     
-                    storage_area += b->width[b->M] * b->dx;
+                    /* Use actual cross-section for storage */
+                    storage_area += b->totalArea[b->M];
                 }
             }
+            
+            /* Ensure minimum storage area for numerical stability */
+            if (storage_area < 100.0) storage_area = 100.0;
             
             double residual_Q = sum_Q_in - sum_Q_out;
             
@@ -284,11 +340,24 @@ int solve_network_step(Network *net, double current_time_seconds) {
 
         if (max_residual < TOLERANCE) break;
     }
+    
+    /* Convergence diagnostics (similar to Fortran Update_otherhydrodynamic_arrays) */
+    /* Log warning if not converged - useful for debugging */
+    static int convergence_warning_count = 0;
+    if (max_residual >= TOLERANCE && convergence_warning_count < 10) {
+        fprintf(stderr, "Warning: Junction iteration did not fully converge. "
+                        "Residual Q = %.3f m³/s (tolerance = %.3f)\n", 
+                        max_residual, TOLERANCE);
+        convergence_warning_count++;
+        if (convergence_warning_count == 10) {
+            fprintf(stderr, "  (Suppressing further convergence warnings)\n");
+        }
+    }
 
     /* Prepare junction-based per-branch boundary concentrations before transport */
     mix_junction_concentrations(net);
 
-    /* Step 3: Transport */
+    /* Step 3: Transport (with junction dispersion continuity) */
     for (size_t i = 0; i < net->num_branches; ++i) {
         Branch *b = net->branches[i];
         if (!b) continue;
@@ -300,7 +369,8 @@ int solve_network_step(Network *net, double current_time_seconds) {
          * is left unchanged.
          */
         
-        Transport_Branch(b, dt);
+        /* Use network-aware transport for junction dispersion continuity */
+        Transport_Branch_Network(b, dt, (void *)net);
         Sediment_Branch(b, dt);
         
         if (current_time_seconds >= net->warmup_time) {

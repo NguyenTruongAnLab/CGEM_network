@@ -31,6 +31,16 @@
 /* Tidal parameters */
 #define CGEM_M2_FREQ 0.080536912751677847  /* M2 tidal frequency [cycle/hr] */
 
+/* Hydrodynamic variable indices */
+#define CGEM_HYDRO_DEPTH       0   /* Water depth H [m] */
+#define CGEM_HYDRO_VELOCITY    1   /* Current velocity U [m/s] */
+#define CGEM_HYDRO_WATERLEVEL  2   /* Water surface elevation [m] */
+#define CGEM_HYDRO_AREA        3   /* Cross-sectional area A [m²] */
+#define CGEM_HYDRO_WIDTH       4   /* Channel width B [m] */
+#define CGEM_HYDRO_DISPERSION  5   /* Dispersion coefficient K [m²/s] */
+
+#define CGEM_NUM_HYDRO 6
+
 /* Species indices (matching Fortran CGEMids) */
 #define CGEM_SPECIES_SALINITY 0
 #define CGEM_SPECIES_PHY1     1
@@ -81,6 +91,31 @@
 
 #define CGEM_NUM_SPECIES 17
 #define CGEM_NUM_REACTIONS 27
+
+/* Species transport flags (env=1 means transport, env=0 means diagnostic only) */
+/* Matching Fortran BGCArray(s)%env convention */
+static const int CGEM_SPECIES_TRANSPORT_FLAG[CGEM_NUM_SPECIES] = {
+    1,  /* SALINITY - transport */
+    1,  /* PHY1 - transport */
+    1,  /* PHY2 - transport */
+    1,  /* DSI - transport */
+    1,  /* NO3 - transport */
+    1,  /* NH4 - transport */
+    1,  /* PO4 - transport */
+    1,  /* O2 - transport */
+    1,  /* TOC - transport */
+    1,  /* SPM - transport */
+    1,  /* DIC - transport */
+    1,  /* AT (alkalinity) - transport */
+    0,  /* PCO2 - diagnostic only (computed from carbonate system) */
+    0,  /* CO2 - diagnostic only (computed from carbonate system) */
+    0,  /* PH - diagnostic only (computed from carbonate system) */
+    1,  /* HS - transport */
+    0   /* ALKC - diagnostic only (iteration counter) */
+};
+
+/* Default open-sea boundary condition distance [m] */
+#define CGEM_DEFAULT_OSBC_DIST 10000.0
 
 /* Utility macros */
 #define CGEM_CLAMP(x, lo, hi) (((x) < (lo)) ? (lo) : (((x) > (hi)) ? (hi) : (x)))

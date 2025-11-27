@@ -8,6 +8,8 @@
  * - TVD (Total Variation Diminishing) advection with flux limiters
  * - Crank-Nicolson implicit dispersion scheme
  * - Open boundary condition handling
+ * - Species environment flag filtering (only transport env=1 species)
+ * - Flux bookkeeping for mass balance diagnostics
  * 
  * Grid convention (matching Fortran):
  * - Concentrations defined at odd indices (cell centers)
@@ -22,6 +24,83 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Local flux storage for diagnostics (per-species, reused each timestep) */
+static double g_adv_flux[CGEM_MAX_BRANCH_CELLS + 2];
+static double g_disp_flux[CGEM_MAX_BRANCH_CELLS + 2];
+
+/**
+ * Compute junction dispersion for branches not connected to ocean
+ * 
+ * For upstream branches (e.g., Tien_Main ending at a junction), the dispersion
+ * at the downstream end should be continuous with the downstream branches.
+ * We use a flow-weighted average of D values from the downstream branches.
+ * 
+ * @param branch The upstream branch
+ * @param net Network containing all branches and nodes
+ * @return D0 value to use at the junction end, or -1 if should use standard calc
+ */
+double ComputeJunctionDispersion(Branch *branch, void *network_ptr) {
+    if (!branch || !network_ptr) return -1.0;
+    
+    Network *net = (Network *)network_ptr;
+    
+    /* Find which node is the junction (not ocean BC) */
+    int junction_node_id = -1;
+    int is_downstream_junction = 0;
+    
+    if (branch->down_node_type == NODE_JUNCTION) {
+        junction_node_id = branch->node_down;
+        is_downstream_junction = 1;
+    } else if (branch->up_node_type == NODE_JUNCTION) {
+        junction_node_id = branch->node_up;
+        is_downstream_junction = 0;
+    }
+    
+    if (junction_node_id < 0 || (size_t)junction_node_id >= net->num_nodes) {
+        return -1.0;  /* No junction, use standard calculation */
+    }
+    
+    Node *junction = &net->nodes[junction_node_id];
+    if (junction->type != NODE_JUNCTION) {
+        return -1.0;
+    }
+    
+    /* Find downstream branches connected to this junction and compute weighted D */
+    double sum_D_Q = 0.0;
+    double sum_Q = 0.0;
+    
+    for (int c = 0; c < junction->num_connections; ++c) {
+        int branch_idx = junction->connected_branches[c];
+        if (branch_idx < 0 || (size_t)branch_idx >= net->num_branches) continue;
+        
+        Branch *other = net->branches[branch_idx];
+        if (!other || other->id == branch->id) continue;
+        
+        int dir = junction->connection_dir[c];
+        
+        /* For an upstream branch's downstream junction:
+         * We want D values from branches that flow OUT of this junction (dir=-1)
+         * Those are the distributary branches */
+        if (is_downstream_junction && dir == -1) {
+            /* This branch flows out of junction - it's a downstream branch */
+            /* Get D at its upstream end (near junction) */
+            double D_at_junction = other->dispersion[other->M];
+            double Q_branch = fabs(other->velocity[other->M] * other->totalArea[other->M]);
+            
+            if (D_at_junction > 0 && Q_branch > 0) {
+                sum_D_Q += D_at_junction * Q_branch;
+                sum_Q += Q_branch;
+            }
+        }
+    }
+    
+    if (sum_Q > 0) {
+        return sum_D_Q / sum_Q;  /* Flow-weighted average D */
+    }
+    
+    return -1.0;  /* No valid downstream D found */
+}
 
 typedef struct {
     int up_cell;
@@ -98,10 +177,14 @@ static void set_dirichlet_value(double *arr, int idx, int ghost_a, int ghost_b, 
  * - β = -(K * LCD * Q) / (D[i-1] * A[i-1])
  * - D[i] = D[i-1] * (1 - β*(exp(dx/LCD) - 1))
  * 
+ * For junction continuity: if D0_override > 0, use it instead of calculating
+ * from local geometry (used for upstream branches at junctions).
+ * 
  * @param branch Branch to compute dispersion for
  * @param Q_total Total upstream discharge [m³/s]
+ * @param D0_override Override D0 value (set to -1 to compute from geometry)
  */
-void ComputeDispersionCoefficient(Branch *branch, double Q_total) {
+static void ComputeDispersionCoefficient_Internal(Branch *branch, double Q_total, double D0_override) {
     if (!branch || branch->M <= 0) return;
     
     int M = branch->M;
@@ -117,15 +200,23 @@ void ComputeDispersionCoefficient(Branch *branch, double Q_total) {
     if (B0 < CGEM_MIN_WIDTH) B0 = CGEM_MIN_WIDTH;
     if (LC < 1000.0) LC = 1e9;  /* Very large for prismatic */
     
-    /* Canter-Cremers estuary number */
-    /* N = -π * Q / (H0 * B0) - negative Q means inflow from river */
-    double N = CGEM_PI * fabs(Q_total) / (H0 * B0);
+    double D0;
     
-    /* Apply Van den Burgh tuning coefficient */
-    N *= branch->vdb_coef;
+    if (D0_override > 0) {
+        /* Use junction-derived D0 for continuity */
+        D0 = D0_override;
+    } else {
+        /* Standard calculation: Canter-Cremers estuary number */
+        /* N = -π * Q / (H0 * B0) - negative Q means inflow from river */
+        double N = CGEM_PI * fabs(Q_total) / (H0 * B0);
+        
+        /* Apply Van den Burgh tuning coefficient */
+        N *= branch->vdb_coef;
+        
+        /* Effective dispersion at mouth: D0 = 26 * sqrt(N*g) * H0^1.5 */
+        D0 = 26.0 * sqrt(N * g) * pow(H0, 1.5);
+    }
     
-    /* Effective dispersion at mouth: D0 = 26 * sqrt(N*g) * H0^1.5 */
-    double D0 = 26.0 * sqrt(N * g) * pow(H0, 1.5);
     branch->D0 = D0;
     branch->dispersion[0] = D0;
     branch->dispersion[1] = D0;
@@ -170,13 +261,38 @@ void ComputeDispersionCoefficient(Branch *branch, double Q_total) {
     }
 }
 
+/**
+ * Public wrapper for dispersion coefficient calculation
+ * (for backward compatibility - always computes D0 from geometry)
+ */
+void ComputeDispersionCoefficient(Branch *branch, double Q_total) {
+    ComputeDispersionCoefficient_Internal(branch, Q_total, -1.0);
+}
+
 /* --------------------------------------------------------------------------
  * Open Boundary Conditions
  * -------------------------------------------------------------------------- */
 
 /**
+ * Check if a species should be transported (env=1) or is diagnostic-only (env=0)
+ * Matches Fortran: IF (BGCArray(s)%env.EQ.1) THEN ... transport ...
+ * 
+ * @param species Species index
+ * @return 1 if species should be transported, 0 if diagnostic only
+ */
+static int species_is_transported(int species) {
+    if (species < 0 || species >= CGEM_NUM_SPECIES) return 0;
+    return CGEM_SPECIES_TRANSPORT_FLAG[species];
+}
+
+/**
  * Apply open boundary conditions for transport
  * Open_Boundary_Conditions
+ * 
+ * Matches Fortran logic:
+ * - If velocity is positive at lower boundary (inflow), relax toward ocean BC
+ * - If velocity is negative (outflow), advect from interior
+ * - Uses configurable OSBCdist (marine extension distance)
  * 
  * @param branch Branch
  * @param species Species index
@@ -192,8 +308,10 @@ static void apply_open_boundaries(Branch *b, int species, double c_down,
     BranchBoundaryConfig cfg;
     determine_boundary_config(b, &cfg);
 
-    /* Distance to open-sea boundary condition */
-    double OSBCdist = 2.0 * fmax(dx, 1.0);
+    /* Distance to open-sea boundary condition - configurable per Fortran OSBCdist */
+    /* Default: 10 km marine extension, can be overridden via branch parameter */
+    double OSBCdist = CGEM_DEFAULT_OSBC_DIST;
+    if (OSBCdist < 2.0 * dx) OSBCdist = 2.0 * dx; /* Minimum 2*dx for stability */
 
     /* Handle downstream boundary */
     if (b->down_node_type == NODE_LEVEL_BC) {
@@ -252,7 +370,10 @@ static double superbee_limiter(double r) {
  * Calculate advective transport using TVD scheme
  * Calculate_Advection
  * 
- * Uses MUSCL-type reconstruction with Superbee limiter
+ * Uses MUSCL-type reconstruction with Superbee limiter.
+ * Stores fluxes in global array for diagnostics/bookkeeping.
+ * 
+ * Reference: Fortran Calculate_Advection in CGEM_Transport.f90
  */
 static void calculate_advection(Branch *b, int species, double dt) {
     int M = b->M;
@@ -266,8 +387,9 @@ static void calculate_advection(Branch *b, int species, double dt) {
     }
     
     /* Calculate advective fluxes at interfaces (even indices) */
-    double flux[CGEM_MAX_BRANCH_CELLS + 2];
-    memset(flux, 0, sizeof(flux));
+    /* Use global flux array for bookkeeping */
+    memset(g_adv_flux, 0, sizeof(g_adv_flux));
+    double *flux = g_adv_flux;
     
     for (int j = 1; j <= M - 2; j += 2) {
         int iface = j + 1;  /* Interface between j and j+2 */
@@ -338,17 +460,25 @@ static void calculate_advection(Branch *b, int species, double dt) {
 /**
  * Calculate dispersive transport using Crank-Nicolson implicit scheme
  * Calculate_Dispersion
+ * 
+ * Stores dispersive fluxes in global array for diagnostics.
+ * Flux = -D * A * dC/dx (negative of Fick's law for convention)
+ * 
+ * Reference: Fortran Calculate_Dispersion in CGEM_Transport.f90
  */
 static void calculate_dispersion(Branch *b, int species, double dt) {
     int M = b->M;
     double dx = b->dx;
     double *conc = b->conc[species];
     
-    /* Store old concentrations */
+    /* Store old concentrations for flux calculation */
     double cold[CGEM_MAX_BRANCH_CELLS + 2];
     for (int j = 1; j <= M - 1; j += 2) {
         cold[j] = conc[j];
     }
+    
+    /* Clear dispersion flux array */
+    memset(g_disp_flux, 0, sizeof(g_disp_flux));
     
     /* Coefficient: α = dt / (8 * dx²) */
     double alpha = dt / (8.0 * dx * dx);
@@ -417,6 +547,15 @@ static void calculate_dispersion(Branch *b, int species, double dt) {
     for (int j = M - 3; j >= 1; j -= 2) {
         conc[j] = conc[j] - gam[j+2] * conc[j+2];
     }
+    
+    /* Calculate dispersive fluxes for diagnostics (matches Fortran) */
+    /* Flux = -D * A * (C_new + C_old)/2 * gradient, using Crank-Nicolson average */
+    for (int i = 2; i <= M - 2; i += 2) {
+        double grad_new = (conc[i+1] - conc[i-1]) / (2.0 * dx);
+        double grad_old = (cold[i+1] - cold[i-1]) / (2.0 * dx);
+        double avg_grad = 0.5 * (grad_new + grad_old);
+        g_disp_flux[i] = -b->dispersion[i] * b->totalArea[i] * avg_grad;
+    }
 }
 
 /* --------------------------------------------------------------------------
@@ -427,11 +566,29 @@ static void calculate_dispersion(Branch *b, int species, double dt) {
  * Main transport solver for a single branch
  * CGEM_Transport
  * 
+ * Key differences from simple implementation:
+ * 1. Only transports species with env=1 flag (diagnostic species like pH, pCO2 are skipped)
+ * 2. Handles junction boundaries differently from ocean boundaries
+ * 3. Stores flux diagnostics for mass balance checking
+ * 4. Supports junction dispersion continuity when network pointer is provided
+ * 
  * @param branch Branch to compute transport for
  * @param dt Time step [s]
  * @return 0 on success, negative on error
  */
 int Transport_Branch(Branch *branch, double dt) {
+    return Transport_Branch_Network(branch, dt, NULL);
+}
+
+/**
+ * Network-aware transport solver with junction dispersion continuity
+ * 
+ * @param branch Branch to compute transport for
+ * @param dt Time step [s]
+ * @param network_ptr Pointer to Network for junction dispersion (can be NULL)
+ * @return 0 on success, negative on error
+ */
+int Transport_Branch_Network(Branch *branch, double dt, void *network_ptr) {
     if (!branch || branch->M <= 0) {
         return -1;
     }
@@ -443,13 +600,43 @@ int Transport_Branch(Branch *branch, double dt) {
     int M = branch->M;
     
     /* Compute dispersion coefficient profile */
-    /* Estimate total discharge from upstream velocity */
-    double Q_total = branch->velocity[M] * branch->totalArea[M];
-    ComputeDispersionCoefficient(branch, Q_total);
+    /* For branches connected to junctions (not ocean), use flow-weighted D0 */
+    double Q_total;
+    double D0_override = -1.0;
     
-    /* Process each species */
+    /* Determine which end connects to ocean vs junction */
+    if (branch->down_node_type == NODE_LEVEL_BC) {
+        /* Ocean at downstream (index 1) - standard case */
+        /* Use upstream velocity for Q estimate */
+        Q_total = branch->velocity[M] * branch->totalArea[M];
+    } else if (branch->up_node_type == NODE_LEVEL_BC) {
+        /* Ocean at upstream (rare, reversed branch) */
+        Q_total = branch->velocity[2] * branch->totalArea[2];
+    } else {
+        /* Internal branch (junction on both ends or junction + discharge) */
+        /* Use the larger velocity magnitude for Q estimate */
+        double Q_up = fabs(branch->velocity[M] * branch->totalArea[M]);
+        double Q_down = fabs(branch->velocity[2] * branch->totalArea[2]);
+        Q_total = (Q_up > Q_down) ? branch->velocity[M] * branch->totalArea[M] 
+                                  : branch->velocity[2] * branch->totalArea[2];
+        
+        /* For branches not connected to ocean, try to get D0 from junction */
+        if (network_ptr) {
+            D0_override = ComputeJunctionDispersion(branch, network_ptr);
+        }
+    }
+    
+    ComputeDispersionCoefficient_Internal(branch, Q_total, D0_override);
+    
+    /* Process each species - ONLY those with transport flag (env=1) */
     for (int sp = 0; sp < branch->num_species; ++sp) {
         if (!branch->conc[sp]) continue;
+        
+        /* Skip diagnostic-only species (pH, pCO2, CO2, ALKC) */
+        /* These are computed by biogeochemistry, not transported */
+        if (!species_is_transported(sp)) {
+            continue;
+        }
         
         /* Get boundary concentrations */
         BranchBoundaryConfig cfg;
@@ -476,6 +663,11 @@ int Transport_Branch(Branch *branch, double dt) {
                 branch->conc[sp][i] = 0.0;
             }
         }
+        
+        /* Copy concentration to ghost cells at boundaries for next timestep */
+        branch->conc[sp][0] = branch->conc[sp][1];
+        branch->conc[sp][M] = branch->conc[sp][M-1];
+        branch->conc[sp][M+1] = branch->conc[sp][M-1];
     }
     
     return 0;
