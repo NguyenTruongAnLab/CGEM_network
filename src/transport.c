@@ -89,7 +89,7 @@ static void set_dirichlet_value(double *arr, int idx, int ghost_a, int ghost_b, 
 
 /**
  * Calculate dispersion coefficient profile using Van den Burgh formulation
- * Matches Fortran: Calculate_Dispersion_Coefficient
+ * Calculate_Dispersion_Coefficient
  * 
  * Reference equations:
  * - Canter-Cremers number: N = -π*Q / (H0*B0)
@@ -176,7 +176,7 @@ void ComputeDispersionCoefficient(Branch *branch, double Q_total) {
 
 /**
  * Apply open boundary conditions for transport
- * Matches Fortran: Open_Boundary_Conditions
+ * Open_Boundary_Conditions
  * 
  * @param branch Branch
  * @param species Species index
@@ -250,7 +250,7 @@ static double superbee_limiter(double r) {
 
 /**
  * Calculate advective transport using TVD scheme
- * Matches Fortran: Calculate_Advection
+ * Calculate_Advection
  * 
  * Uses MUSCL-type reconstruction with Superbee limiter
  */
@@ -337,7 +337,7 @@ static void calculate_advection(Branch *b, int species, double dt) {
 
 /**
  * Calculate dispersive transport using Crank-Nicolson implicit scheme
- * Matches Fortran: Calculate_Dispersion
+ * Calculate_Dispersion
  */
 static void calculate_dispersion(Branch *b, int species, double dt) {
     int M = b->M;
@@ -425,7 +425,7 @@ static void calculate_dispersion(Branch *b, int species, double dt) {
 
 /**
  * Main transport solver for a single branch
- * Matches Fortran: CGEM_Transport
+ * CGEM_Transport
  * 
  * @param branch Branch to compute transport for
  * @param dt Time step [s]
