@@ -201,7 +201,7 @@ void InitializeBranchGeometry(Branch *branch, double target_dx) {
 
 /**
  * Set boundary conditions for the current timestep
- * Matches Fortran: Set_new_boundary_conditions
+ * Set_new_boundary_conditions
  */
 static void set_boundary_conditions(Branch *b, double H_down, double H_up, double Q_upstream) {
     /* Guard */
@@ -248,7 +248,7 @@ static void set_boundary_conditions(Branch *b, double H_down, double H_up, doubl
 
 /**
  * Assemble coefficient matrix for tridiagonal system
- * Matches Fortran: Set_coefficient_matrix
+ * Set_coefficient_matrix
  * 
  * Matrix structure:
  *   tri_lower[i] = lower diagonal (a)
@@ -328,7 +328,7 @@ static void assemble_matrix(Branch *b, double dt) {
 
 /**
  * Solve the tridiagonal system using Thomas algorithm
- * Matches Fortran: Solve_tridiagonal_matrix
+ * Solve_tridiagonal_matrix
  */
 static void solve_tridiagonal(Branch *b, double *solution) {
     int M = b->M;
@@ -376,7 +376,7 @@ static int check_convergence(Branch *b, double *old_freeArea, double *old_veloci
 
 /**
  * Update arrays after solving
- * Matches Fortran: Update_hydrodynamic_arrays
+ * Update_hydrodynamic_arrays
  */
 static void update_arrays(Branch *b, double *solution) {
     int M = b->M;
@@ -418,7 +418,7 @@ static void update_arrays(Branch *b, double *solution) {
 
 /**
  * Main hydrodynamic solver for a single branch
- * Matches Fortran: CGEM_Hydrodynamics
+ * CGEM_Hydrodynamics
  * 
  * @param branch Branch to solve
  * @param H_down Water level at downstream (ocean) boundary [m]
