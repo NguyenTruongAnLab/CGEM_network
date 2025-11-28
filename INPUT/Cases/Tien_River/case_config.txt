@@ -19,8 +19,8 @@ Boundaries = boundary_map.csv
 
 # Simulation period
 StartDate = 2017-01-01
-Duration = 120
-Warmup_Days = 60
+Duration = 200
+Warmup_Days = 100
 
 # Numerical parameters
 TimeStepSeconds = 300
@@ -33,5 +33,5 @@ RiverDischarge = 2000.0
 
 # Output settings
 WriteCSV = 1
-WriteNetCDF = 1
+WriteNetCDF = 0
 WriteReactionRates = 0

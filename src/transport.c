@@ -239,13 +239,30 @@ static void ComputeDispersionCoefficient_Internal(Branch *branch, double Q_total
          * Reference: Savenije (2005) "Salinity and Tides in Alluvial Estuaries"
          *            Nguyen et al. (2008) Mekong salt intrusion study
          */
-        double N = CGEM_PI * fabs(Q_total) / (H0 * B0);
-        N *= branch->vdb_coef;
-        
-        /* Calibrated coefficient: D0 = 4 * sqrt(N*g) * H0^1.5 
-         * This gives D0 ~ 100-300 m²/s for Mekong-like conditions
+        /* Canter-Cremers number N = (Pi * Q) / (H0 * B0)
+         * This is an estuary shape parameter, NOT scaled by vdb_coef.
+         * vdb_coef (K) controls dispersion DECAY, not mouth dispersion.
          */
-        D0 = 4.0 * sqrt(N * g) * pow(H0, 1.5);
+        double N = CGEM_PI * fabs(Q_total) / (H0 * B0);
+        
+        /* Savenije (2005) Canter-Cremers formulation:
+         *   D0 = k * sqrt(N * g) * H0^1.5
+         * 
+         * SCIENTIFIC BASIS:
+         * The empirical coefficient k depends on estuary type:
+         * - k = 14-26: Classic shallow estuaries (Savenije, 2005)
+         * - k = 8-12:  Deep alluvial estuaries (H > 10m)
+         * 
+         * For MEKONG distributaries (H = 11-15m):
+         * - Target D0 = 300-600 m²/s at mouth (observed values)
+         * - Using k = 12.0 to achieve D0 ~ 400-500 m²/s
+         * 
+         * Reference: Savenije (2005) Table 9.2, Nguyen et al. (2008)
+         * 
+         * TUNING NOTE: The Van den Burgh K coefficient (vdb_coef) controls
+         * the DECAY of dispersion upstream, not the mouth value D0.
+         */
+        D0 = 12.0 * sqrt(N * g) * pow(H0, 1.5);
     }
     
     /*
@@ -266,16 +283,16 @@ static void ComputeDispersionCoefficient_Internal(Branch *branch, double Q_total
     
     /* Calculate dispersion along the branch using Savenije (2012) formulation */
     for (int i = 2; i <= M + 1; ++i) {
-        /* Van den Burgh K coefficient (empirical, from Savenije 2005, Table 9.1)
+        /* Van den Burgh K coefficient (Savenije, 2005 Table 9.1)
          * 
-         * K typically ranges from 0.2 to 0.8 for alluvial estuaries.
-         * The formula K = 4.38 * H0^0.36 * B0^-0.21 * LC^-0.14 is empirical.
+         * Use the branch's vdb_coef which is set from calibration:
+         * - K = 0.2-0.3: Flatter dispersion profile, salt penetrates further
+         * - K = 0.5-0.7: Steeper decay, salt stays near mouth
          * 
-         * For large rivers like the Mekong with H~10-15m, B~1000-2000m, LC~50-100km:
-         * K ≈ 4.38 * 12^0.36 * 1500^-0.21 * 75000^-0.14 ≈ 0.3-0.5
+         * This is THE correct tuning parameter for salt intrusion length.
          */
-        double K = 4.38 * pow(H0, 0.36) * pow(B0, -0.21) * pow(fabs(LC), -0.14);
-        K = CGEM_CLAMP(K, 0.2, 0.8);  /* Literature range (Savenije, 2005) */
+        double K = branch->vdb_coef;
+        K = CGEM_CLAMP(K, 0.1, 1.0);  /* Extended range for calibration */
         
         /* Dispersion decay using Savenije (2012) exponential formulation
          * 
@@ -286,10 +303,14 @@ static void ComputeDispersionCoefficient_Internal(Branch *branch, double Q_total
          * where L_d is the dispersion decay length scale.
          * 
          * For a well-mixed estuary (Savenije, 2012, Eq. 9.30):
-         *   L_d = D0 * A / (K * Q)
+         *   L_d = D0 * A / (K * Q_f)
          * 
-         * This means higher river discharge Q causes FASTER decay of dispersion,
-         * which pushes the salt intrusion front seaward (correct physical behavior).
+         * CRITICAL: Q_f must be the RESIDUAL freshwater discharge, NOT
+         * instantaneous tidal Q. The caller (Transport_Branch_Network) clamps
+         * Q to Q_river to ensure this.
+         * 
+         * Higher K or Q causes FASTER decay of dispersion,
+         * which pushes the salt intrusion front seaward.
          * 
          * References:
          * - Savenije, H.H.G. (2005) Salinity and Tides in Alluvial Estuaries, Elsevier
@@ -768,36 +789,23 @@ int Transport_Branch_Network(Branch *branch, double dt, void *network_ptr) {
                 branch->conc[sp][i] = 0.0;
             }
             
-            /* For salinity: enforce physically realistic intrusion envelope
+            /* Physical bounds for conservative tracers (salinity)
              * 
-             * Based on Savenije (2005) salt intrusion theory, the maximum salinity
-             * at distance x from the mouth follows an exponential decay:
-             *   S_max(x) = S0 * exp(-x / L_s)
-             * where L_s is the salt intrusion length.
+             * For conservative species, concentration cannot exceed the maximum
+             * of the boundary values (ocean and river). This is a physical
+             * constraint, not an artificial limit.
              * 
-             * For Mekong-type estuaries:
-             * - Dry season L_s ~ 50-80 km (low discharge)
-             * - Wet season L_s ~ 15-30 km (high discharge)
-             * 
-             * We use the maximum intrusion length (80 km) as an upper envelope
-             * to prevent unphysical salt penetration beyond observed limits.
-             * 
-             * Reference: Savenije (2005), Nguyen et al. (2008), Vo Quoc Thanh (2021)
+             * Numerical schemes (especially Crank-Nicolson) can produce small
+             * overshoots; this correction maintains physical consistency.
              */
             if (sp == CGEM_SPECIES_SALINITY) {
-                double x_from_mouth = (double)i * branch->dx;  /* Distance from mouth */
-                double S0 = c_down;  /* Ocean salinity */
-                
-                /* Maximum intrusion envelope - conservative for dry season */
-                double L_max = 80000.0;  /* 80 km max intrusion length */
-                double S_envelope = S0 * exp(-x_from_mouth / L_max);
-                
-                /* Clamp to background river salinity */
-                if (S_envelope < c_up) S_envelope = c_up;
-                
-                /* Apply envelope constraint */
-                if (branch->conc[sp][i] > S_envelope) {
-                    branch->conc[sp][i] = S_envelope;
+                double max_bc = (c_down > c_up) ? c_down : c_up;
+                double min_bc = (c_down < c_up) ? c_down : c_up;
+                if (branch->conc[sp][i] > max_bc) {
+                    branch->conc[sp][i] = max_bc;
+                }
+                if (branch->conc[sp][i] < min_bc) {
+                    branch->conc[sp][i] = min_bc;
                 }
             }
         }

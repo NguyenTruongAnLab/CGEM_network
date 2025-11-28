@@ -60,7 +60,25 @@ Branch *allocate_branch(int M, int num_species) {
     
     /* Default transport parameters */
     b->D0 = 200.0;
-    b->vdb_coef = 4.0;
+    /* Van den Burgh K coefficient (Savenije, 2005 Table 9.1):
+     * 
+     * SCIENTIFIC BASIS:
+     * K controls the exponential decay of dispersion: D(x) = D0 * exp(-x/L_d)
+     * where L_d = D0 * A / (K * Q_f)
+     * 
+     * - K = 0.2-0.4: Flatter profile, salt penetrates 50-70 km (deep alluvial)
+     * - K = 0.5-0.7: Steeper decay, salt stays near mouth (shallow estuaries)
+     * - K = 0.8-1.0: Very steep, minimal intrusion (narrow channels)
+     * 
+     * For MEKONG distributaries (H > 10m, funnel-shaped):
+     * - Observed salt intrusion: 40-60 km in dry season
+     * - Calibrated K = 0.30-0.40 (Nguyen et al., 2008; Savenije, 2005)
+     * 
+     * TUNING NOTE: Decrease K to allow more salt intrusion upstream.
+     * 
+     * Reference: Savenije (2005) "Salinity and Tides in Alluvial Estuaries"
+     */
+    b->vdb_coef = 0.35;
 
     /* Initialize CSV file pointers to NULL to avoid accidental reuse */
     for (int i = 0; i < 25; ++i) b->csv_fps[i] = NULL;
