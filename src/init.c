@@ -118,6 +118,77 @@ void init_species_bc(Branch *b, int num_species) {
         b->conc_up[CGEM_SPECIES_PH] = 7.8;              /* Lower pH */
         b->conc_up[CGEM_SPECIES_HS] = 0.0;              /* No hydrogen sulfide [µM] */
         b->conc_up[CGEM_SPECIES_ALKC] = 1200.0;         /* Moderate carbonate alk [µM] */
+        
+        /* ===============================================================
+         * RIVE Multi-Pool Organic Matter (HD1-3, HP1-3)
+         * Reference: Billen et al. (1994), Garnier et al. (2000)
+         * 
+         * Mekong River: High sediment/DOC load from Tonle Sap + agriculture
+         * Total DOC ~2-4 mg C/L in dry season (Liu et al., 2007)
+         * POC ~1-3 mg C/L (bound to SPM)
+         * =============================================================== */
+        /* Dissolved OC pools [µM C = mg C/L × 83.3] */
+        b->conc_up[CGEM_SPECIES_HD1] = 50.0;   /* Labile DOC: 0.6 mg C/L - fast degradation */
+        b->conc_up[CGEM_SPECIES_HD2] = 100.0;  /* Semi-labile DOC: 1.2 mg C/L */
+        b->conc_up[CGEM_SPECIES_HD3] = 150.0;  /* Refractory DOC: 1.8 mg C/L */
+        
+        /* Particulate OC pools [µM C] - bound to SPM */
+        b->conc_up[CGEM_SPECIES_HP1] = 30.0;   /* Labile POC: 0.36 mg C/L */
+        b->conc_up[CGEM_SPECIES_HP2] = 60.0;   /* Semi-labile POC: 0.72 mg C/L */
+        b->conc_up[CGEM_SPECIES_HP3] = 80.0;   /* Refractory POC: 0.96 mg C/L */
+        
+        /* ===============================================================
+         * RIVE Heterotrophic Bacteria
+         * Reference: Garnier et al. (1992), Servais & Billen (1989)
+         * 
+         * Typical river bacteria: 0.05-0.5 mg C/L
+         * =============================================================== */
+        b->conc_up[CGEM_SPECIES_BAG] = 0.1;    /* Attached bacteria [mg C/L] */
+        b->conc_up[CGEM_SPECIES_BAP] = 0.05;   /* Free bacteria [mg C/L] */
+        
+        /* ===============================================================
+         * RIVE Phosphorus and Substrates
+         * =============================================================== */
+        b->conc_up[CGEM_SPECIES_PIP] = 1.0;    /* Adsorbed P [µM P] - on sediment */
+        b->conc_up[CGEM_SPECIES_DSS] = 0.2;    /* Simple substrates [mg C/L] - bacteria food */
+        
+        /* ===============================================================
+         * Greenhouse Gas Species
+         * Reference: Borges et al. (2015), Hu et al. (2016) - Tropical rivers
+         * 
+         * Rivers are typically supersaturated in CO2, CH4, N2O
+         * =============================================================== */
+        b->conc_up[CGEM_SPECIES_NO2] = 0.5;    /* Nitrite [µM N] - nitrification intermediate */
+        b->conc_up[CGEM_SPECIES_N2O] = 20.0;   /* N2O [nmol/L] - Mekong: 10-50 nmol/L */
+        b->conc_up[CGEM_SPECIES_CH4] = 200.0;  /* CH4 [nmol/L] - Mekong: 100-500 nmol/L */
+    }
+    
+    /* ===================================================================
+     * Ocean boundary conditions for RIVE species (low/depleted values)
+     * =================================================================== */
+    if (b->conc_down && b->down_node_type == NODE_LEVEL_BC) {
+        /* Dissolved OC pools - much lower in ocean */
+        b->conc_down[CGEM_SPECIES_HD1] = 5.0;   /* Labile DOC - rapidly consumed */
+        b->conc_down[CGEM_SPECIES_HD2] = 20.0;  /* Semi-labile DOC */
+        b->conc_down[CGEM_SPECIES_HD3] = 50.0;  /* Refractory DOC - marine CDOM */
+        
+        /* Particulate OC - much lower in clear ocean water */
+        b->conc_down[CGEM_SPECIES_HP1] = 2.0;
+        b->conc_down[CGEM_SPECIES_HP2] = 5.0;
+        b->conc_down[CGEM_SPECIES_HP3] = 10.0;
+        
+        /* Marine bacteria - lower than freshwater */
+        b->conc_down[CGEM_SPECIES_BAG] = 0.02;
+        b->conc_down[CGEM_SPECIES_BAP] = 0.02;
+        
+        /* Phosphorus and substrates */
+        b->conc_down[CGEM_SPECIES_PIP] = 0.1;   /* Less adsorbed P in clear water */
+        b->conc_down[CGEM_SPECIES_DSS] = 0.05;  /* Low substrates */
+        
+        /* GHG species - ocean is undersaturated relative to atmosphere */
+        b->conc_down[CGEM_SPECIES_NO2] = 0.1;   /* Low nitrite in oxic ocean */
+        b->conc_down[CGEM_SPECIES_N2O] = 8.0;   /* Near equilibrium ~7-10 nmol/L */
+        b->conc_down[CGEM_SPECIES_CH4] = 3.0;   /* Near equilibrium ~2-5 nmol/L */
     }
 
     /* Special case for Test_Mixing: set specific salinities */

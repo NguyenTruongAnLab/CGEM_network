@@ -1,12 +1,13 @@
 # ============================================================================
-# C-GEM Network: Mekong Delta (Nguyen-Savenije Simplified)
+# C-GEM Network: Mekong Delta (Nguyen-Savenije Hierarchical)
 # ============================================================================
-# Simplified topology following Nguyen et al. (2006):
-# - 8 branches, 9 nodes
+# Hierarchical topology following Nguyen et al. (2006):
+# - 9 branches, 10 nodes
 # - Merged distributaries for proper Savenije geometry
 # - Prismatic Vam Nao connector
+# - Co Chien splits first, then My Tho/Ham Luong
 #
-# Generated: 2025-11-30 20:00:15
+# Generated: 2025-11-30 21:05:42
 # ============================================================================
 
 CaseName = Mekong_Delta_Full
@@ -23,10 +24,10 @@ Duration = 10
 Warmup = 3
 
 # Numerical parameters
-TimeStep = 60.0
+TimeStep = 300.0
 DELXI = 2000.0
 
 # Output
-WriteNetCDF = 1
+WriteNetCDF = 0
 WriteCSV = 1
 WriteReactionRates = 0

@@ -30,12 +30,34 @@ from matplotlib.collections import PatchCollection
 # --- Configuration for Maps ---
 WIDTH_SCALE = 5.0     # Exaggerate width for visibility (1km -> 5 units)
 Y_SPACING = 40.0      # Vertical spread for tree layout
-CURVATURE = 0.5       # Bezier curve strength
+CURVATURE = 0.35      # Bezier curve strength (reduced for hierarchical splits)
 
 # --- ACADEMIC CONFIGURATION ---
 # Set to True for "Seamless/Sankey" look (forces downstream sum = upstream width).
 # Set to False for "Physical/Exact" look (shows actual widths from topology.csv).
 BALANCE_JUNCTIONS = True 
+
+# Geographic Y-hints for Mekong Delta branches (North = positive Y, South = negative Y)
+# This ensures proper N→S ordering in the visualization
+GEOGRAPHIC_Y_HINTS = {
+    # Upstream inlets
+    "Tan_Chau": 30,      # Tien inlet (slightly north)
+    "Chau_Doc": -50,     # Hau inlet (south)
+    
+    # Vam Nao junctions
+    "VamNao_Tien": 20,
+    "VamNao_Hau": -30,
+    
+    # Tien splits
+    "Co_Chien_Split": 10,
+    "MyTho_Split": 15,
+    
+    # Outlets (N→S order)
+    "MyTho_Mouth": 40,        # Northernmost
+    "HamLuong_Mouth": 20,     # Central
+    "CoChien_Mouth": 0,       # South Tien
+    "Hau_Mouth": -60,         # Far South
+} 
 
 def ensure_dir(path):
     if not os.path.isdir(path):
@@ -91,8 +113,16 @@ def load_topology(output_dir, input_arg=None):
     return None
 
 def build_schematic_layout(df):
-    """Auto-generates (x,y) coordinates for nodes using NetworkX."""
+    """Auto-generates (x,y) coordinates for nodes using NetworkX.
+    
+    Uses GEOGRAPHIC_Y_HINTS for proper North-South ordering when available.
+    Falls back to automatic tree layout for unknown nodes.
+    """
     G = nx.DiGraph()
+    
+    # Build node name lookup from boundary_map if available (for Y-hint matching)
+    node_names = {}
+    
     for _, row in df.iterrows():
         G.add_edge(row['NodeUp'], row['NodeDown'], 
                    length=row['Length']/1000.0, data=row)
@@ -100,6 +130,7 @@ def build_schematic_layout(df):
     roots = [n for n, d in G.in_degree() if d == 0]
     if not roots and len(G.nodes) > 0: roots = [list(G.nodes)[0]]
     
+    # X-position: Cumulative distance from roots (upstream → downstream)
     pos_x = {}
     for root in roots: pos_x[root] = 0.0
     
@@ -114,20 +145,67 @@ def build_schematic_layout(df):
             dist = G[u][v]['length']
             pos_x[v] = max(pos_x.get(v, 0), pos_x[u] + dist)
 
+    # Y-position: Use geographic hints if available, otherwise auto-layout
     pos_y = {}
+    
+    # Try to load boundary_map for node names
+    try:
+        # Look for boundary_map in same directory as topology
+        import os
+        topo_dir = os.path.dirname(df.attrs.get('source_path', ''))
+        if not topo_dir:
+            # Try default location
+            topo_dir = 'INPUT/Cases/Mekong_Delta_Full'
+        
+        bmap_path = os.path.join(topo_dir, 'boundary_map.csv')
+        if os.path.exists(bmap_path):
+            bmap = pd.read_csv(bmap_path, comment='#', skipinitialspace=True, header=None)
+            for _, row in bmap.iterrows():
+                if len(row) >= 2:
+                    node_id = int(row[0])
+                    node_name = str(row[1]).strip()
+                    node_names[node_id] = node_name
+    except:
+        pass
+    
+    # Apply geographic hints where available
+    for node in G.nodes():
+        node_name = node_names.get(node, '')
+        if node_name in GEOGRAPHIC_Y_HINTS:
+            pos_y[node] = GEOGRAPHIC_Y_HINTS[node_name]
+    
+    # For nodes without hints, use automatic tree layout
     def assign_y(node, y_center, height):
+        if node in pos_y:
+            return  # Already has geographic hint
         pos_y[node] = y_center
         children = list(G.successors(node))
         if not children: return
-        step = height / len(children)
+        
+        # Filter children that don't have Y yet
+        children_need_y = [c for c in children if c not in pos_y]
+        if not children_need_y: return
+        
+        step = height / len(children_need_y)
         curr = y_center + (height/2.0) - (step/2.0)
-        for child in sorted(children):
-            if child not in pos_y:
-                assign_y(child, curr, step)
+        for child in sorted(children_need_y):
+            assign_y(child, curr, step)
             curr -= step
 
     for i, root in enumerate(roots):
-        assign_y(root, i * -100, 100)
+        if root not in pos_y:
+            assign_y(root, i * -100, 100)
+    
+    # Ensure all nodes have Y position
+    for node in G.nodes():
+        if node not in pos_y:
+            # Find nearest node with Y and offset
+            for parent in G.predecessors(node):
+                if parent in pos_y:
+                    pos_y[node] = pos_y[parent] - 10
+                    break
+            if node not in pos_y:
+                pos_y[node] = 0
 
     base_pos = {n: (pos_x[n], pos_y.get(n, 0)) for n in G.nodes}
     return G, base_pos

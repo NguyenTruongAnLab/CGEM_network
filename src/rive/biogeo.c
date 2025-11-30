@@ -185,7 +185,25 @@ static double calculate_carbonate_system(Branch *branch, int idx, double temp,
                                                           (-15.0 / 106.0) * npp_nh4 +
                                                           (17.0 / 106.0) * npp_no3;
 
-    (void)pco2;
+    /* Calculate and update pCO2 [µatm] from dissolved CO2 and Henry's constant
+     * pCO2 = CO2 / K_H where K_H is Henry's constant [µmol/L/µatm]
+     * 
+     * Typical values for tropical estuaries:
+     * - Atmosphere: ~415 µatm
+     * - Freshwater (supersaturated): 1000-5000 µatm
+     * - Marine (near equilibrium): 350-450 µatm
+     */
+    double henry_coef = henry / 1e6;  /* Convert from µmol m⁻³ µatm⁻¹ to µmol L⁻¹ µatm⁻¹ */
+    if (henry_coef > 1e-12) {
+        pco2[idx] = co2_spec / henry_coef;
+    } else {
+        pco2[idx] = 400.0;  /* Default atmospheric value */
+    }
+    
+    /* Clamp to physical range */
+    if (pco2[idx] < 100.0) pco2[idx] = 100.0;
+    if (pco2[idx] > 20000.0) pco2[idx] = 20000.0;  /* Max for highly supersaturated waters */
+    
     return henry;
 }
 
@@ -315,6 +333,12 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt) {
             double ta_change = (15.0/106.0) * toc_deg_rate - 2.0 * nit_rate + (93.4/106.0) * denit_rate;
             at[i] = CGEM_MAX(0.0, at[i] + ta_change * dt);
         }
+        
+        /* =======================================================================
+         * CARBONATE CHEMISTRY (compute pH, pCO2 from DIC/TA)
+         * This is critical even in simplified mode for CO2 flux calculations
+         * =======================================================================*/
+        calculate_carbonate_system(branch, i, temp, depth, sal, pis_vel[i]);
     }
     
     free(pis_vel);
