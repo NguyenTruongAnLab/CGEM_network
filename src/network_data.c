@@ -74,6 +74,18 @@ Branch *allocate_branch(int M, int num_species) {
         b->reaction_rates[r] = (double *)calloc(field_len, sizeof(double));
     }
     
+    /* =======================================================================
+     * LATERAL LOADS (Land-Use Coupling)
+     * Allocate arrays for spatially-distributed lateral inflows and loads
+     * These will be populated by LoadLateralSources() from CSV
+     * =======================================================================*/
+    b->lateral_flow = (double *)calloc(field_len, sizeof(double));
+    b->lateral_conc = (double **)calloc((size_t)num_species, sizeof(double *));
+    for (int s = 0; s < num_species; ++s) {
+        b->lateral_conc[s] = (double *)calloc(field_len, sizeof(double));
+    }
+    b->has_lateral_loads = 0;  /* Will be set to 1 if loads are loaded */
+    
     /* Default transport parameters */
     b->D0 = 200.0;
     /* Van den Burgh K coefficient (Savenije, 2005 Table 9.1):
@@ -146,6 +158,15 @@ void free_branch(Branch *branch, int num_species) {
             free(branch->reaction_rates[r]);
         }
         free(branch->reaction_rates);
+    }
+    
+    /* Free lateral load arrays */
+    free(branch->lateral_flow);
+    if (branch->lateral_conc) {
+        for (int s = 0; s < num_species; ++s) {
+            free(branch->lateral_conc[s]);
+        }
+        free(branch->lateral_conc);
     }
 
     /* No matrix CSV to close; per-variable CSVs are closed elsewhere */

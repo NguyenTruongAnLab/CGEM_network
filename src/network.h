@@ -195,6 +195,15 @@ typedef struct {
     /* Gas exchange */
     double pco2_atm;           /* Atmospheric pCO2 [µatm] */
     
+    /* =======================================================================
+     * LATERAL LOADS (Land-Use Coupling)
+     * Spatially explicit loads from urban, agriculture, aquaculture, mangroves
+     * Reference: Garnier et al. (2005), Alongi (2014)
+     * =======================================================================*/
+    double *lateral_flow;      /* Lateral inflow [m³/s] per grid cell */
+    double **lateral_conc;     /* Lateral concentrations [NSPECIES][M+2] [µmol/L or mg/L] */
+    int has_lateral_loads;     /* Flag: 1 if lateral loads are active */
+    
     /* Reaction arrays for output */
     double **reaction_rates;   /* [num_reactions][M+2] */
     int num_reactions;
@@ -280,6 +289,10 @@ double ComputeJunctionDispersion(Branch *branch, void *network_ptr);
 int LoadBiogeoParams(const char *path);
 void InitializeBiogeoParameters(Branch *branch);
 int Biogeo_Branch(Branch *branch, double dt);
+
+/* Lateral Loads (Land-Use Coupling) */
+int LoadLateralSources(Network *net, const char *case_dir);
+void ApplyLateralLoads(Branch *branch, double dt);
 
 /* C-RIVE Enhanced Biogeochemistry (GHG and RK4 solver) */
 int Biogeo_GHG_Branch(Branch *branch, double dt);

@@ -168,6 +168,15 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
+    /* =================================================================
+     * LATERAL LOADS (Land-Use Coupling)
+     * Load spatially-explicit loads from urban, agriculture, aquaculture
+     * =================================================================*/
+    if (LoadLateralSources(&network, case_config.base_dir) != 0) {
+        fprintf(stderr, "Warning: Failed to load lateral sources\n");
+        /* Continue anyway - lateral loads are optional */
+    }
+
     /* Transfer config to network */
     network.dt = case_config.dt;
     network.tidal_amplitude = case_config.tidal_amplitude;

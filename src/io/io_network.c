@@ -721,3 +721,175 @@ int LoadBoundaries(const char *path, Network *net) {
     fclose(fp);
     return 0;
 }
+
+/* ===========================================================================
+ * LATERAL SOURCES LOADER
+ * Reads spatially-explicit lateral loads from land-use analysis
+ * 
+ * CSV Format:
+ * Branch, Segment_Index, Distance_km, Area_km2, Q_lat_m3_s, 
+ * NH4_load_g_s, NO3_load_g_s, PO4_load_g_s, TOC_load_g_s, DIC_load_g_s,
+ * NH4_conc_mg_L, NO3_conc_mg_L, PO4_conc_mg_L, TOC_conc_mg_L, DIC_conc_mg_L
+ * 
+ * Reference: JAXA land use data fusion approach
+ * ===========================================================================*/
+
+/**
+ * Find branch by name (case-insensitive)
+ */
+static Branch *find_branch_by_name(Network *net, const char *name) {
+    if (!net || !name) return NULL;
+    
+    for (size_t b = 0; b < net->num_branches; ++b) {
+        if (string_ieq(net->branches[b]->name, name)) {
+            return net->branches[b];
+        }
+    }
+    return NULL;
+}
+
+/**
+ * Load lateral sources from CSV file
+ * 
+ * Converts mass loads (g/s) to concentration increments per cell
+ * The loads are applied as:
+ *   dC = (Q_lat * C_lat) / (Area * depth) * dt
+ * where Q_lat is lateral inflow, C_lat is load concentration
+ * 
+ * @param net Network structure
+ * @param case_dir Path to case directory
+ * @return 0 on success, -1 on failure
+ */
+int LoadLateralSources(Network *net, const char *case_dir) {
+    if (!net || !case_dir) return -1;
+    
+    char path[CGEM_MAX_PATH];
+    snprintf(path, sizeof(path), "%s/lateral_sources.csv", case_dir);
+    
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        printf("No lateral sources file found: %s (continuing without lateral loads)\n", path);
+        return 0;  /* Not an error - lateral loads are optional */
+    }
+    
+    printf("Loading lateral sources from: %s\n", path);
+    
+    char line[2048];
+    int line_num = 0;
+    int total_loaded = 0;
+    
+    /* Unit conversion factors:
+     * Input: g/s of mass load, m³/s of flow
+     * Target: concentration in µmol/L (for nutrients) or mg/L (for OC)
+     * 
+     * For NH4 (g N/s → µmol N/L):
+     *   g N/s ÷ (m³/s × 14 g/mol × 1e-6 mol/µmol × 1000 L/m³)
+     *   = g N/s ÷ (Q_m3_s × 0.014)  [µmol N/L]
+     * 
+     * For TOC (g C/s → µmol C/L):
+     *   g C/s ÷ (m³/s × 12 g/mol × 1e-6 mol/µmol × 1000 L/m³)
+     *   = g C/s ÷ (Q_m3_s × 0.012)  [µmol C/L]
+     */
+    
+    /* Read header line */
+    if (!fgets(line, sizeof(line), fp)) {
+        fclose(fp);
+        return -1;
+    }
+    
+    while (fgets(line, sizeof(line), fp)) {
+        line_num++;
+        
+        /* Parse CSV line */
+        char branch_name[64];
+        int segment_idx;
+        double dist_km, area_km2, Q_lat;
+        double nh4_g_s, no3_g_s, po4_g_s, toc_g_s, dic_g_s;
+        double nh4_conc, no3_conc, po4_conc, toc_conc, dic_conc;
+        
+        int parsed = sscanf(line, "%63[^,],%d,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf",
+                           branch_name, &segment_idx, &dist_km, &area_km2, &Q_lat,
+                           &nh4_g_s, &no3_g_s, &po4_g_s, &toc_g_s, &dic_g_s,
+                           &nh4_conc, &no3_conc, &po4_conc, &toc_conc, &dic_conc);
+        
+        if (parsed < 10) {
+            fprintf(stderr, "Warning: Failed to parse lateral_sources.csv line %d\n", line_num);
+            continue;
+        }
+        
+        /* Find the branch */
+        trim_in_place(branch_name);
+        Branch *b = find_branch_by_name(net, branch_name);
+        if (!b) {
+            /* Branch not in network - skip silently */
+            continue;
+        }
+        
+        /* Map distance to grid index
+         * Grid indices go from 1 (downstream/mouth) to M (upstream)
+         * Distance in CSV is from upstream (0 = upstream junction)
+         * So: grid_idx = M - (dist_km * 1000 / dx)
+         */
+        int grid_idx = b->M - (int)(dist_km * 1000.0 / b->dx);
+        if (grid_idx < 1) grid_idx = 1;
+        if (grid_idx > b->M) grid_idx = b->M;
+        
+        /* Store lateral flow */
+        if (b->lateral_flow) {
+            b->lateral_flow[grid_idx] += Q_lat;
+        }
+        
+        /* Store lateral concentrations
+         * Convert from g/s to µmol/L (for species tracked in µmol/L)
+         * 
+         * Strategy: Store the CONCENTRATION in mg/L (from CSV conc columns)
+         * The concentration will be mixed with the cell concentration 
+         * based on flow ratio in biogeo.c
+         */
+        if (b->lateral_conc && Q_lat > 1e-10) {
+            /* NH4: mg N/L → µmol N/L (×1000/14 = ×71.4) */
+            b->lateral_conc[CGEM_SPECIES_NH4][grid_idx] = nh4_conc * 71.4;
+            
+            /* NO3: mg N/L → µmol N/L */
+            b->lateral_conc[CGEM_SPECIES_NO3][grid_idx] = no3_conc * 71.4;
+            
+            /* PO4: mg P/L → µmol P/L (×1000/31 = ×32.3) */
+            b->lateral_conc[CGEM_SPECIES_PO4][grid_idx] = po4_conc * 32.3;
+            
+            /* TOC: mg C/L → µmol C/L (×1000/12 = ×83.3) */
+            b->lateral_conc[CGEM_SPECIES_TOC][grid_idx] = toc_conc * 83.3;
+            
+            /* DIC: mg C/L → µmol C/L */
+            b->lateral_conc[CGEM_SPECIES_DIC][grid_idx] = dic_conc * 83.3;
+        }
+        
+        total_loaded++;
+        b->has_lateral_loads = 1;
+    }
+    
+    fclose(fp);
+    
+    /* Print summary */
+    int branches_with_loads = 0;
+    double total_Q_lat = 0.0;
+    double total_NH4_load = 0.0;
+    
+    for (size_t b = 0; b < net->num_branches; ++b) {
+        Branch *br = net->branches[b];
+        if (br->has_lateral_loads) {
+            branches_with_loads++;
+            for (int i = 1; i <= br->M; ++i) {
+                total_Q_lat += br->lateral_flow[i];
+                /* Estimate NH4 load from flow × concentration */
+                total_NH4_load += br->lateral_flow[i] * 
+                                  br->lateral_conc[CGEM_SPECIES_NH4][i] / 71.4;  /* Back to mg/s */
+            }
+        }
+    }
+    
+    printf("  Loaded %d segments for %d branches\n", total_loaded, branches_with_loads);
+    printf("  Total lateral Q: %.3f m³/s (%.0f m³/day)\n", total_Q_lat, total_Q_lat * 86400);
+    printf("  Est. NH4 load: %.1f mg/s (%.1f kg/day)\n", total_NH4_load, total_NH4_load * 86.4);
+    
+    return 0;
+}

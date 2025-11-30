@@ -335,6 +335,64 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt) {
         }
         
         /* =======================================================================
+         * LATERAL LOADS (Land-Use Coupling)
+         * 
+         * Add mass flux from urban, agriculture, aquaculture, and mangroves.
+         * 
+         * The source term is:
+         *   dC/dt = Q_lat / V * (C_lat - C)
+         * 
+         * where:
+         *   Q_lat = lateral inflow [m³/s]
+         *   V = cell volume = Area × depth × dx
+         *   C_lat = concentration of lateral inflow [µmol/L]
+         *   C = current concentration [µmol/L]
+         * 
+         * For small Q_lat << V/dt, this simplifies to:
+         *   dC = Q_lat * C_lat / V * dt
+         * 
+         * Reference: Garnier et al. (2005), Billen et al. (2007)
+         * =======================================================================*/
+        if (branch->has_lateral_loads && branch->lateral_flow && branch->lateral_conc) {
+            double Q_lat = branch->lateral_flow[i];  /* m³/s */
+            
+            if (Q_lat > 1e-10) {
+                /* Cell volume [m³] = width × depth × dx */
+                double cell_volume = branch->width[i] * depth * branch->dx;
+                
+                if (cell_volume > 1e-6) {
+                    /* Mixing factor: fraction of cell replaced per dt */
+                    double mix_factor = (Q_lat * dt) / cell_volume;
+                    
+                    /* Clamp to prevent numerical instability */
+                    if (mix_factor > 0.1) mix_factor = 0.1;  /* Max 10% replacement per step */
+                    
+                    /* Apply lateral concentrations */
+                    double C_lat_nh4 = branch->lateral_conc[CGEM_SPECIES_NH4][i];
+                    double C_lat_no3 = branch->lateral_conc[CGEM_SPECIES_NO3][i];
+                    double C_lat_po4 = branch->lateral_conc[CGEM_SPECIES_PO4][i];
+                    double C_lat_toc = branch->lateral_conc[CGEM_SPECIES_TOC][i];
+                    double C_lat_dic = branch->lateral_conc[CGEM_SPECIES_DIC][i];
+                    
+                    /* Mix with current concentrations */
+                    nh4[i] = CGEM_MAX(0.0, nh4[i] + mix_factor * (C_lat_nh4 - nh4[i]));
+                    no3[i] = CGEM_MAX(0.0, no3[i] + mix_factor * (C_lat_no3 - no3[i]));
+                    
+                    if (branch->conc[CGEM_SPECIES_PO4]) {
+                        branch->conc[CGEM_SPECIES_PO4][i] = CGEM_MAX(0.0, 
+                            branch->conc[CGEM_SPECIES_PO4][i] + mix_factor * (C_lat_po4 - branch->conc[CGEM_SPECIES_PO4][i]));
+                    }
+                    
+                    toc[i] = CGEM_MAX(0.0, toc[i] + mix_factor * (C_lat_toc - toc[i]));
+                    
+                    if (dic) {
+                        dic[i] = CGEM_MAX(0.0, dic[i] + mix_factor * (C_lat_dic - dic[i]));
+                    }
+                }
+            }
+        }
+        
+        /* =======================================================================
          * CARBONATE CHEMISTRY (compute pH, pCO2 from DIC/TA)
          * This is critical even in simplified mode for CO2 flux calculations
          * =======================================================================*/
