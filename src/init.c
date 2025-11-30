@@ -157,9 +157,27 @@ void init_species_bc(Branch *b, int num_species) {
             /* Ocean at downstream: use exponential profile for salinity,
              * linear for other species */
             if (sp == CGEM_SPECIES_SALINITY) {
-                /* Typical salt intrusion length for Mekong: 30-60 km during dry season
-                 * Reference: Nguyen et al. (2008), Vo Quoc Thanh (2021) */
-                double L_intrusion = 40000.0;  /* 40 km initial intrusion length */
+                /* Depth-scaled salt intrusion length (Savenije, 2005)
+                 * 
+                 * The salt intrusion length scales with depth as:
+                 *   L_s ~ H^(3/2)  (from Savenije's analytical solutions)
+                 * 
+                 * Base intrusion: 40 km for reference depth of 10 m
+                 * Deep channels (H=14-15m): L_s ~ 65-75 km
+                 * Shallow channels (H=10-11m): L_s ~ 40-50 km
+                 * 
+                 * Reference: Savenije (2005) "Salinity and Tides in Alluvial Estuaries"
+                 *            Nguyen et al. (2008) Mekong salt intrusion observations
+                 */
+                double H_ref = 10.0;  /* Reference depth [m] */
+                double L_base = 40000.0;  /* Base intrusion length at H_ref [m] */
+                double H_branch = (b->depth_m > 1.0) ? b->depth_m : 10.0;
+                double L_intrusion = L_base * pow(H_branch / H_ref, 1.5);
+                
+                /* Clamp to realistic range: 20-100 km */
+                if (L_intrusion < 20000.0) L_intrusion = 20000.0;
+                if (L_intrusion > 100000.0) L_intrusion = 100000.0;
+                
                 for (int i = 0; i <= b->M + 1; ++i) {
                     double x = i * b->dx;  /* Distance from mouth */
                     double S_exp = c_down * exp(-x / L_intrusion);

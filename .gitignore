@@ -4,6 +4,8 @@
 /OUTPUT/
 /CGEM_fortran/
 /CGEM_single_branch/
+/QualNET_network/
+/c-rive/
 /.vscode/
 /*.o
 /*.exe

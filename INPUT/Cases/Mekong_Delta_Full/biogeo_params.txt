@@ -1,0 +1,82 @@
+# ============================================================================
+# C-GEM Biogeochemistry Parameters: Mekong Delta
+# ============================================================================
+# Safe mode configuration for stable simulation
+
+# Environment
+water_temp = 28.0
+ws = 0.0005
+
+# Light
+I0 = 350.0
+kd1 = 0.20
+kd2_spm = 0.018
+kd2_phy1 = 0.008
+kd2_phy2 = 0.006
+
+# Phytoplankton
+alpha1 = 0.02
+pbmax1 = 2.5
+kexc1 = 0.10
+kgrowth1 = 0.10
+kmaint1 = 0.025
+kmort1 = 0.08
+
+alpha2 = 0.015
+pbmax2 = 2.0
+kexc2 = 0.10
+kgrowth2 = 0.08
+kmaint2 = 0.02
+kmort2 = 0.06
+
+# Nutrients
+kdsi1 = 3.0
+kn1 = 1.5
+kpo41 = 0.3
+kn2 = 2.0
+kpo42 = 0.5
+
+# Decomposition
+kox = 0.15
+kdenit = 0.04
+knit = 0.12
+
+# Half-saturation
+ktox = 40.0
+ko2 = 8.0
+ko2_nit = 4.0
+kno3 = 4.0
+knh4 = 2.0
+kino2 = 6.0
+
+# Stoichiometry
+redn = 0.151
+redp = 0.0094
+redsi = 0.12
+
+# Gas exchange
+pco2_atm = 420.0
+wind_speed = 3.0
+wind_coeff = 0.251
+schmidt_exp = -0.5
+current_k_factor = 0.30
+
+# Benthic
+benthic_resp_20C = 70.0
+benthic_Q10 = 2.0
+benthic_NH4_flux = 2.5
+benthic_PO4_flux = 0.15
+
+# GHG
+N2O_yield_nit = 0.005
+N2O_yield_denit = 0.015
+benthic_CH4_flux = 150.0
+benthic_N2O_flux = 8.0
+
+# Safety flags
+simplified_mode = 1
+ghg_passive_mode = 1
+skip_bacteria = 1
+skip_multipool_oc = 1
+skip_ghg_dynamics = 0
+skip_p_adsorption = 1

@@ -27,6 +27,22 @@ Branch *allocate_branch(int M, int num_species) {
     b->totalArea_old = (double *)calloc(field_len, sizeof(double));
     b->totalArea_old2 = (double *)calloc(field_len, sizeof(double));
     
+    /* =========================================================================
+     * RESIDUAL VELOCITY FILTER (Audit recommendation)
+     * Low-pass filtered velocity for correct Van den Burgh dispersion
+     * =========================================================================*/
+    b->u_residual = (double *)calloc(field_len, sizeof(double));
+    b->residual_alpha = 0.0;  /* Will be computed from dt/T_filter */
+    
+    /* Manning's n friction (optional alternative to Chezy) */
+    b->manning_n = (double *)calloc(field_len, sizeof(double));
+    b->use_manning = 0;  /* Default: use Chezy */
+    
+    /* Storage width ratio dynamics (floodplain effects) */
+    b->H_bank = 2.0;          /* Default bank-full level [m] */
+    b->RS_channel = 1.0;      /* In-channel storage ratio */
+    b->RS_floodplain = 5.0;   /* Flooded storage ratio */
+    
     /* Tridiagonal solver arrays */
     b->tri_lower = (double *)calloc(field_len, sizeof(double));
     b->tri_diag = (double *)calloc(field_len, sizeof(double));
@@ -105,6 +121,8 @@ void free_branch(Branch *branch, int num_species) {
     free(branch->chezyArray);
     free(branch->totalArea_old);
     free(branch->totalArea_old2);
+    free(branch->u_residual);
+    free(branch->manning_n);
     free(branch->tri_lower);
     free(branch->tri_diag);
     free(branch->tri_upper);

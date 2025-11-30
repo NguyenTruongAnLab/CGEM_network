@@ -1,0 +1,32 @@
+# ============================================================================
+# C-GEM Network: Mekong Delta (Nguyen-Savenije Simplified)
+# ============================================================================
+# Simplified topology following Nguyen et al. (2006):
+# - 8 branches, 9 nodes
+# - Merged distributaries for proper Savenije geometry
+# - Prismatic Vam Nao connector
+#
+# Generated: 2025-11-30 20:00:15
+# ============================================================================
+
+CaseName = Mekong_Delta_Full
+
+# File paths
+Topology = topology.csv
+BoundaryMap = boundary_map.csv
+BiogeoParams = biogeo_params.txt
+OutputDir = OUTPUT/Mekong_Delta_Full
+
+# Time parameters
+StartDate = 2024-03-01
+Duration = 10
+Warmup = 3
+
+# Numerical parameters
+TimeStep = 60.0
+DELXI = 2000.0
+
+# Output
+WriteNetCDF = 1
+WriteCSV = 1
+WriteReactionRates = 0

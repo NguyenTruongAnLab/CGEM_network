@@ -1,155 +1,140 @@
 # ============================================================================
-# BIOGEOCHEMISTRY PARAMETERS: TIEN RIVER CASE
+# CGEM BIOGEOCHEMISTRY PARAMETERS: MEKONG DELTA (80/20 Mode)
 # ============================================================================
-# This file defines water quality model parameters.
-# Format: key = value
-# Lines starting with # are comments.
-#
-# Reference values based on Mekong field data and Volta et al. (2016)
+# Simplified configuration for data-limited tropical deltas.
+# Based on: Monitoring center data + 2024-2025 field campaigns
 # 
-# IMPORTANT: All rate parameters (kox, kdenit, knit, pbmax, etc.) are in [1/day]
-# The model internally converts to [1/s] by dividing by 86400.
+# Key simplifications:
+# - Single TOC pool (no HD1-3, HP1-3 unless skip_multipool_oc=0)
+# - No explicit bacteria (bulk kox instead)
+# - Single-step nitrification (in core module)
+# - GHG in PASSIVE MODE (diagnostic only, no feedback to O2/NH4/NO3)
+# - Literature-based benthic fluxes
 # ============================================================================
 
-# --- Water and Environmental ---
-water_temp = 29.0       # Mean water temperature [°C] - tropical
-ws = 1e-3               # Settling velocity [m/s]
+# --- Environmental Parameters ---
+water_temp = 28.0           # Mean temperature [°C] - tropical
+ws = 0.0008                 # SPM settling velocity [m/s]
 
-# --- Light Parameters ---
-I0 = 250.0              # Surface irradiance [W/m²] - tropical
-kd1 = 0.15              # Base light attenuation [1/m] - higher turbidity
-kd2_spm = 0.015         # SPM contribution to attenuation
-kd2_phy1 = 0.005        # Phytoplankton 1 contribution
-kd2_phy2 = 0.005        # Phytoplankton 2 contribution
+# --- Light Parameters (from SPM/Chl-a relationships) ---
+I0 = 350.0                  # Surface irradiance [W/m²] - tropical, partly cloudy
+kd1 = 0.20                  # Base attenuation [1/m] - higher for turbid delta
+kd2_spm = 0.018             # SPM contribution [m²/mg] - calibrated to field Kd
+kd2_phy1 = 0.008            # Phytoplankton self-shading
+kd2_phy2 = 0.006
 
-# --- Phytoplankton Parameters ---
-# PHY1 = Diatoms, PHY2 = Non-siliceous phytoplankton
-alpha1 = 0.02           # Initial slope P-I curve [molC/molChl/µmol photons/m²/s]
+# --- Phytoplankton (calibrated to satellite Chl-a) ---
+# Using single PHY for simplicity (PHY1=diatoms, PHY2 minimal)
+alpha1 = 0.02               # P-I curve slope
+pbmax1 = 2.8                # Max photosynthesis [1/day] - tropical, high
+kexc1 = 0.10                # Excretion fraction
+kgrowth1 = 0.10             # Growth respiration
+kmaint1 = 0.03              # Maintenance [1/day]
+kmort1 = 0.08               # Mortality [1/day] - higher in tropics
+
 alpha2 = 0.015
-pbmax1 = 2.5            # Max photosynthetic rate [1/day]
 pbmax2 = 2.0
-kexc1 = 0.1             # Excretion fraction [-]
-kexc2 = 0.1
-kgrowth1 = 0.1          # Growth respiration fraction [-]
-kgrowth2 = 0.1
-kmaint1 = 0.025         # Maintenance respiration [1/day]
+kexc2 = 0.10
+kgrowth2 = 0.10
 kmaint2 = 0.02
-kmort1 = 0.06           # Mortality rate [1/day]
-kmort2 = 0.05
+kmort2 = 0.06
 
-# --- Nutrient Limitation (Half-saturation constants) ---
-kdsi1 = 5.0             # Si half-saturation for diatoms [µM]
-kn1 = 2.0               # N half-saturation for PHY1 [µM]
-kpo41 = 0.5             # P half-saturation for PHY1 [µM]
-kn2 = 3.0               # N half-saturation for PHY2 [µM]
-kpo42 = 0.7             # P half-saturation for PHY2 [µM]
+# --- Nutrient Half-Saturation (literature + field adjustment) ---
+kdsi1 = 3.0                 # DSi [µmol/L] - Mekong has high Si
+kn1 = 1.5                   # N [µmol/L]
+kpo41 = 0.3                 # PO4 [µmol/L]
+kn2 = 2.0
+kpo42 = 0.5
 
-# --- Decomposition & Nutrient Cycling Rates ---
-# NOTE: All rates in [1/day], converted internally to [1/s]
-kox = 0.15              # Aerobic TOC decay [1/day]
-kdenit = 0.05           # Denitrification rate [1/day]
-knit = 0.10             # Nitrification rate [1/day]
+# --- Decomposition Rates (from BOD5/COD data) ---
+# kox calibrated to: kox ≈ BOD5 / (TOC × 5 days)
+# Mekong BOD5 ~5 mg/L, TOC ~250 µmol/L → kox ~ 0.15/day
+kox = 0.15                  # Aerobic TOC decay [1/day]
+kdenit = 0.04               # Denitrification [1/day] - limited by O2>30 µM
+knit = 0.12                 # Nitrification [1/day] - calibrated to NH4 decay
 
-# --- Monod Half-saturation Constants ---
-ktox = 50.0             # TOC half-saturation [µM]
-ko2 = 10.0              # O2 half-saturation for respiration [µM]
-ko2_nit = 5.0           # O2 half-saturation for nitrification [µM]
-kno3 = 5.0              # NO3 half-saturation for denitrification [µM]
-knh4 = 2.0              # NH4 half-saturation for nitrification [µM]
-kino2 = 5.0             # O2 inhibition constant for denitrification [µM]
+# --- Half-Saturation Constants ---
+ktox = 40.0                 # TOC half-sat [µmol/L]
+ko2 = 8.0                   # O2 for respiration [µmol/L]
+ko2_nit = 4.0               # O2 for nitrification [µmol/L]
+kno3 = 4.0                  # NO3 for denitrification [µmol/L]
+knh4 = 2.0                  # NH4 for nitrification [µmol/L]
+kino2 = 6.0                 # O2 inhibition for denitrification [µmol/L]
 
-# --- Stoichiometric Ratios (Redfield-based) ---
-redn = 0.151            # N:C ratio (16/106)
-redp = 0.0094           # P:C ratio (1/106)
-redsi = 0.1             # Si:C ratio for diatoms
+# --- Stoichiometry (Redfield) ---
+redn = 0.151                # N:C ratio
+redp = 0.0094               # P:C ratio
+redsi = 0.12                # Si:C for diatoms (Mekong high Si)
 
-# ============================================================================
-# ENHANCED pCO2 PARAMETERS
-# ============================================================================
-# These parameters significantly improve pCO2 simulation in tropical estuaries.
-# References: Wanninkhof (2014), Borges et al. (2018), Li et al. (2013)
-# ============================================================================
+# --- Gas Exchange (from field pCO2 + literature k600) ---
+pco2_atm = 420.0            # Atmospheric pCO2 [µatm]
+wind_speed = 3.0            # Mean wind [m/s] - sheltered delta
+wind_coeff = 0.251          # Wanninkhof coefficient
+schmidt_exp = -0.5
+current_k_factor = 0.30     # Current contribution (important in tidal channels)
 
-# --- Atmospheric CO2 ---
-pco2_atm = 420.0        # Atmospheric pCO2 [µatm] - current global value
-
-# --- Wind-Driven Gas Exchange (Wanninkhof 2014) ---
-# Critical for CO2 air-water flux. Data: local met stations or ERA5 reanalysis.
-wind_speed = 3.5        # Mean wind speed at 10m height [m/s]
-wind_coeff = 0.251      # Wanninkhof coefficient for climatological winds
-schmidt_exp = -0.5      # Schmidt number exponent (standard = -0.5)
-current_k_factor = 0.25 # Current-induced gas transfer contribution (0.1-0.3)
-
-# --- Benthic Respiration (Major CO2 Source!) ---
-# Sediment respiration often dominates CO2 production in shallow estuaries.
-# Data: Sediment oxygen demand (SOD) measurements, benthic chamber incubations.
-# Typical tropical deltaic values: 30-80 mmol C/m²/day
-benthic_resp_20C = 60.0 # Benthic respiration at 20°C [mmol C/m²/day]
-benthic_Q10 = 2.0       # Temperature coefficient (standard = 2.0)
+# --- Benthic Fluxes (CRITICAL - literature for tropical deltas) ---
+# Reference: Borges et al. (2015), Lara et al. (2017)
+# Higher than temperate due to temperature and organic loading
+benthic_resp_20C = 70.0     # Benthic CO2 flux [mmol C/m²/day]
+benthic_Q10 = 2.0           # Temperature coefficient
+benthic_NH4_flux = 2.5      # Benthic NH4 flux [mmol N/m²/day]
+benthic_PO4_flux = 0.15     # Benthic PO4 flux [mmol P/m²/day]
 
 # ============================================================================
-# RIVE MULTI-POOL ORGANIC MATTER PARAMETERS
+# GREENHOUSE GAS PARAMETERS (Passive Mode - Diagnostic Only)
 # ============================================================================
-# Reference: Billen et al. (1994), Garnier et al. (2002)
-# Three lability classes: labile (1), semi-labile (2), refractory (3)
-# Each class has dissolved (HD) and particulate (HP) forms
-# ============================================================================
-
-# Hydrolysis rates [1/day] - conversion of pools to DSS
-khydr1 = 0.75           # HD1/HP1 labile hydrolysis - half-life ~1 day
-khydr2 = 0.25           # HD2/HP2 semi-labile hydrolysis - half-life ~3 days
-khydr3 = 0.01           # HD3/HP3 refractory hydrolysis - half-life ~70 days
-
-# Fractionation of organic matter inputs (from mortality, external sources)
-frac_hd1 = 0.15         # Fraction of DOC as labile HD1
-frac_hd2 = 0.35         # Fraction of DOC as semi-labile HD2
-# Remaining (1-frac_hd1-frac_hd2) = HD3 (refractory)
-frac_hp1 = 0.10         # Fraction of POC as labile HP1
-frac_hp2 = 0.30         # Fraction of POC as semi-labile HP2
-# Remaining = HP3 (refractory)
-
-# ============================================================================
-# RIVE HETEROTROPHIC BACTERIA PARAMETERS
-# ============================================================================
-# Reference: RIVE bacteria.cpp
-# BAG = Attached (gros) bacteria - settled on particles, higher growth rate
-# BAP = Free (petit) bacteria - free-floating, lower growth rate
+# Reference: Garnier et al. (2007), Marescaux et al. (2019)
+# 
+# In PASSIVE MODE (ghg_passive_mode=1), the GHG module:
+# - Reads nitrification/denitrification rates from core module
+# - Calculates N2O as YIELD FRACTION of these rates (no recalculation)
+# - CH4 is from benthic flux only (does not feedback to O2)
+# - Does NOT modify O2, NH4, NO3 (prevents double-counting)
+#
+# CALIBRATION TIP: If modeled N2O is too low vs field data:
+#   → Increase N2O_yield_nit (typical range: 0.003-0.01)
+#   → DO NOT change the code, change the yield parameter!
 # ============================================================================
 
-# BAG = Attached bacteria
-bag_bmax20 = 0.6        # Max growth rate at 20°C [1/h]
-bag_kdb20 = 0.05        # Mortality rate at 20°C [1/h]
-bag_topt = 22.0         # Optimal temperature [°C]
-bag_dti = 12.0          # Temperature spread (bell-curve width) [°C]
-bag_vs = 0.02           # Settling velocity [m/h] - settles with particles
+# N2O yield fractions (fraction of N processed that becomes N2O)
+N2O_yield_nit = 0.005       # N2O yield from nitrification (0.3-1%)
+N2O_yield_denit = 0.015     # N2O yield from denitrification (0.5-3%)
 
-# BAP = Free bacteria
-bap_bmax20 = 0.16       # Max growth rate at 20°C [1/h]
-bap_kdb20 = 0.02        # Mortality rate at 20°C [1/h]
-bap_topt = 20.0         # Optimal temperature [°C]
-bap_dti = 17.0          # Temperature spread [°C]
-
-# Common bacteria parameters
-bac_ks = 0.1            # DSS half-saturation [mg C/L]
-bac_yield = 0.25        # Growth yield [-] (g bacteria / g substrate)
+# Benthic GHG fluxes (for passive mode - independent of water column)
+benthic_CH4_flux = 150.0    # CH4 sediment flux [µmol/m²/day] - tropical, high
+benthic_N2O_flux = 8.0      # N2O sediment flux [nmol/m²/day]
 
 # ============================================================================
-# RIVE PHOSPHORUS ADSORPTION PARAMETERS
+# SAFETY MODE FLAGS (80/20 Simplification)
 # ============================================================================
-# Reference: RIVE phosphorus.cpp
-# P equilibrium between dissolved (PO4) and adsorbed (PIP) forms
-# PIP = particulate inorganic phosphorus (on SPM)
-# ============================================================================
-
-kpads = 3.43            # P adsorption equilibrium constant [µmol/L]
-pac = 0.37              # P adsorption capacity [µmol P / mg SPM]
-
-# ============================================================================
-# RIVE BENTHIC LAYER PARAMETERS
-# ============================================================================
-# Fluid sediment layer model for benthic-pelagic coupling
+# These flags control which processes are active. 
+# Default settings are SAFE for data-limited applications.
+#
+# CRITICAL: ghg_passive_mode = 1 prevents:
+#   - Double counting of nitrification (core vs GHG module)
+#   - Mass balance errors from uncalibrated CH4 oxidation
+#   - O2 crashing to negative values
 # ============================================================================
 
-zf_init = 0.001         # Initial fluid sediment layer depth [m]
-benthic_porosity = 0.88 # Sediment porosity [-]
-benthic_density = 2300000.0  # Sediment density [g/m³]
+ghg_passive_mode = 1        # 1 = SAFE (GHG is diagnostic only)
+                            # 0 = ACTIVE (GHG feeds back to O2/NH4/NO3)
+                            # WARNING: Only set to 0 if you have calibrated GHG params!
+
+simplified_mode = 1         # 1 = Enable 80/20 simplified mode
+skip_bacteria = 1           # 1 = Use bulk kox instead of explicit BAG/BAP bacteria
+skip_multipool_oc = 1       # 1 = Use single TOC instead of HD1-3, HP1-3
+skip_ghg_dynamics = 0       # 1 = Skip GHG entirely (fastest, least output)
+                            # 0 = Calculate GHG in passive diagnostic mode
+skip_p_adsorption = 1       # 1 = Skip dynamic PO4-PIP equilibrium
+
+# ============================================================================
+# VALIDATION TARGETS (from field campaign 2024-2025)
+# Use these to check model performance
+# ============================================================================
+# Salinity intrusion (dry season): 40-60 km from mouth
+# pCO2 range: 1000-4000 µatm (supersaturated)
+# O2 minimum: 150-200 µmol/L in turbidity maximum
+# Chl-a maximum: 5-15 µg/L at salinity 5-15 PSU
+# N2O: 8-35 nmol/L (field range), saturation 100-300%
+# CH4: 50-800 nmol/L (field range), highest in wet season

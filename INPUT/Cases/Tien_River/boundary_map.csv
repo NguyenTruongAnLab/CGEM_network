@@ -1,20 +1,29 @@
 # ============================================================================
 # BOUNDARY CONDITIONS: TIEN RIVER CASE
 # ============================================================================
-# Node 1 (Upstream): Discharge boundary at Tan Chau
-# Nodes 3,4,5 (Downstream): Tidal level boundaries at distributary mouths
+# Node 1 (Upstream): Discharge + Species boundary at Tan Chau
+# Nodes 4,5,6 (Downstream): Tidal level + Species boundaries at mouths
 #
-# Node_ID, Type, FilePath
+# Format: Node_ID, Type, FilePath [, SpeciesName for SPECIES type]
+# Type: DISCHARGE, LEVEL, SPECIES
+# For SPECIES with ALL: loads all species columns from CSV header
+# ============================================================================
 
 # Upstream Discharge (Node 1 - Tan Chau)
 1, DISCHARGE, forcing_data/Tien_Input.csv
 
+# Upstream Species Boundary (River water quality)
+1, SPECIES, forcing_data/species_river.csv, ALL
+
 # Downstream Tides (North to South)
 # Node 4: My Tho Mouth
-4, LEVEL, forcing_data/MyTho_Tide.csv
+4, LEVEL, forcing_data/My_Tho_Tide.csv
+4, SPECIES, forcing_data/species_ocean.csv, ALL
 
 # Node 5: Ham Luong Mouth
-5, LEVEL, forcing_data/HamLuong_Tide.csv
+5, LEVEL, forcing_data/Ham_Luong_Tide.csv
+5, SPECIES, forcing_data/species_ocean.csv, ALL
 
 # Node 6: Co Chien Mouth
-6, LEVEL, forcing_data/CoChien_Tide.csv
+6, LEVEL, forcing_data/Co_Chien_Tide.csv
+6, SPECIES, forcing_data/species_ocean.csv, ALL

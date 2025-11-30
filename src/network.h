@@ -78,6 +78,23 @@ typedef struct {
     /* Previous timestep values (for iteration) */
     double *totalArea_old;
     double *totalArea_old2;
+    
+    /* =========================================================================
+     * RESIDUAL VELOCITY FILTER (Critical for Van den Burgh dispersion)
+     * Low-pass filtered velocity to extract tidal-mean residual flow.
+     * Reference: Savenije (2005), Audit recommendation for Q_f calculation
+     * =========================================================================*/
+    double *u_residual;         /* Tidally-averaged velocity [m/s] */
+    double residual_alpha;      /* Low-pass filter coefficient (0.001 typical) */
+    
+    /* Manning's n friction (optional, replaces Chezy) */
+    double *manning_n;          /* Manning coefficient at each point [s/m^{1/3}] */
+    int use_manning;            /* 1 = Use Manning's n instead of Chezy */
+    
+    /* Storage width ratio dynamics (floodplain effects) */
+    double H_bank;              /* Bank-full water level [m] */
+    double RS_channel;          /* Storage ratio for in-channel flow */
+    double RS_floodplain;       /* Storage ratio when flooded (5-15 typical) */
 
     /* Concentration arrays [num_species][0..M+1] */
     double **conc;
@@ -263,6 +280,11 @@ double ComputeJunctionDispersion(Branch *branch, void *network_ptr);
 int LoadBiogeoParams(const char *path);
 void InitializeBiogeoParameters(Branch *branch);
 int Biogeo_Branch(Branch *branch, double dt);
+
+/* C-RIVE Enhanced Biogeochemistry (GHG and RK4 solver) */
+int Biogeo_GHG_Branch(Branch *branch, double dt);
+int Biogeo_Branch_RK4(Branch *branch, double dt);
+int calculate_carbonate_crive(Branch *branch, int idx, double dt);
 
 /* Initialization */
 int initializeNetwork(Network *net, CaseConfig *config);
