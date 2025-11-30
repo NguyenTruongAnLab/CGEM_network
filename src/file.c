@@ -39,7 +39,15 @@ static const char* HYDRO_NAMES[CGEM_NUM_HYDRO] = {
 /* Species names - must match CGEM_SPECIES_* order in define.h */
 static const char* SPECIES_NAMES[CGEM_NUM_SPECIES] = {
     "salinity", "phy1", "phy2", "dsi", "no3", "nh4", "po4", "o2",
-    "toc", "spm", "dic", "at", "pco2", "co2", "ph", "hs", "alkc"
+    "toc", "spm", "dic", "at", "pco2", "co2", "ph", "hs", "alkc",
+    /* RIVE multi-pool organic matter */
+    "hd1", "hd2", "hd3", "hp1", "hp2", "hp3",
+    /* RIVE bacteria */
+    "bag", "bap",
+    /* RIVE phosphorus */
+    "pip",
+    /* RIVE substrates */
+    "dss"
 };
 
 /* Reaction names - must match CGEM_REACTION_* order in define.h */
@@ -48,7 +56,11 @@ static const char* REACTION_NAMES[CGEM_NUM_REACTIONS] = {
     "gpp_1", "gpp_2", "npp", "phy_death", "phy_death_1", "phy_death_2",
     "si_cons", "aer_deg", "denit", "nit", "o2_ex", "o2_ex_s",
     "co2_ex", "co2_ex_s", "dic_react", "ta_react", "hs_react",
-    "erosion_s", "erosion_v", "deposition_s", "deposition_v"
+    "erosion_s", "erosion_v", "deposition_s", "deposition_v",
+    /* RIVE reactions */
+    "hydrolysis_hd1", "hydrolysis_hd2", "hydrolysis_hp1", "hydrolysis_hp2",
+    "bac_uptake", "bac_resp", "bac_mort", "p_adsorption",
+    "benthic_resp", "benthic_nh4", "benthic_po4", "benthic_o2", "benthic_dic"
 };
 
 /* --------------------------------------------------------------------------

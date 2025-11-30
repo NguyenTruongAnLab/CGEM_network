@@ -1,9 +1,17 @@
 /**
  * @file biogeo.c
- * @brief C-GEM Network Biogeochemical Module
+ * @brief C-GEM Network Biogeochemical Module (RIVE-Enhanced)
  * 
- * Implements water quality reactions including phytoplankton growth,
- * nutrient cycling, oxygen dynamics, and carbon chemistry.
+ * Implements water quality reactions including:
+ * - RIVE multi-pool organic matter (HD1/HD2/HD3, HP1/HP2/HP3)
+ * - RIVE heterotrophic bacteria (BAG/BAP)
+ * - Phytoplankton growth with nutrient limitation
+ * - Nutrient cycling (N, P, Si)
+ * - Oxygen dynamics with benthic-pelagic coupling
+ * - Carbon chemistry (pH, pCO2, CO2 flux)
+ * - Phosphorus adsorption equilibrium on SPM
+ * 
+ * Reference: Billen et al. (1994), Garnier et al. (2002), Volta et al. (2014)
  */
 
 #include "network.h"
@@ -16,6 +24,9 @@
 
 /* Seconds per day - for unit conversion */
 #define SECONDS_PER_DAY 86400.0
+
+/* RIVE constants */
+#define RIVE_SQUARE(x) ((x) * (x))
 
 /* Global biogeo parameters (loaded from config file) */
 typedef struct {
@@ -66,6 +77,37 @@ typedef struct {
     /* NOTE: Stored as [mmol C/m²/day], converted in calculations */
     double benthic_resp_20C;    /* [mmol C/m²/day] at 20°C - sediment respiration */
     double benthic_Q10;         /* Temperature coefficient (typically 2.0) */
+    
+    /* ========== RIVE ORGANIC MATTER PARAMETERS ========== */
+    double khydr1;              /* Labile hydrolysis rate [1/day] (0.75) */
+    double khydr2;              /* Semi-labile hydrolysis rate [1/day] (0.25) */
+    double khydr3;              /* Refractory hydrolysis rate [1/day] (0.01) */
+    double frac_hd1;            /* Fraction of DOC as HD1 (0.15) */
+    double frac_hd2;            /* Fraction of DOC as HD2 (0.35) */
+    double frac_hp1;            /* Fraction of POC as HP1 (0.10) */
+    double frac_hp2;            /* Fraction of POC as HP2 (0.30) */
+    
+    /* ========== RIVE BACTERIA PARAMETERS ========== */
+    double bag_bmax20;          /* BAG max growth rate at 20°C [1/h] (0.6) */
+    double bap_bmax20;          /* BAP max growth rate at 20°C [1/h] (0.16) */
+    double bag_kdb20;           /* BAG mortality rate at 20°C [1/h] (0.05) */
+    double bap_kdb20;           /* BAP mortality rate at 20°C [1/h] (0.02) */
+    double bac_ks;              /* Bacteria half-saturation for DSS [mg C/L] (0.1) */
+    double bac_yield;           /* Bacteria growth yield [-] (0.25) */
+    double bag_topt;            /* BAG optimal temperature [°C] (22) */
+    double bap_topt;            /* BAP optimal temperature [°C] (20) */
+    double bag_dti;             /* BAG temperature spread [°C] (12) */
+    double bap_dti;             /* BAP temperature spread [°C] (17) */
+    double bag_vs;              /* BAG settling velocity [m/h] (0.02) */
+    
+    /* ========== RIVE PHOSPHORUS ADSORPTION ========== */
+    double kpads;               /* P adsorption equilibrium constant (3.43) */
+    double pac;                 /* P adsorption capacity [µmol P/mg SPM] (0.37) */
+    
+    /* ========== RIVE BENTHIC PARAMETERS ========== */
+    double zf_init;             /* Initial fluid sediment depth [m] (0.001) */
+    double benthic_porosity;    /* Sediment porosity [-] (0.88) */
+    double benthic_density;     /* Sediment density [g/m³] (2300000) */
     
 } BiogeoParams;
 
@@ -143,6 +185,37 @@ int LoadBiogeoParams(const char *path) {
     g_biogeo_params.benthic_resp_20C = 60.0;    /* [mmol C/m²/day] - tropical deltaic mud */
     g_biogeo_params.benthic_Q10 = 2.0;          /* Temperature coefficient */
     
+    /* RIVE organic matter defaults (from RIVE organic.cpp) */
+    g_biogeo_params.khydr1 = 0.75;              /* Labile hydrolysis [1/day] */
+    g_biogeo_params.khydr2 = 0.25;              /* Semi-labile hydrolysis [1/day] */
+    g_biogeo_params.khydr3 = 0.01;              /* Refractory hydrolysis [1/day] */
+    g_biogeo_params.frac_hd1 = 0.15;            /* Fraction DOC as labile */
+    g_biogeo_params.frac_hd2 = 0.35;            /* Fraction DOC as semi-labile */
+    g_biogeo_params.frac_hp1 = 0.10;            /* Fraction POC as labile */
+    g_biogeo_params.frac_hp2 = 0.30;            /* Fraction POC as semi-labile */
+    
+    /* RIVE bacteria defaults (from RIVE bacteria.cpp) */
+    g_biogeo_params.bag_bmax20 = 0.6;           /* BAG max growth [1/h] */
+    g_biogeo_params.bap_bmax20 = 0.16;          /* BAP max growth [1/h] */
+    g_biogeo_params.bag_kdb20 = 0.05;           /* BAG mortality [1/h] */
+    g_biogeo_params.bap_kdb20 = 0.02;           /* BAP mortality [1/h] */
+    g_biogeo_params.bac_ks = 0.1;               /* DSS half-saturation [mg C/L] */
+    g_biogeo_params.bac_yield = 0.25;           /* Growth yield [-] */
+    g_biogeo_params.bag_topt = 22.0;            /* BAG T optimum [°C] */
+    g_biogeo_params.bap_topt = 20.0;            /* BAP T optimum [°C] */
+    g_biogeo_params.bag_dti = 12.0;             /* BAG T spread [°C] */
+    g_biogeo_params.bap_dti = 17.0;             /* BAP T spread [°C] */
+    g_biogeo_params.bag_vs = 0.02;              /* BAG settling [m/h] */
+    
+    /* RIVE phosphorus adsorption defaults (from phosphorus.cpp) */
+    g_biogeo_params.kpads = 3.43;               /* P adsorption constant */
+    g_biogeo_params.pac = 0.37;                 /* P adsorption capacity */
+    
+    /* RIVE benthic defaults */
+    g_biogeo_params.zf_init = 0.001;            /* Initial fluid sediment [m] */
+    g_biogeo_params.benthic_porosity = 0.88;    /* Porosity [-] */
+    g_biogeo_params.benthic_density = 2300000.0; /* Density [g/m³] */
+    
     if (!path) {
         g_biogeo_params.loaded = 1;
         return 0;
@@ -215,6 +288,33 @@ int LoadBiogeoParams(const char *path) {
         else if (strcmp(key, "current_k_factor") == 0) g_biogeo_params.current_k_factor = v;
         else if (strcmp(key, "benthic_resp_20C") == 0) g_biogeo_params.benthic_resp_20C = v;
         else if (strcmp(key, "benthic_Q10") == 0) g_biogeo_params.benthic_Q10 = v;
+        /* RIVE organic matter parameters */
+        else if (strcmp(key, "khydr1") == 0) g_biogeo_params.khydr1 = v;
+        else if (strcmp(key, "khydr2") == 0) g_biogeo_params.khydr2 = v;
+        else if (strcmp(key, "khydr3") == 0) g_biogeo_params.khydr3 = v;
+        else if (strcmp(key, "frac_hd1") == 0) g_biogeo_params.frac_hd1 = v;
+        else if (strcmp(key, "frac_hd2") == 0) g_biogeo_params.frac_hd2 = v;
+        else if (strcmp(key, "frac_hp1") == 0) g_biogeo_params.frac_hp1 = v;
+        else if (strcmp(key, "frac_hp2") == 0) g_biogeo_params.frac_hp2 = v;
+        /* RIVE bacteria parameters */
+        else if (strcmp(key, "bag_bmax20") == 0) g_biogeo_params.bag_bmax20 = v;
+        else if (strcmp(key, "bap_bmax20") == 0) g_biogeo_params.bap_bmax20 = v;
+        else if (strcmp(key, "bag_kdb20") == 0) g_biogeo_params.bag_kdb20 = v;
+        else if (strcmp(key, "bap_kdb20") == 0) g_biogeo_params.bap_kdb20 = v;
+        else if (strcmp(key, "bac_ks") == 0) g_biogeo_params.bac_ks = v;
+        else if (strcmp(key, "bac_yield") == 0) g_biogeo_params.bac_yield = v;
+        else if (strcmp(key, "bag_topt") == 0) g_biogeo_params.bag_topt = v;
+        else if (strcmp(key, "bap_topt") == 0) g_biogeo_params.bap_topt = v;
+        else if (strcmp(key, "bag_dti") == 0) g_biogeo_params.bag_dti = v;
+        else if (strcmp(key, "bap_dti") == 0) g_biogeo_params.bap_dti = v;
+        else if (strcmp(key, "bag_vs") == 0) g_biogeo_params.bag_vs = v;
+        /* RIVE phosphorus parameters */
+        else if (strcmp(key, "kpads") == 0) g_biogeo_params.kpads = v;
+        else if (strcmp(key, "pac") == 0) g_biogeo_params.pac = v;
+        /* RIVE benthic parameters */
+        else if (strcmp(key, "zf_init") == 0) g_biogeo_params.zf_init = v;
+        else if (strcmp(key, "benthic_porosity") == 0) g_biogeo_params.benthic_porosity = v;
+        else if (strcmp(key, "benthic_density") == 0) g_biogeo_params.benthic_density = v;
     }
     
     fclose(fp);
@@ -299,6 +399,29 @@ static int LoadBiogeoParamsToStruct(const char *path, BiogeoParams *params) {
         else if (strcmp(key, "current_k_factor") == 0) params->current_k_factor = v;
         else if (strcmp(key, "benthic_resp_20C") == 0) params->benthic_resp_20C = v;
         else if (strcmp(key, "benthic_Q10") == 0) params->benthic_Q10 = v;
+        /* RIVE organic matter parameters */
+        else if (strcmp(key, "khydr1") == 0) params->khydr1 = v;
+        else if (strcmp(key, "khydr2") == 0) params->khydr2 = v;
+        else if (strcmp(key, "khydr3") == 0) params->khydr3 = v;
+        else if (strcmp(key, "frac_hd1") == 0) params->frac_hd1 = v;
+        else if (strcmp(key, "frac_hd2") == 0) params->frac_hd2 = v;
+        else if (strcmp(key, "frac_hp1") == 0) params->frac_hp1 = v;
+        else if (strcmp(key, "frac_hp2") == 0) params->frac_hp2 = v;
+        /* RIVE bacteria parameters */
+        else if (strcmp(key, "bag_bmax20") == 0) params->bag_bmax20 = v;
+        else if (strcmp(key, "bap_bmax20") == 0) params->bap_bmax20 = v;
+        else if (strcmp(key, "bag_kdb20") == 0) params->bag_kdb20 = v;
+        else if (strcmp(key, "bap_kdb20") == 0) params->bap_kdb20 = v;
+        else if (strcmp(key, "bac_ks") == 0) params->bac_ks = v;
+        else if (strcmp(key, "bac_yield") == 0) params->bac_yield = v;
+        else if (strcmp(key, "bag_topt") == 0) params->bag_topt = v;
+        else if (strcmp(key, "bap_topt") == 0) params->bap_topt = v;
+        else if (strcmp(key, "bag_dti") == 0) params->bag_dti = v;
+        else if (strcmp(key, "bap_dti") == 0) params->bap_dti = v;
+        else if (strcmp(key, "bag_vs") == 0) params->bag_vs = v;
+        /* RIVE phosphorus parameters */
+        else if (strcmp(key, "kpads") == 0) params->kpads = v;
+        else if (strcmp(key, "pac") == 0) params->pac = v;
     }
     
     fclose(fp);
@@ -346,6 +469,76 @@ static double temp_kin(TempKinID id, double base_rate, double temp) {
     }
 
     return base_rate * factor;
+}
+
+/* ===========================================================================
+ * RIVE Temperature and Kinetic Functions
+ * Reference: QualNET chem_utils.cpp
+ * ===========================================================================*/
+
+/**
+ * RIVE bell-curve temperature function (ftp)
+ * More realistic than Q10 for biological processes with optimal temperatures
+ * 
+ * ftp(T) = exp(-((T - Topt) / dti)²)
+ * 
+ * @param temp Current temperature [°C]
+ * @param topt Optimal temperature [°C]
+ * @param dti Temperature spread parameter [°C]
+ * @return Temperature factor [0-1]
+ * 
+ * Reference: Billen et al. (1994), RIVE chem_utils.cpp
+ */
+static double rive_ftp(double temp, double topt, double dti) {
+    if (dti <= 0.0) return 1.0;
+    double delta = (temp - topt) / dti;
+    return exp(-delta * delta);
+}
+
+/**
+ * Michaelis-Menten kinetics
+ * 
+ * mich(S, K) = S / (S + K)
+ * 
+ * @param substrate Substrate concentration
+ * @param k_half Half-saturation constant
+ * @return Limitation factor [0-1]
+ */
+static double rive_mich(double substrate, double k_half) {
+    if (substrate <= 0.0) return 0.0;
+    if (k_half <= 0.0) return 1.0;
+    return substrate / (substrate + k_half);
+}
+
+/**
+ * RIVE Phosphorus adsorption equilibrium
+ * Calculates dissolved PO4 from total inorganic P (PIT = PO4 + PIP)
+ * Based on Langmuir-type adsorption on SPM
+ * 
+ * Reference: RIVE phosphorus.cpp
+ * 
+ * @param pit Total inorganic P [µmol/L]
+ * @param spm Suspended particulate matter [mg/L]
+ * @param kpads Adsorption constant
+ * @param pac P adsorption capacity
+ * @return Dissolved PO4 [µmol/L]
+ */
+static double rive_phosphorus_equilibrium(double pit, double spm, double kpads, double pac) {
+    if (pit <= 0.0) return 0.0;
+    if (spm <= 0.0) return pit;  /* No SPM = all dissolved */
+    
+    /* From RIVE phosphorus.cpp:
+     * rp = kpads - pit + mes * pac
+     * po4 = (sqrt(rp² + 4*pit*kpads) - rp) / 2
+     */
+    double rp = kpads - pit + spm * pac;
+    double po4 = (sqrt(rp * rp + 4.0 * pit * kpads) - rp) / 2.0;
+    
+    /* Ensure physical bounds */
+    if (po4 < 0.0) po4 = 0.0;
+    if (po4 > pit) po4 = pit;
+    
+    return po4;
 }
 
 /**
@@ -723,6 +916,37 @@ void InitializeBiogeoParameters(Branch *branch) {
     
     /* Gas exchange */
     branch->pco2_atm = params.pco2_atm;
+    
+    /* RIVE organic matter parameters */
+    branch->khydr1 = g_biogeo_params.khydr1;
+    branch->khydr2 = g_biogeo_params.khydr2;
+    branch->khydr3 = g_biogeo_params.khydr3;
+    branch->frac_hd1 = g_biogeo_params.frac_hd1;
+    branch->frac_hd2 = g_biogeo_params.frac_hd2;
+    branch->frac_hp1 = g_biogeo_params.frac_hp1;
+    branch->frac_hp2 = g_biogeo_params.frac_hp2;
+    
+    /* RIVE bacteria parameters */
+    branch->bag_bmax20 = g_biogeo_params.bag_bmax20;
+    branch->bap_bmax20 = g_biogeo_params.bap_bmax20;
+    branch->bag_kdb20 = g_biogeo_params.bag_kdb20;
+    branch->bap_kdb20 = g_biogeo_params.bap_kdb20;
+    branch->bac_ks = g_biogeo_params.bac_ks;
+    branch->bac_yield = g_biogeo_params.bac_yield;
+    branch->bag_topt = g_biogeo_params.bag_topt;
+    branch->bap_topt = g_biogeo_params.bap_topt;
+    branch->bag_dti = g_biogeo_params.bag_dti;
+    branch->bap_dti = g_biogeo_params.bap_dti;
+    branch->bag_vs = g_biogeo_params.bag_vs;
+    
+    /* RIVE phosphorus adsorption parameters */
+    branch->kpads = g_biogeo_params.kpads;
+    branch->pac = g_biogeo_params.pac;
+    
+    /* RIVE benthic parameters */
+    branch->zf_init = g_biogeo_params.zf_init;
+    branch->benthic_porosity = g_biogeo_params.benthic_porosity;
+    branch->benthic_density = g_biogeo_params.benthic_density;
 }
 int Biogeo_Branch(Branch *branch, double dt) {
     if (!branch || branch->M <= 0 || branch->num_species < CGEM_NUM_SPECIES || !branch->reaction_rates) {

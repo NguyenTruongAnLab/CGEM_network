@@ -1,7 +1,13 @@
 #ifndef CGEM_DEFINE_H
 #define CGEM_DEFINE_H
 
-#define CGEM_MAX_SPECIES 20
+/* ===========================================================================
+ * CGEM-RIVE: Enhanced biogeochemistry based on QualNET RIVE module
+ * Maintains CSV-based inputs for tropical estuaries (Mekong Delta)
+ * Reference: Billen et al. (1994), Volta et al. (2014)
+ * ===========================================================================*/
+
+#define CGEM_MAX_SPECIES 30  /* Increased for RIVE multi-pool organic matter */
 #define CGEM_MAX_BRANCH_NAME 64
 #define CGEM_MAX_PATH 4096
 
@@ -42,6 +48,7 @@
 #define CGEM_NUM_HYDRO 6
 
 /* Species indices (matching Fortran CGEMids) */
+/* Original CGEM species (0-16) */
 #define CGEM_SPECIES_SALINITY 0
 #define CGEM_SPECIES_PHY1     1
 #define CGEM_SPECIES_PHY2     2
@@ -50,7 +57,7 @@
 #define CGEM_SPECIES_NH4      5
 #define CGEM_SPECIES_PO4      6
 #define CGEM_SPECIES_O2       7
-#define CGEM_SPECIES_TOC      8
+#define CGEM_SPECIES_TOC      8   /* Total OC (sum of HD1+HD2+HD3+HP1+HP2+HP3) - diagnostic */
 #define CGEM_SPECIES_SPM      9
 #define CGEM_SPECIES_DIC      10
 #define CGEM_SPECIES_AT       11
@@ -59,6 +66,24 @@
 #define CGEM_SPECIES_PH       14
 #define CGEM_SPECIES_HS       15
 #define CGEM_SPECIES_ALKC     16
+
+/* RIVE multi-pool organic matter (17-22) */
+#define CGEM_SPECIES_HD1      17  /* Labile dissolved OC [µmol C/L] */
+#define CGEM_SPECIES_HD2      18  /* Semi-labile dissolved OC [µmol C/L] */
+#define CGEM_SPECIES_HD3      19  /* Refractory dissolved OC [µmol C/L] */
+#define CGEM_SPECIES_HP1      20  /* Labile particulate OC [µmol C/L] */
+#define CGEM_SPECIES_HP2      21  /* Semi-labile particulate OC [µmol C/L] */
+#define CGEM_SPECIES_HP3      22  /* Refractory particulate OC [µmol C/L] */
+
+/* RIVE heterotrophic bacteria (23-24) */
+#define CGEM_SPECIES_BAG      23  /* Attached (gros) bacteria [mg C/L] */
+#define CGEM_SPECIES_BAP      24  /* Free (petit) bacteria [mg C/L] */
+
+/* RIVE phosphorus (25) */
+#define CGEM_SPECIES_PIP      25  /* Particulate inorganic P (adsorbed) [µmol P/L] */
+
+/* RIVE dissolved substrates (26) */
+#define CGEM_SPECIES_DSS      26  /* Dissolved simple substrates [mg C/L] - bacteria food */
 
 /* Reaction indices */
 #define CGEM_REACTION_NPP_NO3     0
@@ -89,8 +114,23 @@
 #define CGEM_REACTION_DEPOSITION_S 25
 #define CGEM_REACTION_DEPOSITION_V 26
 
-#define CGEM_NUM_SPECIES 17
-#define CGEM_NUM_REACTIONS 27
+/* RIVE additional reactions (27-39) */
+#define CGEM_REACTION_HYDROLYSIS_HD1  27  /* HD1 → DSS hydrolysis */
+#define CGEM_REACTION_HYDROLYSIS_HD2  28  /* HD2 → DSS hydrolysis */
+#define CGEM_REACTION_HYDROLYSIS_HP1  29  /* HP1 → HD1 hydrolysis (particulate to dissolved) */
+#define CGEM_REACTION_HYDROLYSIS_HP2  30  /* HP2 → HD2 hydrolysis */
+#define CGEM_REACTION_BAC_UPTAKE      31  /* DSS uptake by bacteria */
+#define CGEM_REACTION_BAC_RESP        32  /* Bacterial respiration */
+#define CGEM_REACTION_BAC_MORT        33  /* Bacterial mortality */
+#define CGEM_REACTION_P_ADSORPTION    34  /* PO4 ↔ PIP adsorption */
+#define CGEM_REACTION_BENTHIC_RESP    35  /* Benthic OC respiration */
+#define CGEM_REACTION_BENTHIC_NH4     36  /* Benthic NH4 flux */
+#define CGEM_REACTION_BENTHIC_PO4     37  /* Benthic PO4 flux */
+#define CGEM_REACTION_BENTHIC_O2      38  /* Benthic O2 demand (SOD) */
+#define CGEM_REACTION_BENTHIC_DIC     39  /* Benthic DIC flux */
+
+#define CGEM_NUM_SPECIES 27       /* Updated for RIVE species */
+#define CGEM_NUM_REACTIONS 40     /* Updated for RIVE reactions */
 
 /* Species transport flags (env=1 means transport, env=0 means diagnostic only) */
 /* Matching Fortran BGCArray(s)%env convention */
@@ -103,7 +143,7 @@ static const int CGEM_SPECIES_TRANSPORT_FLAG[CGEM_NUM_SPECIES] = {
     1,  /* NH4 - transport */
     1,  /* PO4 - transport */
     1,  /* O2 - transport */
-    1,  /* TOC - transport */
+    0,  /* TOC - diagnostic only (computed from OC pools) */
     1,  /* SPM - transport */
     1,  /* DIC - transport */
     1,  /* AT (alkalinity) - transport */
@@ -111,7 +151,21 @@ static const int CGEM_SPECIES_TRANSPORT_FLAG[CGEM_NUM_SPECIES] = {
     0,  /* CO2 - diagnostic only (computed from carbonate system) */
     0,  /* PH - diagnostic only (computed from carbonate system) */
     1,  /* HS - transport */
-    0   /* ALKC - diagnostic only (iteration counter) */
+    0,  /* ALKC - diagnostic only (iteration counter) */
+    /* RIVE multi-pool organic matter */
+    1,  /* HD1 - labile dissolved OC - transport */
+    1,  /* HD2 - semi-labile dissolved OC - transport */
+    1,  /* HD3 - refractory dissolved OC - transport */
+    1,  /* HP1 - labile particulate OC - transport */
+    1,  /* HP2 - semi-labile particulate OC - transport */
+    1,  /* HP3 - refractory particulate OC - transport */
+    /* RIVE bacteria */
+    1,  /* BAG - attached bacteria - transport */
+    1,  /* BAP - free bacteria - transport */
+    /* RIVE phosphorus */
+    1,  /* PIP - particulate inorganic P - transport */
+    /* RIVE substrates */
+    1   /* DSS - dissolved simple substrates - transport */
 };
 
 /* Default open-sea boundary condition distance [m] */

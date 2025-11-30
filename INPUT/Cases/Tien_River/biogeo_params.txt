@@ -86,3 +86,70 @@ current_k_factor = 0.25 # Current-induced gas transfer contribution (0.1-0.3)
 # Typical tropical deltaic values: 30-80 mmol C/m²/day
 benthic_resp_20C = 60.0 # Benthic respiration at 20°C [mmol C/m²/day]
 benthic_Q10 = 2.0       # Temperature coefficient (standard = 2.0)
+
+# ============================================================================
+# RIVE MULTI-POOL ORGANIC MATTER PARAMETERS
+# ============================================================================
+# Reference: Billen et al. (1994), Garnier et al. (2002)
+# Three lability classes: labile (1), semi-labile (2), refractory (3)
+# Each class has dissolved (HD) and particulate (HP) forms
+# ============================================================================
+
+# Hydrolysis rates [1/day] - conversion of pools to DSS
+khydr1 = 0.75           # HD1/HP1 labile hydrolysis - half-life ~1 day
+khydr2 = 0.25           # HD2/HP2 semi-labile hydrolysis - half-life ~3 days
+khydr3 = 0.01           # HD3/HP3 refractory hydrolysis - half-life ~70 days
+
+# Fractionation of organic matter inputs (from mortality, external sources)
+frac_hd1 = 0.15         # Fraction of DOC as labile HD1
+frac_hd2 = 0.35         # Fraction of DOC as semi-labile HD2
+# Remaining (1-frac_hd1-frac_hd2) = HD3 (refractory)
+frac_hp1 = 0.10         # Fraction of POC as labile HP1
+frac_hp2 = 0.30         # Fraction of POC as semi-labile HP2
+# Remaining = HP3 (refractory)
+
+# ============================================================================
+# RIVE HETEROTROPHIC BACTERIA PARAMETERS
+# ============================================================================
+# Reference: RIVE bacteria.cpp
+# BAG = Attached (gros) bacteria - settled on particles, higher growth rate
+# BAP = Free (petit) bacteria - free-floating, lower growth rate
+# ============================================================================
+
+# BAG = Attached bacteria
+bag_bmax20 = 0.6        # Max growth rate at 20°C [1/h]
+bag_kdb20 = 0.05        # Mortality rate at 20°C [1/h]
+bag_topt = 22.0         # Optimal temperature [°C]
+bag_dti = 12.0          # Temperature spread (bell-curve width) [°C]
+bag_vs = 0.02           # Settling velocity [m/h] - settles with particles
+
+# BAP = Free bacteria
+bap_bmax20 = 0.16       # Max growth rate at 20°C [1/h]
+bap_kdb20 = 0.02        # Mortality rate at 20°C [1/h]
+bap_topt = 20.0         # Optimal temperature [°C]
+bap_dti = 17.0          # Temperature spread [°C]
+
+# Common bacteria parameters
+bac_ks = 0.1            # DSS half-saturation [mg C/L]
+bac_yield = 0.25        # Growth yield [-] (g bacteria / g substrate)
+
+# ============================================================================
+# RIVE PHOSPHORUS ADSORPTION PARAMETERS
+# ============================================================================
+# Reference: RIVE phosphorus.cpp
+# P equilibrium between dissolved (PO4) and adsorbed (PIP) forms
+# PIP = particulate inorganic phosphorus (on SPM)
+# ============================================================================
+
+kpads = 3.43            # P adsorption equilibrium constant [µmol/L]
+pac = 0.37              # P adsorption capacity [µmol P / mg SPM]
+
+# ============================================================================
+# RIVE BENTHIC LAYER PARAMETERS
+# ============================================================================
+# Fluid sediment layer model for benthic-pelagic coupling
+# ============================================================================
+
+zf_init = 0.001         # Initial fluid sediment layer depth [m]
+benthic_porosity = 0.88 # Sediment porosity [-]
+benthic_density = 2300000.0  # Sediment density [g/m³]

@@ -133,6 +133,48 @@ typedef struct {
     double ktox, ko2, ko2_nit, kno3, knh4, kino2; /* Half-saturations */
     double redn, redp, redsi;  /* Stoichiometric ratios */
     
+    /* =======================================================================
+     * RIVE-enhanced biogeochemistry parameters (from QualNET)
+     * Reference: Billen et al. (1994), Garnier et al. (2002)
+     * =======================================================================*/
+    
+    /* RIVE multi-pool organic matter hydrolysis rates [1/day] */
+    double khydr1;             /* Labile HD1/HP1 hydrolysis rate (0.5-1.0) */
+    double khydr2;             /* Semi-labile HD2/HP2 hydrolysis rate (0.1-0.3) */
+    double khydr3;             /* Refractory HD3/HP3 hydrolysis rate (0.01-0.05) */
+    double frac_hd1;           /* Fraction of OC input as HD1 (labile) */
+    double frac_hd2;           /* Fraction of OC input as HD2 (semi-labile) */
+    double frac_hp1;           /* Fraction of particulate OC as HP1 */
+    double frac_hp2;           /* Fraction of particulate OC as HP2 */
+    
+    /* RIVE bacteria parameters (from bacteria.cpp) */
+    double bag_bmax20;         /* BAG max growth rate at 20°C [1/h] (0.6) */
+    double bap_bmax20;         /* BAP max growth rate at 20°C [1/h] (0.16) */
+    double bag_kdb20;          /* BAG mortality rate at 20°C [1/h] (0.05) */
+    double bap_kdb20;          /* BAP mortality rate at 20°C [1/h] (0.02) */
+    double bac_ks;             /* Bacteria half-saturation for DSS [mg C/L] (0.1) */
+    double bac_yield;          /* Bacteria growth yield [-] (0.25) */
+    double bag_topt;           /* BAG optimal temperature [°C] (22) */
+    double bap_topt;           /* BAP optimal temperature [°C] (20) */
+    double bag_dti;            /* BAG temperature spread [°C] (12) */
+    double bap_dti;            /* BAP temperature spread [°C] (17) */
+    double bag_vs;             /* BAG settling velocity [m/h] (0.02) */
+    
+    /* RIVE phosphorus adsorption (from phosphorus.cpp) */
+    double kpads;              /* P adsorption equilibrium constant (3.43) */
+    double pac;                /* P adsorption capacity on SPM [µmol P/mg SPM] (0.37) */
+    
+    /* RIVE benthic flux parameters */
+    double zf_init;            /* Initial fluid sediment layer depth [m] (0.001) */
+    double benthic_porosity;   /* Sediment porosity [-] (0.88) */
+    double benthic_density;    /* Sediment density [g/m³] (2300000) */
+    
+    /* Benthic organic matter pools [mg C/m²] */
+    double *benthic_hb1;       /* Benthic labile OC pool */
+    double *benthic_hb2;       /* Benthic semi-labile OC pool */
+    double *benthic_hb3;       /* Benthic refractory OC pool */
+    double *benthic_zf;        /* Fluid sediment layer depth [m] */
+    
     /* Gas exchange */
     double pco2_atm;           /* Atmospheric pCO2 [µatm] */
     
