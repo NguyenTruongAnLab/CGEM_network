@@ -1,0 +1,104 @@
+# ============================================================================
+# C-GEM Calibration Parameters: Mekong Delta
+# ============================================================================
+# Format: Name, TargetType, TargetID/Name, VarType, Min, Max, Initial
+#
+# TargetType:
+#   GLOBAL  = Apply to entire network (BiogeoParams)
+#   GROUP   = Apply to all branches in a group (by group_id)
+#   BRANCH  = Apply to specific branch (by name or id)
+#
+# Groups (as defined in topology.csv):
+#   1 = River (upstream, freshwater)
+#   2 = Estuary (salt intrusion zone)
+#   3 = Connector (Vam Nao, internal transfer)
+#
+# VarType options:
+#   Stage 1 (Hydro):   CHEZY, LC_CONV, VDB_COEF, D0, STORAGE_RATIO, MANNING_N
+#   Stage 2 (Sed):     WS, FLOC_SAL_SCALE, FLOC_FACTOR_MAX, TAU_ERO, TAU_DEP, MERO
+#   Stage 3 (Biogeo):  KOX, KNIT, KDENIT, PBMAX1, PBMAX2, KMORT1, KMORT2, WIND_COEFF, BENTHIC_RESP
+#
+# Reference ranges (tropical estuaries):
+#   - Chezy: 40-80 m^0.5/s (lower = more friction)
+#   - LC: 10-100 km (shorter = more convergent)
+#   - RS: 1.0-15.0 (higher = more storage/mangroves)
+#   - kox: 0.02-0.5 /day (higher = faster decay)
+# ============================================================================
+
+Name,TargetType,TargetID,VarType,Min,Max,Initial
+# =============================================================================
+# STAGE 1: HYDRODYNAMICS (Tidal Range & Salinity Intrusion)
+# =============================================================================
+# Target: Match tidal range at mouth (2-3m), salt intrusion (40-60 km for 4 PSU)
+
+# Chezy coefficient controls friction and tidal damping
+Chezy_River,GROUP,1,CHEZY,45.0,75.0,60.0
+Chezy_Estuary,GROUP,2,CHEZY,40.0,70.0,55.0
+Chezy_VamNao,BRANCH,Vam_Nao,CHEZY,50.0,80.0,65.0
+
+# Convergence length controls salinity intrusion distance
+LC_HauRiver,BRANCH,Hau_River,LC_CONV,20000.0,80000.0,40000.0
+LC_MyTho,BRANCH,My_Tho,LC_CONV,15000.0,60000.0,30000.0
+LC_HamLuong,BRANCH,Ham_Luong,LC_CONV,15000.0,60000.0,35000.0
+LC_CoChien,BRANCH,Co_Chien,LC_CONV,20000.0,80000.0,50000.0
+
+# Van den Burgh coefficient controls tidal dispersion
+VDB_Estuary,GROUP,2,VDB_COEF,0.1,0.6,0.3
+
+# Storage ratio (mangrove zones have high RS)
+RS_Estuary,GROUP,2,STORAGE_RATIO,1.5,8.0,3.0
+RS_River,GROUP,1,STORAGE_RATIO,1.0,3.0,1.5
+
+# Dispersion at mouth
+D0_Estuary,GROUP,2,D0,200.0,1500.0,600.0
+
+# =============================================================================
+# STAGE 2: SEDIMENT TRANSPORT (SPM, ETM Location)
+# =============================================================================
+# Target: ETM at 20-40 km, SPM 50-200 mg/L at ETM
+
+# Settling velocity (primary, before flocculation)
+WS_Global,GLOBAL,0,WS,0.0001,0.003,0.0005
+
+# Flocculation parameters (salinity-dependent settling)
+Floc_SalScale,GLOBAL,0,FLOC_SAL_SCALE,1.0,5.0,2.0
+Floc_FactorMax,GLOBAL,0,FLOC_FACTOR_MAX,3.0,15.0,8.0
+
+# Erosion parameters
+TauEro_Estuary,GROUP,2,TAU_ERO,0.1,0.8,0.3
+TauDep_Estuary,GROUP,2,TAU_DEP,0.03,0.2,0.08
+Mero_Estuary,GROUP,2,MERO,1e-7,5e-6,1e-6
+
+# POC/SPM coupling (organic matter settling with mud)
+POC_SPM,GLOBAL,0,POC_SPM_RATIO,0.01,0.05,0.02
+
+# =============================================================================
+# STAGE 3: BIOGEOCHEMISTRY (O2, Nutrients, Carbon)
+# =============================================================================
+# Target: O2 > 4 mg/L (125 µmol/L), NO3 gradient, TOC ~100-300 µmol/L
+
+# Organic matter degradation (most sensitive parameter!)
+Kox_Global,GLOBAL,0,KOX,0.02,0.3,0.08
+
+# Nitrification/denitrification
+Knit_Global,GLOBAL,0,KNIT,0.03,0.25,0.10
+Kdenit_Global,GLOBAL,0,KDENIT,0.01,0.1,0.03
+
+# Phytoplankton production
+Pbmax1_Global,GLOBAL,0,PBMAX1,1.0,4.0,2.5
+Pbmax2_Global,GLOBAL,0,PBMAX2,0.8,3.0,2.0
+
+# Phytoplankton mortality (tropical: higher due to grazing)
+Kmort1_Global,GLOBAL,0,KMORT1,0.03,0.2,0.08
+Kmort2_Global,GLOBAL,0,KMORT2,0.02,0.15,0.06
+
+# Gas exchange
+WindCoeff_Global,GLOBAL,0,WIND_COEFF,0.15,0.4,0.25
+CurrentK_Global,GLOBAL,0,CURRENT_K,0.1,0.5,0.3
+
+# Benthic respiration (important for O2 balance)
+BenthicResp_Global,GLOBAL,0,BENTHIC_RESP,30.0,150.0,70.0
+
+# P-adsorption (controls PO4 buffering)
+Kpads_Global,GLOBAL,0,KPADS,0.01,0.15,0.05
+PAC_Global,GLOBAL,0,PAC,0.002,0.01,0.005

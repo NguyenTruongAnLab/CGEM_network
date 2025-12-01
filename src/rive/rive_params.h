@@ -75,8 +75,16 @@ typedef struct {
     double bag_dti, bap_dti;
     double bag_vs;
     
-    /* Phosphorus adsorption */
+    /* Phosphorus adsorption (Langmuir isotherm) */
     double kpads, pac;
+    
+    /* ===========================================================================
+     * SEDIMENT-BIOGEOCHEMISTRY COUPLING (From C-RIVE)
+     * Reference: Wang et al. (2018) Water Research 144, 341-355
+     * ===========================================================================*/
+    
+    /* POC/SPM ratio: Fraction of TOC that settles/erodes with mud */
+    double poc_spm_ratio;         /* Typically 0.01-0.03 (1-3%) for Mekong */
     
     /* Benthic */
     double zf_init;

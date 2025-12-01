@@ -36,10 +36,10 @@ kpo41 = 0.3
 kn2 = 2.0
 kpo42 = 0.5
 
-# Decomposition
-kox = 0.15
-kdenit = 0.04
-knit = 0.12
+# Decomposition (reduced rates for 10-day simulation stability)
+kox = 0.05
+kdenit = 0.02
+knit = 0.08
 
 # Half-saturation
 ktox = 40.0
@@ -79,4 +79,19 @@ ghg_passive_mode = 1
 skip_bacteria = 1
 skip_multipool_oc = 1
 skip_ghg_dynamics = 0
-skip_p_adsorption = 1
+skip_p_adsorption = 0
+
+# ============================================================================
+# SEDIMENT-BIOGEOCHEMISTRY COUPLING (From C-RIVE)
+# Reference: Wang et al. (2018) Water Research 144, 341-355
+# ============================================================================
+
+# POC/SPM ratio: Fraction of TOC that settles/erodes with mud
+# Typical values: Mekong 1-3%, Amazon 1-2%, Temperate 2-5%
+poc_spm_ratio = 0.02
+
+# P-Adsorption Langmuir parameters
+# kpads = Equilibrium constant [L/µmol]
+# pac = P adsorption capacity [µmol P / mg SPM]
+kpads = 0.05
+pac = 0.005

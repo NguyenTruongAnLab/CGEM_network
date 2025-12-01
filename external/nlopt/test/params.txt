@@ -1,0 +1,25 @@
+# Calibration Settings
+calibration_mode = 1  # 0 = No Calibration, 1 = NLopt, 2 = CMA-ES, 3 = Bayesian Opt, 4 = Run All
+use_checkpointing = 1  # Save intermediate results
+
+# Transport Calibration Parameters
+num_segments = 2  # Number of LC segments
+LC1 = 6700.00
+LC1_min = 5000.00
+LC1_max = 8100.00
+Chezy1 = 60.0
+Chezy1_min = 40.0
+Chezy1_max = 80.0
+Rs1 = 1.2
+Rs1_min = 1.0
+Rs1_max = 1.5
+
+LC2 = 9000.00
+LC2_min = 7500.00
+LC2_max = 10800.00
+Chezy2 = 55.0
+Chezy2_min = 35.0
+Chezy2_max = 75.0
+Rs2 = 1.3
+Rs2_min = 1.0
+Rs2_max = 1.6

@@ -1,0 +1,107 @@
+# ============================================================================
+# C-GEM Calibration Targets: Mekong Delta (Dry Season)
+# ============================================================================
+# Format: BranchName, Variable, Statistic, TargetValue, Weight [, Threshold]
+#
+# Statistic options:
+#   INTRUSION_LEN  = Distance [km] where variable drops below threshold
+#   TIDAL_RANGE    = Max - Min water level [m] at TargetValue km from mouth
+#   MEAN           = Spatial mean over branch
+#   MIN            = Minimum value over branch
+#   MAX            = Maximum value over branch
+#   ETM_LOCATION   = Distance [km] of SPM maximum
+#
+# Variables:
+#   Hydro:   DEPTH, VELOCITY, WATERLEVEL
+#   Species: SALINITY, O2, NO3, NH4, PO4, TOC, SPM, etc.
+#
+# Weights: Higher = more important in optimization
+#          Typical: Tidal range (100), Intrusion (50), WQ (20-50)
+#
+# References:
+#   - Nguyen et al. (2008): Salinity intrusion 40-60 km for 4 PSU
+#   - Fujii et al. (2003): Vam Nao mean velocity 0.2-0.5 m/s
+#   - MRC Water Quality Database: O2 > 4 mg/L in main stems
+# ============================================================================
+
+BranchName,Variable,Statistic,TargetValue,Weight,Threshold
+# =============================================================================
+# STAGE 1: HYDRODYNAMICS
+# =============================================================================
+
+# Tidal range at mouths (Should be 2-3 m for Mekong dry season)
+# TargetValue = location [km], Threshold = expected range [m]
+Hau_River,WATERLEVEL,TIDAL_RANGE,5.0,100.0,2.5
+My_Tho,WATERLEVEL,TIDAL_RANGE,5.0,80.0,2.3
+Ham_Luong,WATERLEVEL,TIDAL_RANGE,5.0,80.0,2.4
+Co_Chien,WATERLEVEL,TIDAL_RANGE,5.0,80.0,2.2
+
+# Salt intrusion length (4 PSU isohaline should reach 40-60 km in dry season)
+Hau_River,SALINITY,INTRUSION_LEN,55.0,50.0,4.0
+My_Tho,SALINITY,INTRUSION_LEN,50.0,50.0,4.0
+Ham_Luong,SALINITY,INTRUSION_LEN,60.0,50.0,4.0
+Co_Chien,SALINITY,INTRUSION_LEN,45.0,50.0,4.0
+
+# Vam Nao mean velocity (Tien→Hau transfer: 0.2-0.5 m/s positive)
+Vam_Nao,VELOCITY,MEAN,0.35,100.0,0.0
+
+# Salinity gradient hierarchy (Ham_Luong > Co_Chien due to depth)
+# Target: Mean salinity should reflect depth-dependent intrusion
+Ham_Luong,SALINITY,MEAN,12.0,30.0,0.0
+My_Tho,SALINITY,MEAN,10.0,30.0,0.0
+Co_Chien,SALINITY,MEAN,8.0,30.0,0.0
+
+# =============================================================================
+# STAGE 2: SEDIMENT TRANSPORT
+# =============================================================================
+
+# Estuarine Turbidity Maximum location (should be 20-40 km from mouth)
+Hau_River,SPM,ETM_LOCATION,30.0,50.0,0.0
+My_Tho,SPM,ETM_LOCATION,25.0,40.0,0.0
+Ham_Luong,SPM,ETM_LOCATION,35.0,40.0,0.0
+Co_Chien,SPM,ETM_LOCATION,25.0,40.0,0.0
+
+# SPM concentration at ETM (50-200 mg/L typical for Mekong)
+Hau_River,SPM,MAX,100.0,30.0,0.0
+My_Tho,SPM,MAX,80.0,20.0,0.0
+Ham_Luong,SPM,MAX,120.0,20.0,0.0
+Co_Chien,SPM,MAX,70.0,20.0,0.0
+
+# Upstream SPM (river input: 30-100 mg/L)
+Tien_Main,SPM,MEAN,50.0,20.0,0.0
+Hau_Main,SPM,MEAN,50.0,20.0,0.0
+
+# =============================================================================
+# STAGE 3: BIOGEOCHEMISTRY
+# =============================================================================
+
+# Dissolved Oxygen: Must stay > 4 mg/L (125 µmol/L) in main stems
+# This is critical for fisheries and ecosystem health
+Hau_River,O2,MIN,125.0,50.0,0.0
+My_Tho,O2,MIN,120.0,40.0,0.0
+Ham_Luong,O2,MIN,120.0,40.0,0.0
+Co_Chien,O2,MIN,130.0,40.0,0.0
+Tien_Main,O2,MEAN,180.0,30.0,0.0
+
+# O2 should be near saturation at mouth (~200-220 µmol/L at 28°C)
+Hau_River,O2,MAX,210.0,20.0,0.0
+
+# Nitrate gradient: High upstream (20-50 µmol/L), depleted in estuary
+Tien_Main,NO3,MEAN,30.0,30.0,0.0
+Hau_River,NO3,MEAN,15.0,20.0,0.0
+
+# Ammonium: Should be low (<5 µmol/L) except at pollution hotspots
+Hau_River,NH4,MAX,10.0,20.0,0.0
+Tien_Main,NH4,MEAN,3.0,20.0,0.0
+
+# Phosphate: 0.5-2.0 µmol/L typical
+Hau_River,PO4,MEAN,1.0,20.0,0.0
+Tien_Main,PO4,MEAN,1.5,20.0,0.0
+
+# TOC: 100-300 µmol C/L (2-4 mg C/L)
+Tien_Main,TOC,MEAN,200.0,20.0,0.0
+Hau_River,TOC,MEAN,150.0,20.0,0.0
+
+# Phytoplankton: Low in turbid zones, moderate elsewhere
+Hau_River,PHY1,MAX,20.0,10.0,0.0
+Hau_River,PHY2,MAX,15.0,10.0,0.0

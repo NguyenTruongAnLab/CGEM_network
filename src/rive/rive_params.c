@@ -112,9 +112,12 @@ int LoadBiogeoParams(const char *path) {
     g_biogeo_params.bap_dti = 17.0;
     g_biogeo_params.bag_vs = 0.02;
     
-    /* Phosphorus adsorption */
-    g_biogeo_params.kpads = 3.43;
-    g_biogeo_params.pac = 0.37;
+    /* Phosphorus adsorption (Langmuir) */
+    g_biogeo_params.kpads = 0.05;   /* Equilibrium constant [L/µmol] - adjusted for delta */
+    g_biogeo_params.pac = 0.005;    /* P capacity [µmol P / mg SPM] */
+    
+    /* Sediment-TOC coupling (From C-RIVE) */
+    g_biogeo_params.poc_spm_ratio = 0.02;  /* POC/SPM ratio: 2% (typical for Mekong) */
     
     /* Benthic */
     g_biogeo_params.zf_init = 0.001;
@@ -276,8 +279,10 @@ int LoadBiogeoParams(const char *path) {
         else if (strcmp(key, "bag_dti") == 0) g_biogeo_params.bag_dti = v;
         else if (strcmp(key, "bap_dti") == 0) g_biogeo_params.bap_dti = v;
         else if (strcmp(key, "bag_vs") == 0) g_biogeo_params.bag_vs = v;
+        /* Phosphorus adsorption & Sediment-TOC coupling */
         else if (strcmp(key, "kpads") == 0) g_biogeo_params.kpads = v;
         else if (strcmp(key, "pac") == 0) g_biogeo_params.pac = v;
+        else if (strcmp(key, "poc_spm_ratio") == 0) g_biogeo_params.poc_spm_ratio = v;
         else if (strcmp(key, "zf_init") == 0) g_biogeo_params.zf_init = v;
         else if (strcmp(key, "benthic_porosity") == 0) g_biogeo_params.benthic_porosity = v;
         else if (strcmp(key, "benthic_density") == 0) g_biogeo_params.benthic_density = v;

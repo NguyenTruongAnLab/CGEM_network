@@ -3,10 +3,12 @@
  * @brief C-GEM Network Engine Main Entry Point
  * 
  * Initializes the network, runs simulation, and writes output.
+ * Supports calibration mode with --calibrate flag.
  */
 
 #include "define.h"
 #include "network.h"
+#include "optimization/calibration.h"
 #include <ctype.h>
 #include <math.h>
 #include <stdio.h>
@@ -94,13 +96,40 @@ static void free_network(Network *network) {
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr,
-                "Usage: %s <path/to/case_config.txt>\n"
-                "Example: %s INPUT/Cases/SaigonDongNai/case_config.txt\n",
-                argv[0], argv[0]);
+                "Usage: %s <path/to/case_config.txt> [options]\n"
+                "       %s <path/to/case_config.txt> --calibrate [--stage N]\n\n"
+                "Options:\n"
+                "  --calibrate     Run calibration instead of normal simulation\n"
+                "  --stage N       Run only calibration stage N (1=hydro, 2=sed, 3=biogeo)\n"
+                "  --max-iter N    Maximum optimizer iterations (default 100)\n"
+                "  --verbose N     Verbosity level 0-3 (default 1)\n\n"
+                "Example:\n"
+                "  %s INPUT/Cases/Mekong_Delta_Full/case_config.txt\n"
+                "  %s INPUT/Cases/Mekong_Delta_Full/case_config.txt --calibrate\n"
+                "  %s INPUT/Cases/Mekong_Delta_Full/case_config.txt --calibrate --stage 1\n",
+                argv[0], argv[0], argv[0], argv[0], argv[0]);
         return EXIT_FAILURE;
     }
 
     const char *case_config_path = argv[1];
+    
+    /* Parse command line options */
+    int run_calibration = 0;
+    int calib_stage = 0;  /* 0 = all stages */
+    int max_iter = 100;
+    int verbose = 1;
+    
+    for (int i = 2; i < argc; ++i) {
+        if (strcmp(argv[i], "--calibrate") == 0) {
+            run_calibration = 1;
+        } else if (strcmp(argv[i], "--stage") == 0 && i + 1 < argc) {
+            calib_stage = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--max-iter") == 0 && i + 1 < argc) {
+            max_iter = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--verbose") == 0 && i + 1 < argc) {
+            verbose = atoi(argv[++i]);
+        }
+    }
 
     /* =================================================================
      * Load case configuration
@@ -218,7 +247,86 @@ int main(int argc, char **argv) {
     printf("\n");
 
     /* =================================================================
-     * Run simulation
+     * CALIBRATION MODE
+     * ================================================================= */
+    if (run_calibration) {
+        printf("==============================================\n");
+        printf("  CALIBRATION MODE\n");
+        printf("==============================================\n\n");
+        
+        /* Create calibration engine */
+        CalibrationEngine *calib = calib_create_engine();
+        if (!calib) {
+            fprintf(stderr, "Failed to create calibration engine\n");
+            free_network(&network);
+            return EXIT_FAILURE;
+        }
+        
+        /* Set options */
+        calib->max_iterations = max_iter;
+        calib->verbose = verbose;
+        
+        /* Build paths to calibration files */
+        char params_path[CGEM_MAX_PATH];
+        char targets_path[CGEM_MAX_PATH];
+        char seasonal_path[CGEM_MAX_PATH];
+        snprintf(params_path, sizeof(params_path), "%s/calibration_params.csv", case_config.base_dir);
+        snprintf(targets_path, sizeof(targets_path), "%s/calibration_targets.csv", case_config.base_dir);
+        snprintf(seasonal_path, sizeof(seasonal_path), "%s/seasonal_targets.csv", case_config.base_dir);
+        
+        /* Load calibration configuration */
+        if (calib_load_params(calib, params_path) != 0) {
+            fprintf(stderr, "Failed to load calibration parameters from %s\n", params_path);
+            calib_free_engine(calib);
+            free_network(&network);
+            return EXIT_FAILURE;
+        }
+        
+        if (calib_load_objectives(calib, targets_path) != 0) {
+            fprintf(stderr, "Failed to load calibration targets from %s\n", targets_path);
+            calib_free_engine(calib);
+            free_network(&network);
+            return EXIT_FAILURE;
+        }
+        
+        /* Load seasonal targets (optional - for time-series calibration) */
+        calib_load_seasonal_targets(calib, seasonal_path);
+        
+        /* Set output directory */
+        snprintf(calib->output_dir, sizeof(calib->output_dir), "%s/calibration", case_config.output_dir);
+        mkdir_recursive(calib->output_dir);
+        
+        /* Run calibration */
+        int result;
+        if (calib_stage > 0) {
+            /* Single stage */
+            printf("Running Stage %d calibration only...\n\n", calib_stage);
+            calib->current_stage = (CalibStage)calib_stage;
+            calib_run_optimization(calib, &network, &case_config);
+            result = 0;
+        } else {
+            /* Multi-stage */
+            printf("Running full 3-stage calibration...\n\n");
+            result = calib_run_multistage(calib, &network, &case_config);
+        }
+        
+        /* Print and save results */
+        calib_print_summary(calib);
+        
+        char results_path[CGEM_MAX_PATH];
+        snprintf(results_path, sizeof(results_path), "%s/calibration_results.csv", calib->output_dir);
+        calib_write_results(calib, results_path);
+        printf("\nResults saved to: %s\n", results_path);
+        
+        /* Cleanup */
+        calib_free_engine(calib);
+        free_network(&network);
+        
+        return (result == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
+    /* =================================================================
+     * NORMAL SIMULATION MODE
      * ================================================================= */
     if (network_run_simulation(&network, &case_config) != 0) {
         fprintf(stderr, "Simulation failed.\n");

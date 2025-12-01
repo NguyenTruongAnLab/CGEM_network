@@ -10,7 +10,15 @@
  * - Flocculation drastically increases settling at 0-5 PSU (salt wedge)
  * - Critical for reproducing Estuarine Turbidity Maximum (ETM)
  * 
- * Reference: Winterwerp (2002), Manning et al. (2010)
+ * SEDIMENT-BIOGEOCHEMISTRY COUPLING (Based on C-RIVE):
+ * - POC/SPM ratio: Particulate organic carbon settles/erodes with mud
+ * - P-Adsorption: PO4 adsorbs onto SPM (Langmuir isotherm)
+ * - These explain Oxygen Sag in ETM and P buffering
+ * 
+ * Reference: 
+ * - Winterwerp (2002), Manning et al. (2010) - Flocculation
+ * - Wang et al. (2018), Hasanyar et al. (2022) - C-RIVE sediment exchanges
+ * - House & Warwick (1999) - P adsorption on river sediments
  */
 
 #include "../network.h"
@@ -18,6 +26,28 @@
 #include "rive_params.h"
 #include <math.h>
 #include <stdio.h>
+
+/* ============================================================================
+ * SEDIMENT-BIOGEOCHEMISTRY COUPLING PARAMETERS
+ * ============================================================================*/
+
+/* POC/SPM ratio (fraction of POC bound to SPM)
+ * Typical values:
+ * - Mekong: 1-3% (Liu et al., 2007)
+ * - Amazon: 1-2% (Moreira-Turcq et al., 2003)
+ * - Temperate rivers: 2-5%
+ * This ratio determines how much TOC settles/erodes with mud
+ */
+#define DEFAULT_POC_SPM_RATIO       0.02    /* 2% = 20 mg C / g SPM */
+
+/* P-Adsorption Langmuir parameters (House & Warwick, 1999)
+ * PIP_eq = Kp * PAC * SPM * PO4 / (1 + Kp * PO4)
+ * where:
+ *   Kp = equilibrium constant [L/µmol]
+ *   PAC = P adsorption capacity [µmol P / mg SPM]
+ */
+#define DEFAULT_KP_ADS              0.05    /* Langmuir Kp [L/µmol] */
+#define DEFAULT_PAC_SPM             0.005   /* P capacity [µmol P / mg SPM] */
 
 /* -------------------------------------------------------------------------- */
 
@@ -167,6 +197,160 @@ int Sediment_Branch(Branch *branch, double dt) {
         
         /* Ensure non-negative SPM */
         if (spm[i] < 0.0) spm[i] = 0.0;
+    }
+    
+    /* =======================================================================
+     * SEDIMENT-TOC COUPLING (From C-RIVE: exchanges.c, sedimentation_erosion.c)
+     * 
+     * A fraction of TOC is Particulate Organic Carbon (POC) bound to SPM.
+     * When SPM settles, POC settles. When SPM erodes, POC is resuspended.
+     * 
+     * This is CRITICAL for the "Oxygen Sag" at the Estuarine Turbidity
+     * Maximum (ETM). Without this coupling:
+     * - Model predicts high O2 in turbid zones (wrong)
+     * - Reality: Resuspended POC consumes O2 immediately
+     * 
+     * Implementation:
+     *   dTOC = f_POC * (Erosion_SPM - Deposition_SPM) / rho_SPM
+     * where f_POC = POC/SPM mass ratio (typically 1-3% for Mekong)
+     * 
+     * Reference: Wang et al. (2018) Water Research 144, 341-355
+     * =======================================================================*/
+    double *toc = NULL;
+    if (branch->conc && branch->num_species > CGEM_SPECIES_TOC) {
+        toc = branch->conc[CGEM_SPECIES_TOC];
+    }
+    
+    /* Get POC/SPM ratio from parameters or use default */
+    double f_poc = (p && p->poc_spm_ratio > 0.0) ? p->poc_spm_ratio : DEFAULT_POC_SPM_RATIO;
+    
+    if (toc && spm) {
+        for (int i = 1; i <= M; ++i) {
+            /* Net SPM flux [kg/m³/s] */
+            double net_spm_flux = branch->reaction_rates[CGEM_REACTION_EROSION_V][i] - 
+                                  branch->reaction_rates[CGEM_REACTION_DEPOSITION_V][i];
+            
+            /* POC flux = f_POC × SPM_flux
+             * Units: [kg SPM/m³/s] × [kg C/kg SPM] × [1000 g/kg] × [1000 mg/g] × [µmol/12 mg]
+             *      = [kg/m³/s] × 0.02 × 1e6 / 12 = [µmol C/m³/s] × 1e-3 = [µmol/L/s]
+             * For mg/L output: [kg/m³/s] × f_poc × 1e6 mg/kg / 1000 L/m³ = f_poc × 1e3 mg/L/s
+             */
+            double toc_flux = net_spm_flux * f_poc * 1e3;  /* Convert to mg C/L/s */
+            
+            /* Convert mg C/L to µmol C/L (×83.3 = ×1000/12) for internal units */
+            toc_flux *= 83.3;  /* µmol C/L/s */
+            
+            /* Apply: Erosion adds TOC, Deposition removes TOC */
+            toc[i] += toc_flux * dt;
+            
+            /* Ensure non-negative */
+            if (toc[i] < 0.0) toc[i] = 0.0;
+        }
+    }
+    
+    /* =======================================================================
+     * PHOSPHATE ADSORPTION / DESORPTION (From C-RIVE: ads_desorption.c)
+     * 
+     * PO4 "sticks" to SPM particles. The suspended sediment acts as a
+     * BUFFER for dissolved phosphate:
+     * - High PO4 (city discharge): SPM absorbs excess P
+     * - Low PO4 (ocean): SPM releases adsorbed P
+     * 
+     * Without this:
+     * - Model over-predicts eutrophication downstream of pollution sources
+     * - Reality: Much P is "hidden" on particles and unavailable for algae
+     * 
+     * Implementation: Langmuir Isotherm (equilibrium approximation)
+     *   PIP_eq = Kp × PAC × SPM × PO4 / (1 + Kp × PO4)
+     * where:
+     *   PIP = Particulate Inorganic Phosphorus [µmol P/L]
+     *   Kp = Langmuir equilibrium constant [L/µmol]
+     *   PAC = P adsorption capacity [µmol P / mg SPM]
+     *   SPM = Suspended sediment [mg/L]
+     *   PO4 = Dissolved phosphate [µmol P/L]
+     * 
+     * We use fast equilibrium (instantaneous partitioning) since adsorption
+     * kinetics are fast relative to our timestep (300s).
+     * 
+     * Reference: 
+     * - House & Warwick (1999) Sci. Total Environ. 228, 63-74
+     * - Wang et al. (2018) - C-RIVE phosphorus module
+     * =======================================================================*/
+    double *po4 = NULL;
+    double *pip = NULL;
+    if (branch->conc && branch->num_species > CGEM_SPECIES_PO4) {
+        po4 = branch->conc[CGEM_SPECIES_PO4];
+    }
+    if (branch->conc && branch->num_species > CGEM_SPECIES_PIP) {
+        pip = branch->conc[CGEM_SPECIES_PIP];
+    }
+    
+    /* Get P-adsorption parameters from config or use defaults */
+    double kp_ads = (p && p->kpads > 0.0) ? p->kpads : DEFAULT_KP_ADS;
+    double pac_spm = (p && p->pac > 0.0) ? p->pac : DEFAULT_PAC_SPM;
+    int enable_p_ads = (p) ? !p->skip_p_adsorption : 1;  /* Default ON if not skipped */
+    
+    if (enable_p_ads && po4 && pip && spm) {
+        for (int i = 1; i <= M; ++i) {
+            if (spm[i] < 1.0) continue;  /* Skip if very low SPM */
+            
+            /* Total phosphorus = dissolved + particulate */
+            double total_P = po4[i] + pip[i];
+            if (total_P < 0.01) continue;  /* Skip if no P */
+            
+            /* Langmuir equilibrium PIP 
+             * PIP_eq = Kp × PAC × SPM × PO4 / (1 + Kp × PO4)
+             * 
+             * Rearrange for PO4_eq given total P:
+             * total_P = PO4 + PIP = PO4 + Kp × PAC × SPM × PO4 / (1 + Kp × PO4)
+             * 
+             * For simplicity, use iterative approach or quadratic solution.
+             * Here we use Newton-Raphson (1 iteration is usually sufficient).
+             */
+            double spm_mg = spm[i];  /* Already in mg/L */
+            double max_capacity = pac_spm * spm_mg;  /* Max adsorbable P [µmol/L] */
+            
+            /* Initial guess: partition based on current ratio */
+            double po4_guess = po4[i];
+            if (po4_guess < 0.01) po4_guess = 0.5 * total_P;
+            
+            /* Newton iteration for equilibrium */
+            for (int iter = 0; iter < 3; ++iter) {
+                double denom = 1.0 + kp_ads * po4_guess;
+                double pip_eq = kp_ads * max_capacity * po4_guess / denom;
+                
+                /* Clamp to max capacity */
+                if (pip_eq > max_capacity) pip_eq = max_capacity;
+                
+                /* Residual: should sum to total_P */
+                double residual = po4_guess + pip_eq - total_P;
+                
+                /* Derivative: d(PO4 + PIP)/d(PO4) */
+                double deriv = 1.0 + kp_ads * max_capacity / (denom * denom);
+                
+                /* Update */
+                if (fabs(deriv) > 1e-10) {
+                    po4_guess -= residual / deriv;
+                }
+                
+                /* Clamp */
+                if (po4_guess < 0.0) po4_guess = 0.01 * total_P;
+                if (po4_guess > total_P) po4_guess = 0.99 * total_P;
+            }
+            
+            /* Final equilibrium */
+            double denom = 1.0 + kp_ads * po4_guess;
+            double pip_eq = kp_ads * max_capacity * po4_guess / denom;
+            if (pip_eq > max_capacity) pip_eq = max_capacity;
+            if (pip_eq > total_P) pip_eq = total_P - 0.01;
+            
+            double po4_eq = total_P - pip_eq;
+            if (po4_eq < 0.0) po4_eq = 0.0;
+            
+            /* Update concentrations */
+            po4[i] = po4_eq;
+            pip[i] = pip_eq;
+        }
     }
     
     return 0;

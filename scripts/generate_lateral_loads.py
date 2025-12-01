@@ -135,8 +135,8 @@ KG_HA_YR_TO_G_S_KM2 = 1000.0 / 10000.0 / 31557600.0 * 1e6  # ≈ 3.17e-3
 # Wet season: ~0.01 m³/s/km²
 # Point sources (cities): ~0.05 m³/s/km² (sewage outfalls)
 # 
-# Using higher rate (0.01) to show lateral load impact more clearly
-LATERAL_FLOW_RATE = 0.01  # m³/s per km² of riparian zone (wet season equivalent)
+# Using moderate rate (0.002) for realistic dry season
+LATERAL_FLOW_RATE = 0.002  # m³/s per km² of riparian zone
 
 
 def load_landuse_map() -> pd.DataFrame:

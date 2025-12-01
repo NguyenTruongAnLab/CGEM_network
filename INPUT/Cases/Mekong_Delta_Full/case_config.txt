@@ -20,8 +20,8 @@ OutputDir = OUTPUT/Mekong_Delta_Full
 
 # Time parameters
 StartDate = 2024-03-01
-Duration = 10
-Warmup = 3
+Duration = 30
+Warmup = 10
 
 # Numerical parameters
 TimeStep = 300.0
