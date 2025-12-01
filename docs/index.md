@@ -154,7 +154,7 @@ If you use C-GEM Network, please cite:
 ```bibtex
 @software{cgem_network_2025,
   title = {C-GEM Network: Carbon-Generic Estuary Model for Multi-Branch Networks},
-  author = {Nguyen, Truong and CGEM Development Team},
+  author = {Nguyen, Truong and Nguyen Truong An},
   year = {2025},
   url = {https://github.com/nguytruonganlab/CGEM_network}
 }

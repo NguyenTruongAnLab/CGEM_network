@@ -13,9 +13,17 @@ INPUT/Cases/YourCase/
 ├── species_river.csv         # Upstream species concentrations
 ├── species_ocean.csv         # Ocean species concentrations
 ├── lateral_sources.csv       # Point/diffuse loads (optional)
+├── landuse_map.csv           # Land use for lateral load generation
 ├── calibration_params.csv    # Calibration parameters (optional)
 ├── calibration_targets.csv   # Calibration objectives (optional)
-└── seasonal_targets.csv      # Seasonal observations (optional)
+├── seasonal_targets.csv      # Seasonal observations (optional)
+├── forcing_data/             # Time-varying boundary conditions
+│   ├── Tien_Inlet.csv        # Upstream discharge time series
+│   ├── Hau_Inlet.csv         # Upstream discharge time series
+│   ├── MyTho_Tide.csv        # Tidal level time series
+│   └── ...
+├── lateral_loads_monthly/    # Monthly lateral load files (if using --annual)
+└── polder_loads/             # Virtual Polder gate factors (if using --polders)
 ```
 
 ## 1. Main Configuration
@@ -37,14 +45,17 @@ WriteCSV = 1
 WriteNetCDF = 0
 WriteReactionRates = 0
 
-# Time parameters
-StartDate = 2024-03-01
-Duration = 30              # days
-Warmup = 10                # days before recording output
+# Time parameters (FULL YEAR RECOMMENDED)
+StartDate = 2024-01-01
+Duration = 365              # days - full year captures seasonal variation
+Warmup = 30                 # days before recording output
 
 # Numerical parameters
-TimeStep = 300.0           # dt [s]
-DELXI = 2000.0             # grid spacing [m]
+TimeStep = 60.0             # dt [s] - 60s for stability
+DELXI = 2000.0              # grid spacing [m]
+
+# Biogeochemistry mode (NEW)
+SimplifiedMode = 1          # 1 = 80/20 parsimonious mode (recommended)
 ```
 
 ### Parameter Descriptions
@@ -61,6 +72,16 @@ DELXI = 2000.0             # grid spacing [m]
 | `Warmup` | int | Warmup period [days] |
 | `TimeStep` | float | Time step [seconds] |
 | `DELXI` | float | Target grid spacing [meters] |
+| `SimplifiedMode` | int | 1 = 80/20 biogeochemistry mode (recommended for tropical systems) |
+
+### Recommended Simulation Durations
+
+| Purpose | Duration | Warmup | Notes |
+|---------|----------|--------|-------|
+| Quick test | 10 days | 3 days | Verify setup works |
+| Tidal analysis | 30 days | 10 days | Captures spring-neap cycle |
+| Seasonal study | 365 days | 30 days | **RECOMMENDED** - full seasonal variation |
+| Multi-year | 730+ days | 30 days | Climate variability analysis |
 
 ## 2. Network Topology
 
@@ -208,18 +229,119 @@ sal_stress_thresh = 5.0   # Onset of stress [PSU]
 sal_stress_coef = 0.5     # Mortality enhancement [-]
 ```
 
-## 6. Lateral Sources (Optional)
+## 6. Lateral Sources (Recommended)
 
-### lateral_sources.csv
+C-GEM supports spatially-explicit lateral pollution loads from land use, including:
+- **Diffuse sources**: Agricultural runoff, urban stormwater
+- **Point sources**: City sewage outfalls
+- **Virtual Polders**: Gate-controlled pollution pulses
 
-Point and diffuse pollution loads:
+### Generate Lateral Loads from Land Use
+
+The recommended workflow uses Python scripts:
+
+```bash
+# Step 1: Generate synthetic land use map (if no GIS data)
+python scripts/generate_synthetic_landuse.py
+
+# Step 2: Generate full-year lateral loads (RECOMMENDED)
+python scripts/generate_lateral_loads.py --annual --polders
+
+# Alternative: Single season
+python scripts/generate_lateral_loads.py --season dry
+python scripts/generate_lateral_loads.py --season wet
+```
+
+### lateral_sources.csv Format
 
 ```csv
-BranchName,Location_km,Q_m3_s,NH4_umol,NO3_umol,PO4_umol,TOC_umol
-Ham_Luong,25.0,0.5,100,20,5,500
-Co_Chien,30.0,0.3,80,15,3,400
-...
+Branch,Segment_Index,Distance_km,Q_lat_m3_s,NH4_load_g_s,NO3_load_g_s,PO4_load_g_s,TOC_load_g_s,DIC_load_g_s,Is_Polder_Zone
+Ham_Luong,12,24.0,0.0024,0.0015,0.0008,0.00025,0.012,0.005,True
+Co_Chien,15,30.0,0.0018,0.0012,0.0006,0.00018,0.009,0.004,False
 ```
+
+### Column Descriptions
+
+| Column | Type | Unit | Description |
+|--------|------|------|-------------|
+| `Branch` | string | - | Branch name |
+| `Segment_Index` | int | - | Grid cell index |
+| `Distance_km` | float | km | Distance from mouth |
+| `Q_lat_m3_s` | float | m³/s | Lateral inflow rate |
+| `NH4_load_g_s` | float | g/s | Ammonium mass flux |
+| `NO3_load_g_s` | float | g/s | Nitrate mass flux |
+| `PO4_load_g_s` | float | g/s | Phosphate mass flux |
+| `TOC_load_g_s` | float | g/s | Total organic carbon flux |
+| `DIC_load_g_s` | float | g/s | Dissolved inorganic carbon flux |
+| `Is_Polder_Zone` | bool | - | True if gate-controlled |
+
+### Seasonal Hydrology
+
+Lateral flow rates vary dramatically between seasons in monsoon-dominated systems:
+
+| Season | Months | Flow Rate | Notes |
+|--------|--------|-----------|-------|
+| Dry | Dec-May | 0.001 m³/s/km² | Groundwater seepage only |
+| Transition | Apr-May, Nov | 0.004 m³/s/km² | Shoulder seasons |
+| Wet | Jun-Oct | 0.01 m³/s/km² | Monsoon runoff |
+
+Monthly flow multipliers (relative to dry season):
+
+| Month | Multiplier | Notes |
+|-------|------------|-------|
+| Jan-Mar | 1.0× | Dry season baseline |
+| Apr | 2.0× | Early transition |
+| May | 4.0× | Late transition |
+| Jun-Jul | 8-10× | Monsoon onset |
+| Aug-Sep | 10× | Peak wet season |
+| Oct-Nov | 6-3× | Recession |
+| Dec | 1.5× | Early dry |
+
+### Virtual Polders (Gate Simulation)
+
+The Mekong Delta has extensive polder systems where sluice gates control drainage:
+
+- **High tide**: Gates CLOSED → No pollution release (Q_lat = 0)
+- **Low tide**: Gates OPEN → Flushing pulse (Q_lat × 3.0)
+
+This creates realistic "pollution pulses" that match field observations without complex gate logic in the C solver.
+
+**Enable with:**
+```bash
+python scripts/generate_lateral_loads.py --annual --polders
+```
+
+**Output files:**
+- `polder_loads/gate_factor_timeseries.csv` - Hourly gate factors for 365 days
+- `polder_loads/polder_zones.csv` - Segments identified as polder-controlled
+- `lateral_loads_monthly/` - Per-month load files
+
+### Point Sources
+
+Major cities are treated as concentrated outfalls:
+
+| City | Branch | Population | NH4 Load | Notes |
+|------|--------|------------|----------|-------|
+| Can Tho | Hau_Main | 1.5M | ~210 kg N/day | Largest city in delta |
+| My Tho | Tien_Main | 0.5M | ~70 kg N/day | Provincial capital |
+
+Per-capita emission factors:
+- NH4: 12 g N/person/day
+- TOC: 50 g C/person/day (BOD equivalent)
+
+### Land Use Emission Factors
+
+Literature-based emission factors [kg/ha/yr]:
+
+| Land Use | NH4 | NO3 | PO4 | TOC | Source |
+|----------|-----|-----|-----|-----|--------|
+| Urban | 150 | 50 | 20 | 500 | Garnier et al. (2005) |
+| Rice | 30 | 20 | 5 | 100 | Yan et al. (2003) |
+| Aquaculture | 200 | 100 | 40 | 1000 | Páez-Osuna (2001) |
+| Mangrove | -10 | -20 | 2 | 2000 | Alongi (2014) |
+| Fruit | 40 | 30 | 10 | 200 | Regional data |
+
+Note: Negative values for mangroves indicate net nutrient sink (denitrification).
 
 ## 7. Calibration Files
 

@@ -57,7 +57,7 @@ References:
 - Nguyen, A.D., & Savenije, H.H.G. (2006). Salt intrusion in multi-channel estuaries
 - Savenije, H.H.G. (2005, 2012). Salinity and Tides in Alluvial Estuaries
 
-Author: CGEM Development Team
+Author: Nguyen Truong An
 Date: November 2024 (Updated: Hierarchical topology fix)
 """
 
@@ -270,7 +270,7 @@ def generate_boundary_map_csv() -> str:
 
 
 def generate_case_config() -> str:
-    """Generate case_config.txt."""
+    """Generate case_config.txt with full year simulation."""
     return f"""# ============================================================================
 # C-GEM Network: Mekong Delta (Nguyen-Savenije Hierarchical)
 # ============================================================================
@@ -279,6 +279,10 @@ def generate_case_config() -> str:
 # - Merged distributaries for proper Savenije geometry
 # - Prismatic Vam Nao connector
 # - Co Chien splits first, then My Tho/Ham Luong
+#
+# FULL YEAR SIMULATION with seasonal variation:
+# - Dry season (Dec-May): Low discharge, max salinity intrusion
+# - Wet season (Jun-Nov): High discharge, minimal intrusion
 #
 # Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 # ============================================================================
@@ -291,10 +295,10 @@ BoundaryMap = boundary_map.csv
 BiogeoParams = biogeo_params.txt
 OutputDir = OUTPUT/{CASE_NAME}
 
-# Time parameters
-StartDate = 2024-03-01
-Duration = 10
-Warmup = 3
+# Time parameters - FULL YEAR SIMULATION
+StartDate = 2024-01-01
+Duration = 365
+Warmup = 30
 
 # Numerical parameters
 TimeStep = 60.0
@@ -304,6 +308,11 @@ DELXI = 2000.0
 WriteNetCDF = 1
 WriteCSV = 1
 WriteReactionRates = 0
+
+# Biogeochemistry mode
+# simplified_mode = 1 enables the 80/20 parsimonious biogeochemistry
+# suitable for data-sparse tropical systems
+SimplifiedMode = 1
 """
 
 
@@ -395,52 +404,92 @@ skip_p_adsorption = 1
 
 
 def generate_species_river() -> str:
-    """Generate species_river.csv with time_s column."""
-    return """time_s,salinity,phy1,phy2,dsi,no3,nh4,po4,o2,toc,spm,dic,at,pco2,co2,ph,hs
-0,0.1,15.0,8.0,80.0,35.0,12.0,1.5,250.0,300.0,80.0,1800.0,1900.0,0.0,0.0,7.5,0.5
-86400,0.1,15.0,8.0,80.0,35.0,12.0,1.5,250.0,300.0,80.0,1800.0,1900.0,0.0,0.0,7.5,0.5
-172800,0.1,15.0,8.0,80.0,35.0,12.0,1.5,250.0,300.0,80.0,1800.0,1900.0,0.0,0.0,7.5,0.5
-259200,0.1,15.0,8.0,80.0,35.0,12.0,1.5,250.0,300.0,80.0,1800.0,1900.0,0.0,0.0,7.5,0.5
-345600,0.1,15.0,8.0,80.0,35.0,12.0,1.5,250.0,300.0,80.0,1800.0,1900.0,0.0,0.0,7.5,0.5
-432000,0.1,15.0,8.0,80.0,35.0,12.0,1.5,250.0,300.0,80.0,1800.0,1900.0,0.0,0.0,7.5,0.5
-518400,0.1,15.0,8.0,80.0,35.0,12.0,1.5,250.0,300.0,80.0,1800.0,1900.0,0.0,0.0,7.5,0.5
-604800,0.1,15.0,8.0,80.0,35.0,12.0,1.5,250.0,300.0,80.0,1800.0,1900.0,0.0,0.0,7.5,0.5
-691200,0.1,15.0,8.0,80.0,35.0,12.0,1.5,250.0,300.0,80.0,1800.0,1900.0,0.0,0.0,7.5,0.5
-777600,0.1,15.0,8.0,80.0,35.0,12.0,1.5,250.0,300.0,80.0,1800.0,1900.0,0.0,0.0,7.5,0.5
-864000,0.1,15.0,8.0,80.0,35.0,12.0,1.5,250.0,300.0,80.0,1800.0,1900.0,0.0,0.0,7.5,0.5
-950400,0.1,15.0,8.0,80.0,35.0,12.0,1.5,250.0,300.0,80.0,1800.0,1900.0,0.0,0.0,7.5,0.5
-1036800,0.1,15.0,8.0,80.0,35.0,12.0,1.5,250.0,300.0,80.0,1800.0,1900.0,0.0,0.0,7.5,0.5
-1123200,0.1,15.0,8.0,80.0,35.0,12.0,1.5,250.0,300.0,80.0,1800.0,1900.0,0.0,0.0,7.5,0.5
-"""
+    """Generate species_river.csv with time_s column covering full year."""
+    # Generate a full year (365 days) of river species data
+    # with seasonal variations in nutrients and phytoplankton
+    
+    lines = ["time_s,salinity,phy1,phy2,dsi,no3,nh4,po4,o2,toc,spm,dic,at,pco2,co2,ph,hs"]
+    
+    # Seasonal variations (based on MRC water quality data):
+    # - Dry season (Jan-May): Lower discharge, higher concentrations
+    # - Wet season (Jun-Nov): Higher discharge, diluted concentrations
+    # - SPM peaks during flood season
+    
+    for day in range(0, 366, 1):  # Daily resolution for 365 days
+        time_s = day * 86400
+        month = (day // 30) + 1
+        if month > 12:
+            month = 12
+        
+        # Seasonal factors
+        if month in [12, 1, 2, 3, 4, 5]:  # Dry season
+            sal = 0.1
+            phy1, phy2 = 20.0, 12.0  # Higher phyto in clear water
+            dsi, no3, nh4, po4 = 100.0, 40.0, 15.0, 2.0  # Higher nutrients
+            o2 = 240.0
+            toc = 400.0
+            spm = 50.0  # Low SPM
+            dic, at = 1900.0, 2000.0
+        elif month in [6, 7, 8, 9, 10]:  # Wet season
+            sal = 0.1
+            phy1, phy2 = 10.0, 5.0  # Lower phyto (turbidity limits light)
+            dsi, no3, nh4, po4 = 70.0, 25.0, 8.0, 1.0  # Diluted nutrients
+            o2 = 260.0
+            toc = 250.0
+            spm = 200.0 if month in [8, 9] else 120.0  # High SPM in flood
+            dic, at = 1700.0, 1800.0
+        else:  # Transition
+            sal = 0.1
+            phy1, phy2 = 15.0, 8.0
+            dsi, no3, nh4, po4 = 85.0, 32.0, 11.0, 1.5
+            o2 = 250.0
+            toc = 320.0
+            spm = 80.0
+            dic, at = 1800.0, 1900.0
+        
+        lines.append(f"{time_s},{sal},{phy1},{phy2},{dsi},{no3},{nh4},{po4},"
+                     f"{o2},{toc},{spm},{dic},{at},0.0,0.0,7.5,0.5")
+    
+    return "\n".join(lines)
 
 
 def generate_species_ocean() -> str:
-    """Generate species_ocean.csv with time_s column."""
-    return """time_s,salinity,phy1,phy2,dsi,no3,nh4,po4,o2,toc,spm,dic,at,pco2,co2,ph,hs
-0,32.0,5.0,3.0,5.0,2.0,0.5,0.2,210.0,100.0,10.0,2100.0,2350.0,0.0,0.0,8.1,0.1
-86400,32.0,5.0,3.0,5.0,2.0,0.5,0.2,210.0,100.0,10.0,2100.0,2350.0,0.0,0.0,8.1,0.1
-172800,32.0,5.0,3.0,5.0,2.0,0.5,0.2,210.0,100.0,10.0,2100.0,2350.0,0.0,0.0,8.1,0.1
-259200,32.0,5.0,3.0,5.0,2.0,0.5,0.2,210.0,100.0,10.0,2100.0,2350.0,0.0,0.0,8.1,0.1
-345600,32.0,5.0,3.0,5.0,2.0,0.5,0.2,210.0,100.0,10.0,2100.0,2350.0,0.0,0.0,8.1,0.1
-432000,32.0,5.0,3.0,5.0,2.0,0.5,0.2,210.0,100.0,10.0,2100.0,2350.0,0.0,0.0,8.1,0.1
-518400,32.0,5.0,3.0,5.0,2.0,0.5,0.2,210.0,100.0,10.0,2100.0,2350.0,0.0,0.0,8.1,0.1
-604800,32.0,5.0,3.0,5.0,2.0,0.5,0.2,210.0,100.0,10.0,2100.0,2350.0,0.0,0.0,8.1,0.1
-691200,32.0,5.0,3.0,5.0,2.0,0.5,0.2,210.0,100.0,10.0,2100.0,2350.0,0.0,0.0,8.1,0.1
-777600,32.0,5.0,3.0,5.0,2.0,0.5,0.2,210.0,100.0,10.0,2100.0,2350.0,0.0,0.0,8.1,0.1
-864000,32.0,5.0,3.0,5.0,2.0,0.5,0.2,210.0,100.0,10.0,2100.0,2350.0,0.0,0.0,8.1,0.1
-950400,32.0,5.0,3.0,5.0,2.0,0.5,0.2,210.0,100.0,10.0,2100.0,2350.0,0.0,0.0,8.1,0.1
-1036800,32.0,5.0,3.0,5.0,2.0,0.5,0.2,210.0,100.0,10.0,2100.0,2350.0,0.0,0.0,8.1,0.1
-1123200,32.0,5.0,3.0,5.0,2.0,0.5,0.2,210.0,100.0,10.0,2100.0,2350.0,0.0,0.0,8.1,0.1
-"""
+    """Generate species_ocean.csv with time_s column covering full year."""
+    # Ocean conditions are more stable, but slight seasonal variations exist
+    
+    lines = ["time_s,salinity,phy1,phy2,dsi,no3,nh4,po4,o2,toc,spm,dic,at,pco2,co2,ph,hs"]
+    
+    for day in range(0, 366, 1):  # Daily resolution for 365 days
+        time_s = day * 86400
+        month = (day // 30) + 1
+        if month > 12:
+            month = 12
+        
+        # Slight seasonal variation in coastal waters
+        if month in [12, 1, 2, 3, 4, 5]:  # Dry season - more marine influence
+            sal = 33.0
+            phy1, phy2 = 6.0, 4.0
+            dsi, no3, nh4, po4 = 4.0, 1.5, 0.3, 0.2
+            spm = 8.0
+        else:  # Wet season - river plume influence
+            sal = 28.0  # Lower salinity from river plume
+            phy1, phy2 = 8.0, 5.0  # Higher coastal productivity
+            dsi, no3, nh4, po4 = 8.0, 3.0, 0.8, 0.4
+            spm = 20.0  # Higher from river input
+        
+        lines.append(f"{time_s},{sal},{phy1},{phy2},{dsi},{no3},{nh4},{po4},"
+                     f"210.0,100.0,{spm},2100.0,2350.0,0.0,0.0,8.1,0.1")
+    
+    return "\n".join(lines)
 
 
 def generate_hau_tide() -> str:
-    """Generate Hau tide file (merged Dinh An + Tran De)."""
+    """Generate Hau tide file (merged Dinh An + Tran De) for full year."""
     import numpy as np
     
-    # 13 days at 30-min intervals
+    # Full year at 30-min intervals
     dt = 1800  # seconds
-    n_points = int(13 * 24 * 3600 / dt) + 1
+    n_points = int(365 * 24 * 3600 / dt) + 1
     times = np.arange(n_points) * dt
     
     # M2 tide parameters (average of Dinh An and Tran De)
@@ -448,17 +497,93 @@ def generate_hau_tide() -> str:
     amplitude = 2.1  # Average of 2.2 (Dinh An) and 2.0 (Tran De)
     phase = 30 * np.pi / 180  # 30 degrees phase lag
     
-    # Spring-neap modulation
+    # Spring-neap modulation (14.77 day cycle)
     spring_neap_period = 14.77 * 86400
+    
+    # Seasonal modulation of mean sea level (monsoon setup)
+    # Wet season: +0.1m setup, Dry season: -0.05m
+    annual_period = 365.25 * 86400
     
     lines = ["time_s,water_level_m"]
     for i, t in enumerate(times):
-        # M2 tide + spring-neap
+        # Spring-neap modulation
         spring_neap = 1.0 + 0.2 * np.cos(2 * np.pi * t / spring_neap_period)
-        level = amplitude * spring_neap * np.cos(2 * np.pi * t / M2_period - phase)
+        
+        # Seasonal mean sea level (peaks in September)
+        seasonal_offset = 0.05 * np.sin(2 * np.pi * (t - 180*86400) / annual_period)
+        
+        # M2 tide
+        level = amplitude * spring_neap * np.cos(2 * np.pi * t / M2_period - phase) + seasonal_offset
         lines.append(f"{int(t)},{level:.4f}")
     
     return "\n".join(lines)
+
+
+def generate_full_year_discharge() -> tuple:
+    """
+    Generate full year discharge data for Tien and Hau rivers.
+    
+    Based on MRC data, the Mekong has strong seasonal variation:
+    - Dry season (Jan-May): ~2,000 m³/s at Tan Chau
+    - Wet season (Jul-Oct): ~20,000 m³/s peak
+    - Annual average: ~13,000 m³/s
+    
+    Returns:
+        Tuple of (tien_discharge_csv, hau_discharge_csv)
+    """
+    import numpy as np
+    
+    # Full year at hourly intervals
+    dt = 3600  # seconds
+    n_points = int(365 * 24 * 3600 / dt) + 1
+    times = np.arange(n_points) * dt
+    
+    # Monthly discharge multipliers (relative to mean)
+    # Based on MRC data at Tan Chau
+    monthly_Q_factors = {
+        1: 0.25,   # January - Dry
+        2: 0.20,   # February - Driest
+        3: 0.18,   # March - Driest
+        4: 0.22,   # April - Late dry
+        5: 0.40,   # May - Early transition
+        6: 0.80,   # June - Early wet
+        7: 1.20,   # July - Wet
+        8: 1.60,   # August - Peak flood
+        9: 1.80,   # September - Peak flood
+        10: 1.50,  # October - Late wet
+        11: 0.80,  # November - Transition
+        12: 0.40,  # December - Early dry
+    }
+    
+    # Annual mean discharge (total Mekong at Cambodian border)
+    Q_mean_total = 13000.0  # m³/s
+    
+    # Split: Tien 60%, Hau 40%
+    Q_mean_tien = Q_mean_total * 0.60
+    Q_mean_hau = Q_mean_total * 0.40
+    
+    tien_lines = ["time_s,discharge_m3_s"]
+    hau_lines = ["time_s,discharge_m3_s"]
+    
+    for i, t in enumerate(times):
+        # Determine month (approximate)
+        day = t / 86400
+        month = int((day % 365) / 30.44) + 1
+        if month > 12:
+            month = 12
+        
+        factor = monthly_Q_factors[month]
+        
+        # Add small daily variation (tidal influence on discharge)
+        tidal_var = 0.05 * np.sin(2 * np.pi * t / (12.42 * 3600))
+        
+        Q_tien = Q_mean_tien * factor * (1.0 + tidal_var)
+        Q_hau = Q_mean_hau * factor * (1.0 + tidal_var)
+        
+        tien_lines.append(f"{int(t)},{Q_tien:.1f}")
+        hau_lines.append(f"{int(t)},{Q_hau:.1f}")
+    
+    return "\n".join(tien_lines), "\n".join(hau_lines)
 
 
 # ===========================================================================
@@ -466,10 +591,12 @@ def generate_hau_tide() -> str:
 # ===========================================================================
 
 def main():
-    """Generate all configuration files."""
+    """Generate all configuration files for full-year simulation."""
+    import numpy as np
     
     print("=" * 70)
     print("Setting up Mekong Delta (Nguyen-Savenije Simplified)")
+    print("FULL YEAR (365 days) with Seasonal Variation")
     print("=" * 70)
     print(f"Case directory: {CASE_DIR}")
     
@@ -490,7 +617,7 @@ def main():
     with open(CASE_DIR / "boundary_map.csv", "w") as f:
         f.write(generate_boundary_map_csv())
     
-    print("\n4. Generating case_config.txt...")
+    print("\n4. Generating case_config.txt (365 days)...")
     with open(CASE_DIR / "case_config.txt", "w") as f:
         f.write(generate_case_config())
     
@@ -498,15 +625,50 @@ def main():
     with open(CASE_DIR / "biogeo_params.txt", "w") as f:
         f.write(generate_biogeo_params())
     
-    print("\n6. Generating species files...")
+    print("\n6. Generating species files (365 days with seasonal variation)...")
     with open(CASE_DIR / "species_river.csv", "w") as f:
         f.write(generate_species_river())
     with open(CASE_DIR / "species_ocean.csv", "w") as f:
         f.write(generate_species_ocean())
     
-    print("\n7. Generating Hau tide file...")
+    print("\n7. Generating tidal files (365 days)...")
     with open(FORCING_DIR / "Hau_Tide.csv", "w") as f:
         f.write(generate_hau_tide())
+    
+    # Generate additional tidal files with phase offsets
+    M2_period = 12.42 * 3600
+    dt = 1800
+    n_points = int(365 * 24 * 3600 / dt) + 1
+    times = np.arange(n_points) * dt
+    spring_neap_period = 14.77 * 86400
+    annual_period = 365.25 * 86400
+    
+    for node_id, (filename, phase_deg) in TIDE_FILES.items():
+        if filename == "Hau_Tide.csv":
+            continue  # Already generated
+        
+        phase = phase_deg * np.pi / 180
+        amplitude = 2.0  # Slightly lower for other outlets
+        
+        lines = ["time_s,water_level_m"]
+        for t in times:
+            spring_neap = 1.0 + 0.2 * np.cos(2 * np.pi * t / spring_neap_period)
+            seasonal_offset = 0.05 * np.sin(2 * np.pi * (t - 180*86400) / annual_period)
+            level = amplitude * spring_neap * np.cos(2 * np.pi * t / M2_period - phase) + seasonal_offset
+            lines.append(f"{int(t)},{level:.4f}")
+        
+        with open(FORCING_DIR / filename, "w") as f:
+            f.write("\n".join(lines))
+        print(f"   ✓ {filename} (phase: {phase_deg}°)")
+    
+    print("\n8. Generating discharge files (365 days with seasonal variation)...")
+    tien_csv, hau_csv = generate_full_year_discharge()
+    with open(FORCING_DIR / "Tien_Inlet.csv", "w") as f:
+        f.write(tien_csv)
+    with open(FORCING_DIR / "Hau_Inlet.csv", "w") as f:
+        f.write(hau_csv)
+    print("   ✓ Tien_Inlet.csv (60% of Mekong flow)")
+    print("   ✓ Hau_Inlet.csv (40% of Mekong flow)")
     
     # Print topology diagram
     print("\n" + "=" * 70)
@@ -553,12 +715,34 @@ def main():
     """)
     
     print("=" * 70)
+    print("SEASONAL VARIATION SUMMARY")
+    print("=" * 70)
+    print("""
+    Month   Season       Q_total   Salinity Intrusion
+    -----   ------       -------   ------------------
+    Jan     Dry          2,600     Maximum (60-70 km)
+    Feb     Dry (min)    2,340     Maximum
+    Mar     Dry (min)    2,080     Maximum
+    Apr     Dry          2,860     High
+    May     Transition   5,200     Decreasing
+    Jun     Early Wet    10,400    Moderate
+    Jul     Wet          15,600    Low
+    Aug     Peak Flood   20,800    Minimal (<20 km)
+    Sep     Peak Flood   23,400    Minimal
+    Oct     Late Wet     19,500    Low
+    Nov     Transition   10,400    Increasing
+    Dec     Early Dry    5,200     High
+    """)
+    
+    print("=" * 70)
     print("Setup Complete!")
     print("=" * 70)
     print("\nNext steps:")
-    print("  1. Run: python scripts/generate_synthetic_mekong.py")
-    print("  2. Build: scripts/build.bat")
-    print("  3. Run: bin/Debug/CGEM_Network.exe INPUT/Cases/Mekong_Delta_Full/case_config.txt")
+    print("  1. Generate land use: python scripts/generate_synthetic_landuse.py")
+    print("  2. Generate lateral loads: python scripts/generate_lateral_loads.py --annual")
+    print("  3. Build: scripts/build.bat")
+    print("  4. Run: bin/Debug/CGEM_Network.exe INPUT/Cases/Mekong_Delta_Full/case_config.txt")
+    print("\n  Expected runtime for 365-day simulation: ~10-15 minutes")
     
     return 0
 

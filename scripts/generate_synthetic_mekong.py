@@ -15,7 +15,7 @@ The data is synthetic but based on realistic Mekong Delta parameters:
 
 Output Directory: INPUT/Cases/Mekong_Delta_Full/forcing_data/
 
-Author: CGEM Development Team
+Author: Nguyen Truong An
 Date: November 2024
 """
 

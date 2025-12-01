@@ -28,8 +28,9 @@ C-GEM Network is a **1D estuarine biogeochemical model** for multi-branch tidal 
 | **Multi-branch topology** | Bifurcations, confluences, distributary networks |
 | **Fast computation** | 100-1000× faster than 2D/3D models |
 | **Complete biogeochemistry** | 30 species, 35+ reactions, carbonate chemistry |
-| **GHG emissions** | CO₂, CH₄, N₂O with process attribution |
+| **GHG emissions** | CO₂, CH₄, N₂O with mechanistic ebullition |
 | **Built-in calibration** | NLopt optimization with seasonal targets |
+| **Tropical-ready** | Temperature/salinity effects on all processes |
 
 ## Quick Start
 

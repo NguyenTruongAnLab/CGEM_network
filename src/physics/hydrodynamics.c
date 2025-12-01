@@ -242,8 +242,10 @@ void InitializeBranchGeometry(Branch *branch, double target_dx) {
         branch->dispersion[i] = 200.0;
     }
 
-    /* Initialize Van den Burgh coefficient */
-    branch->vdb_coef = 1.0;
+    /* Maintain literature-based Van den Burgh coefficient (override only if unset) */
+    if (branch->vdb_coef <= 0.0) {
+        branch->vdb_coef = 0.35;  /* Savenije (2005) mid-range default */
+    }
 
     /* Initialize concentrations if species exist */
     if (branch->num_species > 0 && branch->conc) {

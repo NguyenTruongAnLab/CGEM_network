@@ -33,7 +33,7 @@ References:
 - Tuan et al. (2020) - Mekong Delta land use classification
 - MRC State of Basin Report (2018)
 
-Author: CGEM Development Team
+Author: Nguyen Truong An
 Date: November 2024
 """
 

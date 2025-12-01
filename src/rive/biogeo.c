@@ -223,7 +223,6 @@ static double calculate_carbonate_system(Branch *branch, int idx, double temp,
  * 2. Direct use of TOC instead of 6-pool OC fractionation
  * 3. Monod limitation on O2 only (not bacteria substrate)
  * 
- * Reference: Audit recommendation for "Academic Solidity"
  * ============================================================================*/
 static int Biogeo_Branch_Simplified(Branch *branch, double dt) {
     if (!branch || branch->M <= 0) return -1;

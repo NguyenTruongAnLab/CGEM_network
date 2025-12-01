@@ -24,19 +24,19 @@ OutputDir = OUTPUT/Mekong_Delta_Full
 
 # Time parameters - FULL YEAR SIMULATION
 StartDate = 2024-01-01
-Duration = 365
-Warmup = 300
+Duration = 30
+Warmup = 15
 
 # Numerical parameters
 TimeStep = 300.0
 DELXI = 2000.0
 
 # Reference discharge for dispersion calculation
-# Total Mekong discharge ~3300 m³/s in dry season (60% Tien + 40% Hau)
+# Total Mekong discharge ~3300 m³/s in dry season
 RiverDischarge = 3300.0
 
 # Output
-WriteNetCDF = 0
+WriteNetCDF = 1
 WriteCSV = 1
 WriteReactionRates = 0
 

@@ -364,19 +364,20 @@ int LoadTopology(const char *path, Network *net) {
         }
         /* Parse fields first to know length to choose M for allocation */
 
-        /* Parse topology columns:
-         * 0: ID
-         * 1: Name
-         * 2: NodeUp
-         * 3: NodeDown
-         * 4: Length_m
-         * 5: Width_Up_m
-         * 6: Width_Down_m
-         * 7: Depth_m
-         * 8: Chezy
-         * 9: Group (optional, default 0)
-         * 10: RS (optional, default 1.0) - Storage width ratio for mangroves
-         * 11: BiogeoParams (optional) - Path to branch-specific biogeo params file
+        /* Parse topology columns (Savenije-inspired parameterisation):
+         *  0: ID
+         *  1: Name
+         *  2: NodeUp
+         *  3: NodeDown
+         *  4: Length_m
+         *  5: Width_Up_m
+         *  6: Width_Down_m
+         *  7: Depth_m
+         *  8: Chezy
+         *  9: Group (optional, default 0)
+         * 10: RS   (optional, default 1.0) - Storage width ratio for mangroves
+         * 11: VDB_K (optional, default 0.35) - Van den Burgh dispersion coefficient
+         * 12: BiogeoParams (optional) - Path to branch-specific biogeo params file
          */
         int column = 0;
         int tmp_id = -1;
@@ -390,9 +391,10 @@ int LoadTopology(const char *path, Network *net) {
         double tmp_chezy = 0.0;
         int tmp_group = 0;
         double tmp_storage_ratio = 1.0;      /* Default RS = 1.0 (prismatic channel) */
+        double tmp_vdb_coef = 0.35;          /* Default Van den Burgh K (Savenije, 2005) */
         char tmp_biogeo_path[CGEM_MAX_PATH] = {0}; /* Empty = use global defaults */
         char *token = strtok(text, ",");
-        while (token && column < 12) {
+        while (token && column < 13) {
             char *value = trim_in_place(token);
             switch (column) {
                 case 0:
@@ -431,6 +433,10 @@ int LoadTopology(const char *path, Network *net) {
                     if (tmp_storage_ratio < 0.1) tmp_storage_ratio = 1.0;  /* Sanity check */
                     break;
                 case 11:
+                    /* Van den Burgh dispersion coefficient (controls exponential decay length) */
+                    tmp_vdb_coef = strtod(value, NULL);
+                    break;
+                case 12:
                     /* BiogeoParams: Path to branch-specific biogeochemistry parameters */
                     snprintf(tmp_biogeo_path, sizeof(tmp_biogeo_path), "%s", value);
                     break;
@@ -453,6 +459,9 @@ int LoadTopology(const char *path, Network *net) {
         }
         if (column < 11) {
             tmp_storage_ratio = 1.0;
+        }
+        if (column < 12) {
+            tmp_vdb_coef = 0.35;  /* Literature mid-range if not specified */
         }
         /* tmp_biogeo_path defaults to empty string (use global params) */
 
@@ -495,10 +504,11 @@ int LoadTopology(const char *path, Network *net) {
         branch->group_id = tmp_group;
         branch->storage_ratio = tmp_storage_ratio;  /* RS for mangrove/tidal flat storage */
         branch->has_biogeo = 1;  /* Always enable biogeo for now */
+        branch->vdb_coef = tmp_vdb_coef;
         snprintf(branch->biogeo_params_path, sizeof(branch->biogeo_params_path), "%s", tmp_biogeo_path);
         
         /* Diagnostic output for configuration verification */
-        printf("  Parsed branch %d: %s (RS=%.1f", tmp_id, tmp_name, tmp_storage_ratio);
+        printf("  Parsed branch %d: %s (RS=%.1f, K=%.2f", tmp_id, tmp_name, tmp_storage_ratio, tmp_vdb_coef);
         if (tmp_biogeo_path[0] != '\0') {
             printf(", biogeo=%s", tmp_biogeo_path);
         }
