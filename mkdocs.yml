@@ -1,0 +1,165 @@
+# C-GEM Network Documentation
+# MkDocs configuration with Material theme
+
+site_name: C-GEM Network
+site_description: Carbon-Generic Estuary Model for Multi-Branch Networks
+site_author: CGEM Development Team
+site_url: https://nguytruonganlab.github.io/CGEM_network/
+
+repo_name: nguytruonganlab/CGEM_network
+repo_url: https://github.com/nguytruonganlab/CGEM_network
+edit_uri: edit/main/docs/
+
+# Theme configuration
+theme:
+  name: material
+  language: en
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      accent: light blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      accent: light blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  
+  font:
+    text: Roboto
+    code: Roboto Mono
+  
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+    - content.code.annotate
+    - content.code.copy
+    - toc.follow
+  
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/water
+
+# Plugins
+plugins:
+  - search:
+      lang: en
+  - minify:
+      minify_html: true
+
+# Extensions
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink:
+      repo_url_shorthand: true
+      user: nguytruo
+      repo: CGEM_network
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+  - tables
+
+# Extra JavaScript for math
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+# Extra CSS
+extra_css:
+  - stylesheets/extra.css
+
+# Navigation
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Introduction: getting-started/introduction.md
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quickstart.md
+    - Project Structure: getting-started/structure.md
+  - User Guide:
+    - Model Overview: user-guide/overview.md
+    - Data Preparation: user-guide/data-preparation.md
+    - Running Simulations: user-guide/running.md
+    - Output Analysis: user-guide/output.md
+    - Calibration: user-guide/calibration.md
+  - Physics Modules:
+    - Hydrodynamics: physics/hydrodynamics.md
+    - Transport: physics/transport.md
+    - Biogeochemistry: physics/biogeochemistry.md
+    - Sediment: physics/sediment.md
+  - API Reference:
+    - Core Structures: api/structures.md
+    - Hydrodynamics API: api/hydrodynamics.md
+    - Transport API: api/transport.md
+    - Biogeochemistry API: api/biogeochemistry.md
+    - Calibration API: api/calibration.md
+  - Case Studies:
+    - Mekong Delta: cases/mekong-delta.md
+    - Tien River: cases/tien-river.md
+  - Development:
+    - Contributing: development/contributing.md
+    - Code Style: development/code-style.md
+    - Testing: development/testing.md
+  - About:
+    - License: about/license.md
+    - Citation: about/citation.md
+    - Changelog: about/changelog.md
+
+# Footer
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/nguytruo/CGEM_network
+  version:
+    provider: mike
+  generator: false
+
+copyright: Copyright &copy; 2024-2025 C-GEM Development Team

@@ -1,0 +1,62 @@
+/* Custom styles for C-GEM documentation */
+
+/* Code block styling */
+.md-typeset code {
+  background-color: var(--md-code-bg-color);
+  border-radius: 0.2rem;
+  padding: 0 0.3rem;
+}
+
+/* Table styling */
+.md-typeset table:not([class]) {
+  font-size: 0.85rem;
+}
+
+/* Admonition icons */
+.md-typeset .admonition.physics,
+.md-typeset details.physics {
+  border-color: #2196f3;
+}
+
+.md-typeset .admonition.physics > .admonition-title,
+.md-typeset details.physics > summary {
+  background-color: rgba(33, 150, 243, 0.1);
+}
+
+/* Custom badge colors */
+.badge-hydro {
+  background-color: #2196f3 !important;
+}
+
+.badge-transport {
+  background-color: #4caf50 !important;
+}
+
+.badge-biogeo {
+  background-color: #ff9800 !important;
+}
+
+.badge-calibration {
+  background-color: #9c27b0 !important;
+}
+
+/* Architecture diagram styling */
+.architecture-diagram {
+  text-align: center;
+  margin: 1rem 0;
+}
+
+.architecture-diagram pre {
+  display: inline-block;
+  text-align: left;
+}
+
+/* Variable tables */
+.variable-table th {
+  white-space: nowrap;
+}
+
+.variable-table td:first-child {
+  font-family: var(--md-code-font-family);
+  font-weight: 500;
+}
