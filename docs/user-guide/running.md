@@ -70,7 +70,7 @@ OUTPUT/Mekong_Delta_Full/
     └── calibration_results.csv
 ```
 
-[Learn more](user-guide/output.md) - Detailed output file formats and post-processing
+[Learn more](output.md) - Detailed output file formats and post-processing
 
 ## Helper Scripts
 

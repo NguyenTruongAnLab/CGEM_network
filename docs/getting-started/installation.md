@@ -40,16 +40,12 @@
 
 ## Download
 
-### Option 1: Clone Repository
+Clone Repository
 
 ```bash
 git clone https://github.com/nguytruonganlab/CGEM_network.git
 cd CGEM_network
 ```
-
-### Option 2: Download Release
-
-Download the latest release from [GitHub Releases](https://github.com/nguytruonganlab/CGEM_network/releases).
 
 ## Build
 
@@ -180,4 +176,5 @@ Ensure `-lm` is included in the linker flags (check `scripts/build.bat`).
 ## Next Steps
 
 - [Quick Start](quickstart.md) - Run your first simulation
+- 
 - [Project Structure](structure.md) - Understand the codebase

@@ -7,7 +7,7 @@ If you use C-GEM Network in your research, please cite:
 ```bibtex
 @software{cgem_network_2025,
   title = {{C-GEM Network}: Carbon-Generic Estuary Model for Multi-Branch Networks},
-  author = {Nguyen, Truong and {C-GEM Development Team}},
+  author = {Nguyen, Truong and {Nguyen Truong An}},
   year = {2025},
   url = {https://github.com/nguytruonganlab/CGEM_network},
   version = {1.0}

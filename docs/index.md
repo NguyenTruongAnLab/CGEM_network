@@ -9,23 +9,16 @@
 
 <div class="grid cards" markdown>
 
--   :material-water:{ .lg .middle } __Introduction__
+ -  :material-tune:{ .lg .middle } __Introduction__
 
     ---
 
     Introduction to C-GEM Network's purpose and capabilities
 
-    [:octicons-arrow-right-24: Learn more](physics/introduction.md)
+    [:octicons-arrow-right-24: Learn more](getting-started/introduction.md)
 
 -   :material-water:{ .lg .middle } __Hydrodynamics__
 
-    ---
-
-    Saint-Venant equations on staggered grid with Savenije's estuarine theory
-
-    [:octicons-arrow-right-24: Learn more](physics/hydrodynamics.md)
-
--   :material-waves:{ .lg .middle } __Transport__
     ---
 
     Saint-Venant equations on staggered grid with Savenije's estuarine theory
@@ -71,6 +64,8 @@ C-GEM Network fills a critical niche for **rapid, process-based biogeochemical m
 | GHG emissions | CO₂, CH₄, N₂O | Often missing |
 | Calibration | Built-in NLopt | External tools |
 
+[Learn more](user-guide/calibration.md)
+
 ## Quick Start
 
 === "Windows (PowerShell)"
@@ -102,41 +97,28 @@ C-GEM Network fills a critical niche for **rapid, process-based biogeochemical m
 
 ## Key Features
 
-- ✅ **Multi-branch network topology** — bifurcations, confluences, distributaries
-- ✅ **Computationally efficient** — 1D, runs in seconds to minutes
-- ✅ **Complete carbon cycle** — DIC, TA, pH, pCO₂, CO₂ air-water flux
-- ✅ **Greenhouse gas emissions** — CO₂, CH₄, N₂O with process attribution
-- ✅ **C-RIVE biogeochemistry** — 6-pool organic matter, 2-step nitrification
-- ✅ **Automatic calibration** — NLopt integration with seasonal objectives
-- ✅ **Open source** — ANSI C, portable, transparent
+-  **Multi-branch network topology** — bifurcations, confluences, distributaries
+-  **Computationally efficient** — 1D, runs in seconds to minutes
+-  **Complete carbon cycle** — DIC, TA, pH, pCO₂, CO₂ air-water flux
+-  **Greenhouse gas emissions** — CO₂, CH₄, N₂O with process attribution
+-  **C-RIVE biogeochemistry** — 6-pool organic matter, 2-step nitrification
+-  **Automatic calibration** — NLopt integration with seasonal objectives
+-  **Open source** — ANSI C, portable, transparent
 
 ## Architecture Overview
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                           C-GEM Network                                │
-├────────────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐                 │
-│  │ HYDRO       │───▶│ TRANSPORT   │───▶│ BIOGEO      │                │
-│  │ Saint-Venant│    │ ADV-DISP    │    │ C-RIVE      │                 │
-│  │ Staggered   │    │ TVD Schemes │    │ GHG Module  │                 │
-│  └─────────────┘    └─────────────┘    └─────────────┘                 │
-│         │                  │                  │                        │
-│         ▼                  ▼                  ▼                        │
-│  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │                    Network Solver                                │  │
-│  │  • Junction mass balance    • Multi-branch iteration             │  │
-│  │  • Boundary conditions      • Implicit time stepping             │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-│                                  │                                     │
-│         ┌────────────────────────┼────────────────────────┐            │
-│         ▼                        ▼                        ▼            │
-│  ┌─────────────┐         ┌─────────────┐         ┌─────────────┐       │
-│  │ CALIBRATION │         │ I/O MANAGER │         │ OUTPUT      │       │
-│  │ NLopt       │         │ CSV/NetCDF  │         │ Binary/CSV  │       │
-│  │ Seasonal    │         │ Config      │         │ Time series │       │
-│  └─────────────┘         └─────────────┘         └─────────────┘       │
-└────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph cgem[C-GEM Network]
+        hydro[Hydrodynamics<br/>Saint-Venant<br/>Staggered grid]
+        transport[Transport<br/>Advective-dispersive<br/>TVD schemes]
+        biogeo[Biogeochemistry<br/>C-RIVE + GHG module]
+        solver[Network Solver<br/>Junction mass balance<br/>Multi-branch iteration<br/>Implicit time stepping<br/>Boundary conditions]
+        hydro --> transport --> biogeo --> solver
+        solver --> calibration[Calibration<br/>NLopt + seasonal objectives]
+        solver --> ioManager[I/O Manager<br/>CSV & NetCDF<br/>Config]
+        solver --> output[Output<br/>Binary/CSV<br/>Time series]
+    end
 ```
 
 [Learn more](getting-started/structure.md) - Detailed architecture and source code structure
@@ -149,11 +131,11 @@ C-GEM Network fills a critical niche for **rapid, process-based biogeochemical m
 
     ---
 
-    9-branch network, seasonal calibration, full biogeochemistry
+    4-branch network, seasonal calibration, full biogeochemistry
 
     [:octicons-arrow-right-24: View case study](cases/mekong-delta.md)
 
--   :material-river:{ .lg .middle } __Tien River__
+-   :material-map:{ .lg .middle } __Tien River__
 
     ---
 
@@ -174,20 +156,7 @@ If you use C-GEM Network, please cite:
   title = {C-GEM Network: Carbon-Generic Estuary Model for Multi-Branch Networks},
   author = {Nguyen, Truong and CGEM Development Team},
   year = {2025},
-  url = {https://github.com/nguytruo/CGEM_network}
-}
-```
-
-For C-RIVE biogeochemistry:
-
-```bibtex
-@article{wang2018crive,
-  title={Time-dependent global sensitivity analysis of the {C-RIVE} biogeochemical model},
-  author={Wang, Shuaitao and Flipo, Nicolas and Romary, Thomas},
-  journal={Water Research},
-  volume={144},
-  pages={341--355},
-  year={2018}
+  url = {https://github.com/nguytruonganlab/CGEM_network}
 }
 ```
 

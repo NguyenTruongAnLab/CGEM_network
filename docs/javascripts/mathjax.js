@@ -11,6 +11,23 @@ window.MathJax = {
   }
 };
 
-document$.subscribe(() => {
-  MathJax.typesetPromise()
-})
+(function () {
+  const typeset = () => {
+    MathJax.typesetPromise().catch((error) => {
+      console.warn("MathJax typeset failed:", error);
+    });
+  };
+
+  const attachListeners = () => {
+    if (typeof document$ !== "undefined") {
+      document$.subscribe(typeset);
+    } else {
+      window.addEventListener("DOMContentLoaded", typeset);
+    }
+  };
+
+  MathJax.startup.promise.then(() => {
+    typeset();
+    attachListeners();
+  });
+})();

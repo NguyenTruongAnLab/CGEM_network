@@ -60,3 +60,71 @@
   font-family: var(--md-code-font-family);
   font-weight: 500;
 }
+
+/* Layout tweaks: widen main content and narrow sidebars */
+@media (min-width: 78rem) {
+  /* make left navigation slightly narrower */
+  .md-sidebar--primary {
+    width: 220px !important;
+    flex: 0 0 220px !important;
+  }
+
+  /* make right table-of-contents narrower */
+  .md-sidebar--secondary {
+    width: 260px !important;
+    flex: 0 0 260px !important;
+  }
+
+  /* increase the center content's max width */
+  .md-main__inner {
+    max-width: none !important;
+    width: auto !important;
+  }
+
+  /* keep typeset readable but allow wider content */
+  .md-typeset {
+    max-width: none !important;
+  }
+
+  /* Make sure the content stretch to the central column width */
+  .md-content {
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  /* Force typeset and container to take full width of central column */
+  .md-typeset {
+    width: 100% !important;
+    max-width: none !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  .md-main__inner, .md-container {
+    padding-left: 1.25rem !important;
+    padding-right: 1.25rem !important;
+  }
+}
+
+/* For desktop layout, reduce left nav padding to free more space */
+@media (min-width: 78rem) {
+  .md-sidebar--primary .md-nav,
+  .md-sidebar--secondary .md-nav {
+    padding-left: 0.25rem !important;
+    padding-right: 0.25rem !important;
+    white-space: normal !important; /* allow wrapping of long labels */
+    word-wrap: break-word !important;
+  }
+}
+
+/* Force grid layout to have fixed sidebars and flexible center pane */
+@media (min-width: 78rem) {
+  .md-main {
+    grid-template-columns: 220px minmax(0, 1fr) 260px !important;
+  }
+
+  /* remove extra right margin/padding from container to avoid blank space */
+  .md-container {
+    padding-right: 0.75rem !important;
+  }
+}

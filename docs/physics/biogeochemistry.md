@@ -137,30 +137,15 @@ NO3 uptake fraction: $(1 - f_{NH4})$
 
 ### Multi-Pool Conceptual Model
 
-```
-         River Input
-              ↓
-    ┌─────────┴─────────┐
-    │   Phytoplankton   │
-    │   Mortality       │
-    └─────────┬─────────┘
-              ↓
-    ┌─────────┴─────────┐
-    │  Particulate OC   │
-    │  HP1 → HP2 → HP3  │
-    └─────────┬─────────┘
-              ↓ Hydrolysis
-    ┌─────────┴─────────┐
-    │   Dissolved OC    │
-    │  HD1 → HD2 → HD3  │
-    └─────────┬─────────┘
-              ↓ Uptake
-    ┌─────────┴─────────┐
-    │     Bacteria      │
-    │    BAG + BAP      │
-    └─────────┬─────────┘
-              ↓ Respiration
-            CO2 + NH4 + PO4
+```mermaid
+flowchart TD
+          river["River Input"] --> phy["Phytoplankton Mortality"]
+          phy --> particulate["Particulate OC<br/>HP1 → HP2 → HP3"]
+          particulate --> hydrolysis["Hydrolysis"]
+          hydrolysis --> dissolved["Dissolved OC<br/>HD1 → HD2 → HD3"]
+          dissolved --> bacteria["Bacteria<br/>BAG + BAP"]
+          bacteria --> respiration["Respiration<br/>CO₂ + NH₄ + PO₄"]
+          particulate --> dissolved
 ```
 
 ### Hydrolysis Rates
@@ -374,33 +359,37 @@ At 25°C, freshwater: O2_{sat} ≈ 258 µmol/L (8.3 mg/L)
 
 ## Reaction Network Summary
 
-```
-                    ┌──────────────────────────────────────┐
-                    │           ATMOSPHERE                 │
-                    │    CO2    CH4    N2O    O2          │
-                    └────↑↓─────↑↓─────↑↓─────↑↓──────────┘
-                         │      │      │      │
-    ┌────────────────────┴──────┴──────┴──────┴────────────┐
-    │                   WATER COLUMN                        │
-    │                                                       │
-    │  Phyto ─────→ OC ─────→ CO2 + NH4 + PO4              │
-    │    ↑           ↑                                      │
-    │    │           │       NH4 ──→ NO2 ──→ NO3           │
-    │  Light    Bacteria        ↓ N2O    ↓                 │
-    │  + N,P,Si                          ↓ N2O             │
-    │                              NO3 ──→ N2              │
-    │                                                       │
-    │  DIC ←→ CO2 ←→ HCO3⁻ ←→ CO3²⁻                       │
-    │                                                       │
-    └──────────────────────────┬───────────────────────────┘
-                               ↓ settling, diffusion
-    ┌──────────────────────────┴───────────────────────────┐
-    │                   SEDIMENT                            │
-    │                                                       │
-    │  OC ──→ CO2 (aerobic)                                │
-    │  OC ──→ CH4 (anaerobic)                              │
-    │                                                       │
-    └──────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    atmosphere["Atmosphere<br/>CO₂ · CH₄ · N₂O · O₂"] --> water["Water Column"]
+    water --> sediment["Sediment<br/>Settling + diffusion"]
+    subgraph waterMoves [Water Column Processes]
+        phy["Phytoplankton"]
+        oc["Organic Carbon (OC)"]
+        bacteria["Bacteria"]
+        co2["CO₂"]
+        nh4["NH₄"]
+        po4["PO₄"]
+        no2["NO₂"]
+        no3["NO₃"]
+        n2o["N₂O"]
+        n2["N₂"]
+        ch4["CH₄"]
+        dic["DIC ↔ CO₂ ↔ HCO₃⁻ ↔ CO₃²⁻"]
+    end
+    phy --> oc
+    oc --> co2
+    oc --> nh4
+    oc --> po4
+    oc --> ch4
+    oc --> bacteria
+    bacteria --> n2o
+    nh4 --> no2 --> no3 --> n2
+    no3 --> n2o
+    dic --> co2
+    sediment --> co2
+    sediment --> ch4
+    water --> dic
 ```
 
 ---
@@ -483,5 +472,3 @@ Each species tracks:
 9. Borges, A.V. & Abril, G. (2011). Carbon dioxide and methane dynamics in estuaries.
 
 ---
-
-## Next: [Data Requirements](data_requirements.md)

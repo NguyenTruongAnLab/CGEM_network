@@ -31,7 +31,7 @@
  * - Savenije (2005) - Estuarine salt intrusion
  * - Wang et al. (2018) - C-RIVE sensitivity analysis
  * 
- * @author C-GEM Development Team
+ * @author Nguyen Truong An
  * @date December 2024
  */
 

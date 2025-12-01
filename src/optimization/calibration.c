@@ -8,7 +8,7 @@
  * UPGRADED: Uses NLopt library for optimization and supports seasonal
  * time-series objectives for capturing dry/wet season dynamics.
  * 
- * @author C-GEM Development Team
+ * @author Nguyen Truong An
  * @date December 2024
  */
 

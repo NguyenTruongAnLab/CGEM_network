@@ -74,7 +74,7 @@ CGEM_network/
 ```bibtex
 @software{cgem_network_2025,
   title = {{C-GEM Network}: Carbon-Generic Estuary Model for Multi-Branch Networks},
-  author = {Nguyen, Truong-An and {C-GEM Development Team}},
+  author = {Nguyen, Truong-An and {Nguyen Truong An}},
   year = {2025},
   url = {https://github.com/nguytruo/CGEM_network}
 }

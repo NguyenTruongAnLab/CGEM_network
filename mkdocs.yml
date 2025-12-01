@@ -108,13 +108,14 @@ markdown_extensions:
 
 # Extra JavaScript for math
 extra_javascript:
-  - javascripts/mathjax.js
-  - https://polyfill.io/v3/polyfill.min.js?features=es6
-  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+  - https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js
+  - https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js
+  - javascripts/katex-render.js
 
 # Extra CSS
 extra_css:
   - stylesheets/extra.css
+  - https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css
 
 # Navigation
 nav:
@@ -131,6 +132,7 @@ nav:
     - Output Analysis: user-guide/output.md
     - Calibration: user-guide/calibration.md
   - Physics Modules:
+    - Introduction: physics/introduction.md
     - Hydrodynamics: physics/hydrodynamics.md
     - Transport: physics/transport.md
     - Biogeochemistry: physics/biogeochemistry.md
@@ -149,9 +151,9 @@ nav:
     - Code Style: development/code-style.md
     - Testing: development/testing.md
   - About:
+    - Changelog: about/changelog.md
     - License: about/license.md
     - Citation: about/citation.md
-    - Changelog: about/changelog.md
 
 # Footer
 extra:
@@ -162,4 +164,4 @@ extra:
     provider: mike
   generator: false
 
-copyright: Copyright &copy; 2024-2025 C-GEM Development Team
+copyright: Copyright &copy; 2024-2025 Nguyen Truong An. Licensed under MIT License.

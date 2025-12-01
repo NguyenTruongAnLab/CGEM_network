@@ -33,7 +33,7 @@ flowchart LR
     SED -->|turbidity| BIOGEO
 ```
 
-[Learn more](user-guide/data-preparation.md) - Data preparation and input files
+[Learn more](data-preparation.md) - Data preparation and input files
 
 ## Time Stepping
 
@@ -44,47 +44,18 @@ Each simulation time step (typically 300 s):
 3. **Biogeochemistry**: Update reaction rates, modify concentrations
 4. **Sediment**: Erosion/deposition based on shear stress
 
-```
-┌────────────────────────────────────────────────────────────────────┐
-│                        TIME STEP LOOP                               │
-├────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  1. Update boundary conditions from forcing files                   │
-│     └── Interpolate Q(t), H(t), C(t) at boundaries                 │
-│                                                                     │
-│  2. Hydrodynamics (solver_hydro.c)                                 │
-│     ├── For each branch: Solve Saint-Venant                        │
-│     ├── Junction iteration until convergence                        │
-│     └── Update H[], U[], A[] on all branches                       │
-│                                                                     │
-│  3. Transport (transport.c)                                         │
-│     ├── For each species:                                          │
-│     │   ├── Compute advective flux (TVD upwind)                    │
-│     │   ├── Compute dispersive flux                                 │
-│     │   └── Update conc[]                                          │
-│     └── Apply junction mixing                                       │
-│                                                                     │
-│  4. Biogeochemistry (biogeo.c)                                     │
-│     ├── For each grid cell:                                        │
-│     │   ├── Phytoplankton growth/mortality                         │
-│     │   ├── Nutrient uptake/regeneration                           │
-│     │   ├── Oxygen production/consumption                          │
-│     │   ├── Carbonate chemistry (pH, pCO2)                         │
-│     │   └── GHG production (N2O, CH4)                              │
-│     └── Store reaction rates                                        │
-│                                                                     │
-│  5. Sediment (sediment.c)                                          │
-│     ├── Compute shear stress τ                                     │
-│     ├── Erosion if τ > τ_crit                                      │
-│     └── Deposition based on settling velocity                      │
-│                                                                     │
-│  6. Output (if output interval reached)                            │
-│     └── Write to CSV/binary files                                  │
-│                                                                     │
-└────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    boundary["Update boundary conditions <br> Interpolate Q(t), H(t), C(t)"]
+    hydro["Hydrodynamics<br>(solver_hydro.c)<br>Solve Saint-Venant<br>Junction iterations<br>Update H, U, A"]
+    transport["Transport<br>(transport.c)<br>Advection + dispersion<br>Update concentrations<br>Junction mixing"]
+    biogeo["Biogeochemistry<br>(biogeo.c)<br>Phytoplankton, nutrients, oxygen, carbonate, GHG"]
+    sediment["Sediment<br>(sediment.c)<br>Shear stress<br>Erosion + deposition"]
+    output["Output<br>CSV/Binary (when interval reached)"]
+    boundary --> hydro --> transport --> biogeo --> sediment --> output
 ```
 
-[Learn more](user-guide/running.md) - Running simulations and time step control
+[Learn more](running.md) - Running simulations and time step control
 
 ## Species and Variables
 
@@ -142,8 +113,6 @@ Each simulation time step (typically 300 s):
 | 41-43 | `n2o_*` | N₂O production/exchange | nmol N/L/d |
 | 44-48 | `ch4_*` | CH₄ production/exchange | µmol C/L/d |
 
-[Learn more](user-guide/data-preparation.md) - Data preparation and input files
-
 ## Network Topology
 
 C-GEM represents river networks as graphs:
@@ -162,36 +131,22 @@ C-GEM represents river networks as graphs:
 
 ### Example: Mekong Delta
 
-```
-                 Node 1 (Q)              Node 2 (Q)
-                    │                        │
-                    ▼                        ▼
-               ┌─────────┐              ┌─────────┐
-               │Tien Main│              │Hau Main │
-               └────┬────┘              └────┬────┘
-                    │      Node 3 (J)        │
-                    └────────┬───────────────┘
-                             │
-                         ┌───┴───┐
-                         │Vam Nao│
-                         └───┬───┘
-                             │
-                    Node 4   │   Node 5
-                       ┌─────┴─────┐
-                       │           │
-                  ┌────┴────┐ ┌────┴────┐
-                  │Tien     │ │Hau      │
-                  │Lower    │ │Lower    │
-                  └────┬────┘ └────┬────┘
-                       │           │
-              ┌────────┼────┐      │
-              │        │    │      │
-         ┌────┴──┐ ┌───┴──┐│  ┌───┴────┐
-         │Co     │ │Ham   ││  │Hau     │
-         │Chien  │ │Luong ││  │River   │
-         └───┬───┘ └──┬───┘│  └───┬────┘
-             │        │    │      │
-             ▼        ▼    ▼      ▼
-          Node 6   Node 7 Node 8 Node 9
-           (H)      (H)    (H)    (H)
+```mermaid
+flowchart TB
+    node1["Node 1<br/>(Q)"] --> tienMain["Tien Main"]
+    node2["Node 2<br/>(Q)"] --> hauMain["Hau Main"]
+    tienMain --> node3["Node 3<br/>(J)"]
+    hauMain --> node3
+    node3 --> vamNao["Vam Nao"]
+    vamNao --> node4["Node 4"]
+    vamNao --> node5["Node 5"]
+    node4 --> tienLower["Tien Lower"]
+    node5 --> hauLower["Hau Lower"]
+    tienLower --> coChien["Co Chien"]
+    tienLower --> hamLuong["Ham Luong"]
+    hauLower --> hauRiver["Hau River"]
+    coChien --> node6["Node 6<br/>(H)"]
+    hamLuong --> node7["Node 7<br/>(H)"]
+    hauRiver --> node8["Node 8<br/>(H)"]
+    hauRiver --> node9["Node 9<br/>(H)"]
 ```
