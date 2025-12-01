@@ -4,7 +4,7 @@
   <h3>Carbon-Generic Estuary Model for Multi-Branch Networks</h3>
   <p><em>A specialized 1D biogeochemical model for tidal river deltas</em></p>
   
-  [![Documentation](https://img.shields.io/badge/docs-mkdocs-blue)](https://nguytruonganlab.github.io/CGEM_network/)
+  [![Documentation](https://img.shields.io/badge/docs-mkdocs-blue)](https://nguyentruonganlab.github.io/CGEM_network/)
   [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 </div>
 
@@ -19,7 +19,7 @@ C-GEM Network is a **1D estuarine biogeochemical model** for multi-branch tidal 
 - **C-RIVE biogeochemistry** — carbon, nutrients, oxygen, and greenhouse gases
 - **NLopt-powered calibration** with seasonal objective functions
 
-> **Full documentation**: [nguytruonganlab.github.io/CGEM_network](https://nguytruonganlab.github.io/CGEM_network/)
+> **Full documentation**: [nguyentruonganlab.github.io/CGEM_network](https://nguyentruonganlab.github.io/CGEM_network/)
 
 ## Key Features
 
@@ -35,7 +35,7 @@ C-GEM Network is a **1D estuarine biogeochemical model** for multi-branch tidal 
 
 ```powershell
 # Clone and build
-git clone https://github.com/nguytruo/CGEM_network.git
+git clone https://github.com/nguyentruonganlab/CGEM_network.git
 cd CGEM_network
 
 # Build and run Mekong Delta case
@@ -64,11 +64,11 @@ CGEM_network/
 
 | Section | Content |
 |---------|---------|
-| [Getting Started](https://nguytruonganlab.github.io/CGEM_network/getting-started/quickstart/) | Installation, quick start |
-| [User Guide](https://nguytruonganlab.github.io/CGEM_network/user-guide/overview/) | Data preparation, running, output |
-| [Physics](https://nguytruonganlab.github.io/CGEM_network/physics/hydrodynamics/) | Hydrodynamics, transport, biogeochemistry |
-| [API Reference](https://nguytruonganlab.github.io/CGEM_network/api/structures/) | Data structures, functions |
-| [Case Studies](https://nguytruonganlab.github.io/CGEM_network/cases/mekong-delta/) | Mekong Delta application |
+| [Getting Started](https://nguyentruonganlab.github.io/CGEM_network/getting-started/quickstart/) | Installation, quick start |
+| [User Guide](https://nguyentruonganlab.github.io/CGEM_network/user-guide/overview/) | Data preparation, running, output |
+| [Physics](https://nguyentruonganlab.github.io/CGEM_network/physics/hydrodynamics/) | Hydrodynamics, transport, biogeochemistry |
+| [API Reference](https://nguyentruonganlab.github.io/CGEM_network/api/structures/) | Data structures, functions |
+| [Case Studies](https://nguyentruonganlab.github.io/CGEM_network/cases/mekong-delta/) | Mekong Delta application |
 ## Citation
 
 ```bibtex
@@ -76,7 +76,7 @@ CGEM_network/
   title = {{C-GEM Network}: Carbon-Generic Estuary Model for Multi-Branch Networks},
   author = {Nguyen, Truong-An},
   year = {2025},
-  url = {https://github.com/nguytruonganlab/CGEM_network}
+  url = {https://github.com/nguyentruonganlab/CGEM_network}
 }
 ```
 
@@ -86,4 +86,4 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## Contributing
 
-See [Contributing Guide](https://nguytruonganlab.github.io/CGEM_network/development/contributing/) for guidelines.
+See [Contributing Guide](https://nguyentruonganlab.github.io/CGEM_network/development/contributing/) for guidelines.
