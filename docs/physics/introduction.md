@@ -195,4 +195,3 @@ C-GEM doesn't replace TELEMAC or Delft3D—it complements them by providing a **
 - [Hydrodynamics Module](hydrodynamics.md) - Saint-Venant equations and numerical scheme
 - [Transport Module](transport.md) - Advection-dispersion and TVD schemes
 - [Biogeochemistry Module](biogeochemistry.md) - C-RIVE, carbonate chemistry, GHG
-- [Data Requirements](data_requirements.md) - Preparing inputs for your study

@@ -9,8 +9,23 @@
 
 <div class="grid cards" markdown>
 
+-   :material-water:{ .lg .middle } __Introduction__
+
+    ---
+
+    Introduction to C-GEM Network's purpose and capabilities
+
+    [:octicons-arrow-right-24: Learn more](physics/introduction.md)
+
 -   :material-water:{ .lg .middle } __Hydrodynamics__
 
+    ---
+
+    Saint-Venant equations on staggered grid with Savenije's estuarine theory
+
+    [:octicons-arrow-right-24: Learn more](physics/hydrodynamics.md)
+
+-   :material-waves:{ .lg .middle } __Transport__
     ---
 
     Saint-Venant equations on staggered grid with Savenije's estuarine theory
@@ -62,7 +77,7 @@ C-GEM Network fills a critical niche for **rapid, process-based biogeochemical m
 
     ```powershell
     # Clone and build
-    git clone https://github.com/nguytruo/CGEM_network.git
+    git clone https://github.com/nguytruonganlab/CGEM_network.git
     cd CGEM_network
     .\scripts\build-and-run.ps1 -r Mekong_Delta_Full
 
@@ -75,11 +90,15 @@ C-GEM Network fills a critical niche for **rapid, process-based biogeochemical m
 
     ```bash
     # Clone and build
-    git clone https://github.com/nguytruo/CGEM_network.git
+    git clone https://github.com/nguytruonganlab/CGEM_network.git
     cd CGEM_network
     make
     ./bin/CGEM_Network INPUT/Cases/Mekong_Delta_Full/case_config.txt
     ```
+
+[Learn more](getting-started/quickstart.md) - Quick start guide to run your first simulation
+
+[Learn more](getting-started/installation.md) - Installation instructions for all platforms
 
 ## Key Features
 
@@ -94,31 +113,33 @@ C-GEM Network fills a critical niche for **rapid, process-based biogeochemical m
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           C-GEM Network                                  │
-├─────────────────────────────────────────────────────────────────────────┤
+┌────────────────────────────────────────────────────────────────────────┐
+│                           C-GEM Network                                │
+├────────────────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐                 │
-│  │ HYDRO       │───▶│ TRANSPORT   │───▶│ BIOGEO      │                 │
+│  │ HYDRO       │───▶│ TRANSPORT   │───▶│ BIOGEO      │                │
 │  │ Saint-Venant│    │ ADV-DISP    │    │ C-RIVE      │                 │
 │  │ Staggered   │    │ TVD Schemes │    │ GHG Module  │                 │
 │  └─────────────┘    └─────────────┘    └─────────────┘                 │
-│         │                  │                  │                         │
-│         ▼                  ▼                  ▼                         │
+│         │                  │                  │                        │
+│         ▼                  ▼                  ▼                        │
 │  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │                    Network Solver                                 │  │
+│  │                    Network Solver                                │  │
 │  │  • Junction mass balance    • Multi-branch iteration             │  │
 │  │  • Boundary conditions      • Implicit time stepping             │  │
 │  └──────────────────────────────────────────────────────────────────┘  │
-│                                  │                                      │
+│                                  │                                     │
 │         ┌────────────────────────┼────────────────────────┐            │
 │         ▼                        ▼                        ▼            │
-│  ┌─────────────┐         ┌─────────────┐         ┌─────────────┐      │
-│  │ CALIBRATION │         │ I/O MANAGER │         │ OUTPUT      │      │
-│  │ NLopt       │         │ CSV/NetCDF  │         │ Binary/CSV  │      │
-│  │ Seasonal    │         │ Config      │         │ Time series │      │
-│  └─────────────┘         └─────────────┘         └─────────────┘      │
-└─────────────────────────────────────────────────────────────────────────┘
+│  ┌─────────────┐         ┌─────────────┐         ┌─────────────┐       │
+│  │ CALIBRATION │         │ I/O MANAGER │         │ OUTPUT      │       │
+│  │ NLopt       │         │ CSV/NetCDF  │         │ Binary/CSV  │       │
+│  │ Seasonal    │         │ Config      │         │ Time series │       │
+│  └─────────────┘         └─────────────┘         └─────────────┘       │
+└────────────────────────────────────────────────────────────────────────┘
 ```
+
+[Learn more](getting-started/structure.md) - Detailed architecture and source code structure
 
 ## Case Studies
 
@@ -141,6 +162,8 @@ C-GEM Network fills a critical niche for **rapid, process-based biogeochemical m
     [:octicons-arrow-right-24: View case study](cases/tien-river.md)
 
 </div>
+
+[Learn more](user-guide/overview.md) - Full user guide and case study of Mekong Delta
 
 ## Citation
 

@@ -10,8 +10,9 @@
 /*.o
 /*.exe
 /*.log
-
-/.github/
+/.github/commit-style.md
+/.github/copilot-instructions.md
+/.github/memory-bank/
 
 # Python/VSCode
 __pycache__/

@@ -33,6 +33,8 @@ flowchart LR
     SED -->|turbidity| BIOGEO
 ```
 
+[Learn more](user-guide/data-preparation.md) - Data preparation and input files
+
 ## Time Stepping
 
 Each simulation time step (typically 300 s):
@@ -81,6 +83,8 @@ Each simulation time step (typically 300 s):
 │                                                                     │
 └────────────────────────────────────────────────────────────────────┘
 ```
+
+[Learn more](user-guide/running.md) - Running simulations and time step control
 
 ## Species and Variables
 
@@ -138,6 +142,8 @@ Each simulation time step (typically 300 s):
 | 41-43 | `n2o_*` | N₂O production/exchange | nmol N/L/d |
 | 44-48 | `ch4_*` | CH₄ production/exchange | µmol C/L/d |
 
+[Learn more](user-guide/data-preparation.md) - Data preparation and input files
+
 ## Network Topology
 
 C-GEM represents river networks as graphs:
@@ -189,13 +195,3 @@ C-GEM represents river networks as graphs:
           Node 6   Node 7 Node 8 Node 9
            (H)      (H)    (H)    (H)
 ```
-
-## Numerical Methods
-
-| Module | Method | Reference |
-|--------|--------|-----------|
-| Hydrodynamics | Implicit Preissmann | Abbott (1979) |
-| Advection | TVD upwind (Superbee) | Roe (1986) |
-| Dispersion | Implicit diffusion | Crank-Nicolson |
-| Biogeochemistry | Runge-Kutta 4 | Standard |
-| Junction | Picard iteration | Press et al. (1992) |

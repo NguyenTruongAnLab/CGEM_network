@@ -27,8 +27,8 @@ The Mekong Delta Full case (`Mekong_Delta_Full`) demonstrates C-GEM's capabiliti
                             │  8 km   │
                             └────┬────┘
                                  │
-              ┌──────────────────┼──────────────────┐
-              │                  │                  │
+              ┌──────────────────┼─────────────────┐
+              │                  │                 │
          ┌────┴─────┐       ┌────┴────┐       ┌────┴────┐
          │Tien Lower│       │Tien Conn│       │         │
          │  48 km   │       │  16 km  │       │         │
@@ -36,14 +36,14 @@ The Mekong Delta Full case (`Mekong_Delta_Full`) demonstrates C-GEM's capabiliti
               │                  │            │         │
     ┌─────────┼─────────┐        │            │         │
     │         │         │        │            │         │
-┌───┴───┐ ┌───┴───┐     │   ┌────┴────┐ ┌────┴────┐    │
-│Co     │ │My Tho │     │   │Ham Luong│ │Hau River│    │
-│Chien  │ │ 56 km │     │   │  60 km  │ │  88 km  │    │
-│ 84 km │ └───┬───┘     │   └────┬────┘ └────┬────┘    │
+┌───┴───┐ ┌───┴───┐     │   ┌────┴────┐  ┌────┴────┐    │
+│Co     │ │My Tho │     │   │Ham Luong│  │Hau River│    │
+│Chien  │ │ 56 km │     │   │  60 km  │  │  88 km  │    │
+│ 84 km │ └───┬───┘     │   └────┬────┘  └────┬────┘    │
 └───┬───┘     │         │        │            │         │
     │         │         │        │            │         │
-    ▼         ▼         ▼        ▼            ▼         │
-  Ocean     Ocean     Ocean    Ocean        Ocean       │
+    ▼         ▼         ▼        ▼            ▼         ▼
+  Ocean     Ocean     Ocean    Ocean        Ocean     Ocean
 ```
 
 ## Configuration
@@ -222,31 +222,6 @@ for ax, branch in zip(axes.flat, branches):
 plt.tight_layout()
 plt.savefig('mekong_salinity.png', dpi=150)
 plt.show()
-```
-
-### Expected Salinity Profiles
-
-Typical dry season longitudinal profile:
-
-```
-Salinity (PSU)
-    35 ┤                                            ╭──────
-       │                                        ╭───╯
-    30 ┤                                    ╭───╯
-       │                                ╭───╯
-    25 ┤                            ╭───╯
-       │                        ╭───╯
-    20 ┤                    ╭───╯
-       │                ╭───╯
-    15 ┤            ╭───╯
-       │        ╭───╯
-    10 ┤    ╭───╯
-       │╭───╯
-     5 ┼╯
-       │
-     0 ┼─────────────────────────────────────────────────
-       0    10    20    30    40    50    60    70    80
-                        Distance from mouth (km)
 ```
 
 ## References
