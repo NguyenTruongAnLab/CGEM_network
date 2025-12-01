@@ -74,15 +74,11 @@ CGEM_network/
 ```bibtex
 @software{cgem_network_2025,
   title = {{C-GEM Network}: Carbon-Generic Estuary Model for Multi-Branch Networks},
-  author = {Nguyen, Truong-An and {Nguyen Truong An}},
+  author = {Nguyen, Truong-An},
   year = {2025},
-  url = {https://github.com/nguytruo/CGEM_network}
+  url = {https://github.com/nguytruonganlab/CGEM_network}
 }
 ```
-
-For C-RIVE biogeochemistry, also cite:
-- Wang et al. (2018). *Water Research*, 144, 341-355.
-- Wang et al. (2024). *GMD*.
 
 ## License
 
