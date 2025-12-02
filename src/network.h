@@ -225,6 +225,38 @@ typedef struct {
     int num_csv_fps;
 } Branch;
 
+/* ==========================================================================
+ * LATERAL SEASONAL FACTORS
+ * Monthly multipliers for rainfall-driven lateral load dynamics
+ * Reference: WorldClim/TRMM rainfall → runoff physics
+ * ==========================================================================*/
+#define CGEM_LATERAL_MAX_MONTHS 12
+#define CGEM_LATERAL_MAX_DAYS 400
+
+typedef struct {
+    /* Monthly factors (index 0-11 for Jan-Dec) */
+    double Q_factor[CGEM_LATERAL_MAX_MONTHS];        /* Flow multiplier */
+    double NH4_factor[CGEM_LATERAL_MAX_MONTHS];      /* NH4 concentration multiplier */
+    double NO3_factor[CGEM_LATERAL_MAX_MONTHS];      /* NO3 concentration multiplier */
+    double PO4_factor[CGEM_LATERAL_MAX_MONTHS];      /* PO4 concentration multiplier */
+    double TOC_factor[CGEM_LATERAL_MAX_MONTHS];      /* TOC concentration multiplier */
+    double SPM_factor[CGEM_LATERAL_MAX_MONTHS];      /* SPM concentration multiplier */
+    
+    /* Daily interpolated factors (optional, for daily resolution) */
+    double *daily_Q_factor;     /* [num_days] */
+    double *daily_NH4_factor;   /* [num_days] */
+    double *daily_NO3_factor;
+    double *daily_PO4_factor;
+    double *daily_TOC_factor;
+    double *daily_SPM_factor;
+    int num_days;               /* Number of days in daily arrays */
+    int use_daily;              /* Flag: 1 = use daily, 0 = use monthly */
+    
+    /* Metadata */
+    int loaded;                 /* Flag: 1 if factors loaded successfully */
+    char climate_preset[64];    /* Climate preset name (for logging) */
+} LateralSeasonalFactors;
+
 typedef struct {
     Branch **branches;
     size_t num_branches;
@@ -245,6 +277,12 @@ typedef struct {
     
     /* River discharge */
     double Q_river;         /* Upstream discharge [m³/s] */
+    
+    /* Lateral Load Seasonal Factors (Rainfall-Driven) */
+    LateralSeasonalFactors lateral_factors;
+    
+    /* Current simulation day (for seasonal factor lookup) */
+    int current_day;        /* Day of year (0-364) */
 } Network;
 
 typedef struct {
@@ -297,11 +335,13 @@ double ComputeJunctionDispersion(Branch *branch, void *network_ptr);
 /* Biogeochemistry */
 int LoadBiogeoParams(const char *path);
 void InitializeBiogeoParameters(Branch *branch);
-int Biogeo_Branch(Branch *branch, double dt);
+int Biogeo_Branch(Branch *branch, double dt, void *network_ptr);
 
 /* Lateral Loads (Land-Use Coupling) */
 int LoadLateralSources(Network *net, const char *case_dir);
-void ApplyLateralLoads(Branch *branch, double dt);
+int LoadLateralSeasonalFactors(Network *net, const char *case_dir);
+void ApplyLateralLoads(Branch *branch, double dt, int day_of_year, LateralSeasonalFactors *factors);
+void FreeLateralSeasonalFactors(LateralSeasonalFactors *factors);
 
 /* C-RIVE Enhanced Biogeochemistry (GHG and RK4 solver) */
 int Biogeo_GHG_Branch(Branch *branch, double dt);

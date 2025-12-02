@@ -5,6 +5,46 @@ All notable changes to C-GEM Network will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2025-12-02
+
+### Added
+
+- **Rainfall-Driven Lateral Loads System** - A major new feature for data-sparse regions:
+  - `LateralSeasonalFactors` structure for monthly/daily load multipliers
+  - Physics-based factor calculation from rainfall data (first-flush wash-off + dilution)
+  - 7 climate presets (Mekong, RedRiver, Ganges, Niger, Irrawaddy, SaigonDongNai, Mediterranean)
+  - JAXA/Sentinel land use emission factor mapping (Urban, Rice, Aquaculture, Mangrove, Fruit, Forest)
+  - Automatic point source generation for cities with treatment efficiency
+  - Daily interpolation of monthly factors for smooth seasonal transitions
+
+- **New Python Generator Scripts**:
+  - `generate_lateral_loads_v2.py` - Smart rainfall-driven lateral load generator
+  - Climate preset system using WorldClim/TRMM rainfall data
+  - Automatic conversion from rainfall (mm) to Q and concentration factors
+  - Support for custom rainfall arrays (12 monthly values)
+
+- **Enhanced Input File Formats**:
+  - `lateral_sources.csv` - Base loads with JAXA-derived emission concentrations
+  - `lateral_seasonal_factors.csv` - Monthly Q and species multipliers
+  - `lateral_daily_factors.csv` - Daily interpolated factors (365 days)
+  - `point_sources.csv` - City sewage with population and treatment level
+
+### Changed
+
+- `Biogeo_Branch()` now accepts network pointer for seasonal factor access
+- Lateral loads section applies seasonal factors: `Q_actual = Q_base × Q_factor`
+- CSV parser auto-detects old vs new lateral_sources.csv format
+
+### Technical Details
+
+The seasonal factor physics follows:
+
+$$Q_{factor} = \frac{Rain_{month}}{Rain_{dry\_base}}$$
+
+$$C_{factor} = \begin{cases} Q_{factor}^{0.25} & Q_{factor} < 5 \text{ (first flush)} \\ (5^{0.25}) \times (5/Q)^{0.4} & Q_{factor} \geq 5 \text{ (dilution)} \end{cases}$$
+
+---
+
 ## [1.0.1] - 2025-12-02
 
 ### Fixed

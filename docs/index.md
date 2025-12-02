@@ -2,18 +2,18 @@
 
 <div align="center">
   <h2>Carbon-Generic Estuary Model for Multi-Branch Networks</h2>
-  <p><em>A specialized 1D biogeochemical model for tidal river deltas</em></p>
+  <p><em>A specialized 1D biogeochemical model for tropical river deltas</em></p>
 </div>
 
 ---
 
 <div class="grid cards" markdown>
 
- -  :material-tune:{ .lg .middle } __Introduction__
+-   :material-book-open-variant:{ .lg .middle } __Introduction__
 
     ---
 
-    Introduction to C-GEM Network's purpose and capabilities
+    Why C-GEM? Comparison with other models and unique features
 
     [:octicons-arrow-right-24: Learn more](getting-started/introduction.md)
 
@@ -37,7 +37,7 @@
 
     ---
 
-    C-RIVE module: carbon, nutrients, oxygen, and greenhouse gases
+    C-RIVE module: carbon, nutrients, oxygen, and greenhouse gases (30 species)
 
     [:octicons-arrow-right-24: Learn more](physics/biogeochemistry.md)
 
@@ -49,22 +49,33 @@
 
     [:octicons-arrow-right-24: Learn more](user-guide/calibration.md)
 
+-   :material-map-marker-path:{ .lg .middle } __Lateral Loads (NEW)__
+
+    ---
+
+    **Rainfall-driven** land-use coupling with global data support (JAXA, WorldClim)
+
+    [:octicons-arrow-right-24: Learn more](user-guide/data-preparation.md#6-lateral-sources-system-new---rainfall-driven)
+
 </div>
 
 ## Why C-GEM?
 
 C-GEM Network fills a critical niche for **rapid, process-based biogeochemical modeling** of complex deltaic networks:
 
-| Feature | C-GEM | 2D/3D Models |
-|---------|-------|--------------|
-| Setup time | Hours | Days-Weeks |
-| Run time (30 days) | Minutes | Hours-Days |
-| Network topology | Native support | Requires complex meshing |
-| Biogeochemistry | Full C-RIVE | Limited WQ modules |
-| GHG emissions | CO₂, CH₄, N₂O | Often missing |
-| Calibration | Built-in NLopt | External tools |
+| Feature | C-GEM | Delft3D/MIKE | SWAT | HEC-RAS |
+|---------|-------|--------------|------|---------|
+| **Setup time** | Hours | Days-Weeks | Days | Hours |
+| **Run time (30 days)** | Minutes | Hours-Days | Hours | Minutes |
+| **Network topology** | ✅ Native | ⚠️ Complex meshing | ❌ | ⚠️ |
+| **Tidal dispersion** | ✅ Savenije theory | ⚠️ Numerical | ❌ | ❌ |
+| **Full biogeochemistry** | ✅ C-RIVE (30 species) | ⚠️ Limited WQ | ⚠️ | ❌ |
+| **GHG emissions** | ✅ CO₂, CH₄, N₂O | ❌ | ❌ | ❌ |
+| **Calibration** | ✅ NLopt built-in | ⚠️ External | ✅ | ❌ |
+| **Land-use coupling** | ✅ Rainfall-driven | ⚠️ Manual | ✅ | ❌ |
+| **Open source** | ✅ MIT License | ❌ Commercial | ✅ | ✅ |
 
-[Learn more](user-guide/calibration.md)
+[Learn more](getting-started/introduction.md) about what makes C-GEM unique.
 
 ## Quick Start
 
@@ -74,11 +85,12 @@ C-GEM Network fills a critical niche for **rapid, process-based biogeochemical m
     # Clone and build
     git clone https://github.com/nguytruonganlab/CGEM_network.git
     cd CGEM_network
+    
+    # Generate lateral loads (optional - uses built-in climate presets)
+    python scripts/generate_lateral_loads_v2.py --climate Mekong
+    
+    # Build and run
     .\scripts\build-and-run.ps1 -r Mekong_Delta_Full
-
-    # Or step-by-step
-    .\scripts\build.bat
-    .\bin\Debug\CGEM_Network.exe INPUT/Cases/Mekong_Delta_Full/case_config.txt
     ```
 
 === "Linux/macOS"
@@ -87,13 +99,16 @@ C-GEM Network fills a critical niche for **rapid, process-based biogeochemical m
     # Clone and build
     git clone https://github.com/nguytruonganlab/CGEM_network.git
     cd CGEM_network
+    
+    # Generate lateral loads (optional)
+    python scripts/generate_lateral_loads_v2.py --climate Mekong
+    
+    # Build and run
     make
     ./bin/CGEM_Network INPUT/Cases/Mekong_Delta_Full/case_config.txt
     ```
 
-[Learn more](getting-started/quickstart.md) - Quick start guide to run your first simulation
-
-[Learn more](getting-started/installation.md) - Installation instructions for all platforms
+[Quick start guide](getting-started/quickstart.md) • [Installation](getting-started/installation.md) • [Data preparation](user-guide/data-preparation.md)
 
 ## Key Features
 

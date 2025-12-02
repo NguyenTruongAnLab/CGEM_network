@@ -50,6 +50,24 @@
 /* Tidal parameters */
 #define CGEM_M2_FREQ 0.080536912751677847  /* M2 tidal frequency [cycle/hr] */
 
+/* ===========================================================================
+ * CONCENTRATION-FLOW MODES FOR LATERAL LOADS
+ * 
+ * Different land use types have different concentration-flow relationships.
+ * These modes are applied per-segment based on dominant land use.
+ * 
+ * Reference: 
+ *   - Dilution: Haygarth & Jarvis (1999), Journal of Env. Quality
+ *   - First-flush: Lee et al. (2002), Water Research
+ *   - Tidal export: Bouillon et al. (2008), Global Biogeochem. Cycles
+ * ===========================================================================*/
+typedef enum {
+    CONC_FLOW_DILUTION = 0,   /* Agricultural: conc = base / sqrt(flow_mult) */
+    CONC_FLOW_CONSTANT = 1,   /* Wastewater: conc = base (independent of flow) */
+    CONC_FLOW_INVERSE  = 2,   /* Strong dilution: conc = base / flow_mult */
+    CONC_FLOW_TIDAL    = 3    /* Mangrove: conc = base * sqrt(flow_mult) */
+} ConcFlowMode;
+
 /* Hydrodynamic variable indices */
 #define CGEM_HYDRO_DEPTH       0   /* Water depth H [m] */
 #define CGEM_HYDRO_VELOCITY    1   /* Current velocity U [m/s] */

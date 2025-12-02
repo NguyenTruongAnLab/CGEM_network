@@ -20,7 +20,7 @@
 /* Forward declarations */
 int Hyd_Branch(Branch *branch, double H_down, double H_up, double Q_up, double dt);
 int Sediment_Branch(Branch *branch, double dt);
-int Biogeo_Branch(Branch *branch, double dt);
+int Biogeo_Branch(Branch *branch, double dt, void *network_ptr);
 
 static double interpolate_forcing(double time, double *times, double *values, size_t len) {
     if (!times || !values || len == 0) return 0.0;
@@ -350,6 +350,9 @@ int solve_network_step(Network *net, double current_time_seconds) {
     double dt = net->dt;
     if (dt <= 0) dt = CGEM_DEFAULT_DT_SECONDS;
     
+    /* Update current day for seasonal factor lookup */
+    net->current_day = ((int)(current_time_seconds / 86400.0)) % 365;
+    
     /* =================================================================
      * Step 1: Update boundary node values from forcing
      * ================================================================= */
@@ -570,7 +573,7 @@ int solve_network_step(Network *net, double current_time_seconds) {
         Sediment_Branch(b, dt);
         
         if (current_time_seconds >= net->warmup_time) {
-            Biogeo_Branch(b, dt);
+            Biogeo_Branch(b, dt, (void *)net);
         }
     }
     

@@ -20,6 +20,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* Forward declaration for seasonal factor helper (defined in io_network.c) */
+double GetLateralFactor(LateralSeasonalFactors *factors, int day_of_year, int species);
+
 /* ============================================================================
  * DATA CONVERSION UTILITIES FOR SIMPLIFIED MODE
  * ============================================================================
@@ -342,8 +345,13 @@ static double calculate_carbonate_system(Branch *branch, int idx, double temp,
  * 3. Monod limitation on O2 only (not bacteria substrate)
  * 
  * ============================================================================*/
-static int Biogeo_Branch_Simplified(Branch *branch, double dt) {
+static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr) {
     if (!branch || branch->M <= 0) return -1;
+    
+    /* Get network for seasonal factors (can be NULL) */
+    Network *net = (Network *)network_ptr;
+    int day_of_year = net ? net->current_day : 0;
+    LateralSeasonalFactors *factors = net ? &net->lateral_factors : NULL;
     
     BiogeoParams *p = rive_get_params();
     int M = branch->M;
@@ -452,28 +460,49 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt) {
         }
         
         /* =======================================================================
-         * LATERAL LOADS (Land-Use Coupling)
+         * LATERAL LOADS (Land-Use Coupling) with SEASONAL FACTORS
          * 
          * Add mass flux from urban, agriculture, aquaculture, and mangroves.
+         * The loads are modulated by rainfall-driven seasonal factors.
          * 
          * The source term is:
-         *   dC/dt = Q_lat / V * (C_lat - C)
+         *   dC/dt = (Q_base × Q_factor) / V * (C_base × C_factor - C)
          * 
          * where:
-         *   Q_lat = lateral inflow [m³/s]
+         *   Q_base = base lateral inflow [m³/s] (from lateral_sources.csv)
+         *   Q_factor = seasonal Q multiplier (from lateral_seasonal_factors.csv)
          *   V = cell volume = Area × depth × dx
-         *   C_lat = concentration of lateral inflow [µmol/L]
+         *   C_base = base concentration [µmol/L]
+         *   C_factor = seasonal concentration multiplier
          *   C = current concentration [µmol/L]
          * 
-         * For small Q_lat << V/dt, this simplifies to:
-         *   dC = Q_lat * C_lat / V * dt
+         * Seasonal factors capture:
+         * - Wet season: Higher Q (runoff), but diluted concentrations
+         * - Dry season: Lower Q, but concentrated pollutants
+         * - First flush: Initial wet season spike in concentrations
          * 
-         * Reference: Garnier et al. (2005), Billen et al. (2007)
+         * Reference: Garnier et al. (2005), Billen et al. (2007), MRC (2018)
          * =======================================================================*/
         if (branch->has_lateral_loads && branch->lateral_flow && branch->lateral_conc) {
-            double Q_lat = branch->lateral_flow[i];  /* m³/s */
+            double Q_lat_base = branch->lateral_flow[i];  /* m³/s (base/dry) */
             
-            if (Q_lat > 1e-10) {
+            if (Q_lat_base > 1e-10) {
+                /* Apply seasonal Q factor */
+                double Q_factor = 1.0;
+                double NH4_factor = 1.0, NO3_factor = 1.0, PO4_factor = 1.0;
+                double TOC_factor = 1.0, DIC_factor = 1.0;
+                
+                if (factors && factors->loaded) {
+                    Q_factor = GetLateralFactor(factors, day_of_year, -1);  /* -1 = Q */
+                    NH4_factor = GetLateralFactor(factors, day_of_year, CGEM_SPECIES_NH4);
+                    NO3_factor = GetLateralFactor(factors, day_of_year, CGEM_SPECIES_NO3);
+                    PO4_factor = GetLateralFactor(factors, day_of_year, CGEM_SPECIES_PO4);
+                    TOC_factor = GetLateralFactor(factors, day_of_year, CGEM_SPECIES_TOC);
+                    DIC_factor = TOC_factor;  /* DIC follows TOC */
+                }
+                
+                double Q_lat = Q_lat_base * Q_factor;
+                
                 /* Cell volume [m³] = width × depth × dx */
                 double cell_volume = branch->width[i] * depth * branch->dx;
                 
@@ -484,12 +513,12 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt) {
                     /* Clamp to prevent numerical instability */
                     if (mix_factor > 0.1) mix_factor = 0.1;  /* Max 10% replacement per step */
                     
-                    /* Apply lateral concentrations */
-                    double C_lat_nh4 = branch->lateral_conc[CGEM_SPECIES_NH4][i];
-                    double C_lat_no3 = branch->lateral_conc[CGEM_SPECIES_NO3][i];
-                    double C_lat_po4 = branch->lateral_conc[CGEM_SPECIES_PO4][i];
-                    double C_lat_toc = branch->lateral_conc[CGEM_SPECIES_TOC][i];
-                    double C_lat_dic = branch->lateral_conc[CGEM_SPECIES_DIC][i];
+                    /* Apply lateral concentrations with seasonal factors */
+                    double C_lat_nh4 = branch->lateral_conc[CGEM_SPECIES_NH4][i] * NH4_factor;
+                    double C_lat_no3 = branch->lateral_conc[CGEM_SPECIES_NO3][i] * NO3_factor;
+                    double C_lat_po4 = branch->lateral_conc[CGEM_SPECIES_PO4][i] * PO4_factor;
+                    double C_lat_toc = branch->lateral_conc[CGEM_SPECIES_TOC][i] * TOC_factor;
+                    double C_lat_dic = branch->lateral_conc[CGEM_SPECIES_DIC][i] * DIC_factor;
                     
                     /* Mix with current concentrations */
                     nh4[i] = CGEM_MAX(0.0, nh4[i] + mix_factor * (C_lat_nh4 - nh4[i]));
@@ -523,11 +552,18 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt) {
 /**
  * Main biogeochemistry function for a branch
  * Calculates all reaction rates and updates species concentrations.
+ * 
+ * @param branch Branch to process
+ * @param dt Time step [s]
+ * @param network_ptr Pointer to Network (for seasonal factors)
  */
-int Biogeo_Branch(Branch *branch, double dt) {
+int Biogeo_Branch(Branch *branch, double dt, void *network_ptr) {
     if (!branch || branch->M <= 0 || branch->num_species < CGEM_NUM_SPECIES || !branch->reaction_rates) {
         return 0;
     }
+    
+    /* Get network for seasonal factors (can be NULL for backward compatibility) */
+    Network *net = (Network *)network_ptr;
     
     /* =======================================================================
      * SIMPLIFIED MODE CHECK
@@ -540,7 +576,7 @@ int Biogeo_Branch(Branch *branch, double dt) {
      * =======================================================================*/
     BiogeoParams *p = rive_get_params();
     if (p && p->simplified_mode) {
-        return Biogeo_Branch_Simplified(branch, dt);
+        return Biogeo_Branch_Simplified(branch, dt, network_ptr);
     }
 
     int M = branch->M;

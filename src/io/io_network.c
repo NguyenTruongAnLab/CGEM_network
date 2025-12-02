@@ -830,11 +830,17 @@ int LoadLateralSources(Network *net, const char *case_dir) {
      *   = g C/s ÷ (Q_m3_s × 0.012)  [µmol C/L]
      */
     
-    /* Read header line */
+    /* Read header line and detect format */
     if (!fgets(line, sizeof(line), fp)) {
         fclose(fp);
         return -1;
     }
+    
+    /* Detect which format we're reading:
+     * OLD FORMAT: Branch,Segment_Index,Distance_km,Area_km2,Q_lat_m3_s,NH4_load_g_s,...
+     * NEW FORMAT: Branch,Segment_Index,Distance_km,Area_km2,Runoff_C,Is_Polder_Zone,Q_lat_base_m3_s,NH4_conc_base_mg_L,...
+     */
+    int is_new_format = (strstr(line, "Q_lat_base") != NULL || strstr(line, "conc_base") != NULL);
     
     while (fgets(line, sizeof(line), fp)) {
         line_num++;
@@ -843,17 +849,40 @@ int LoadLateralSources(Network *net, const char *case_dir) {
         char branch_name[64];
         int segment_idx;
         double dist_km, area_km2, Q_lat;
-        double nh4_g_s, no3_g_s, po4_g_s, toc_g_s, dic_g_s;
-        double nh4_conc, no3_conc, po4_conc, toc_conc, dic_conc;
+        double nh4_conc = 0, no3_conc = 0, po4_conc = 0, toc_conc = 0, dic_conc = 0, spm_conc = 0;
         
-        int parsed = sscanf(line, "%63[^,],%d,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf",
+        int parsed = 0;
+        
+        if (is_new_format) {
+            /* NEW FORMAT (v2): Branch,Segment_Index,Distance_km,Area_km2,Runoff_C,Is_Polder_Zone,
+             * Q_lat_base_m3_s,NH4_conc_base_mg_L,NO3_conc_base_mg_L,PO4_conc_base_mg_L,
+             * TOC_conc_base_mg_L,DIC_conc_base_mg_L,SPM_conc_base_mg_L */
+            double runoff_c;
+            char is_polder[16];
+            
+            parsed = sscanf(line, "%63[^,],%d,%lf,%lf,%lf,%15[^,],%lf,%lf,%lf,%lf,%lf,%lf,%lf",
+                           branch_name, &segment_idx, &dist_km, &area_km2, &runoff_c, is_polder,
+                           &Q_lat, &nh4_conc, &no3_conc, &po4_conc, &toc_conc, &dic_conc, &spm_conc);
+            
+            if (parsed < 7) {
+                fprintf(stderr, "Warning: Failed to parse lateral_sources.csv line %d (new format)\n", line_num);
+                continue;
+            }
+        } else {
+            /* OLD FORMAT: Branch,Segment_Index,Distance_km,Area_km2,Q_lat_m3_s,
+             * NH4_load_g_s,NO3_load_g_s,PO4_load_g_s,TOC_load_g_s,DIC_load_g_s,
+             * NH4_conc_mg_L,NO3_conc_mg_L,PO4_conc_mg_L,TOC_conc_mg_L,DIC_conc_mg_L */
+            double nh4_g_s, no3_g_s, po4_g_s, toc_g_s, dic_g_s;
+            
+            parsed = sscanf(line, "%63[^,],%d,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf",
                            branch_name, &segment_idx, &dist_km, &area_km2, &Q_lat,
                            &nh4_g_s, &no3_g_s, &po4_g_s, &toc_g_s, &dic_g_s,
                            &nh4_conc, &no3_conc, &po4_conc, &toc_conc, &dic_conc);
-        
-        if (parsed < 10) {
-            fprintf(stderr, "Warning: Failed to parse lateral_sources.csv line %d\n", line_num);
-            continue;
+            
+            if (parsed < 10) {
+                fprintf(stderr, "Warning: Failed to parse lateral_sources.csv line %d (old format)\n", line_num);
+                continue;
+            }
         }
         
         /* Find the branch */
@@ -932,3 +961,242 @@ int LoadLateralSources(Network *net, const char *case_dir) {
     
     return 0;
 }
+
+/* ===========================================================================
+ * LATERAL SEASONAL FACTORS LOADER
+ * Reads rainfall-driven seasonal multipliers for Q and concentrations
+ * 
+ * CSV Format (lateral_seasonal_factors.csv):
+ * Month,Month_Name,Season,Rain_mm,Q_Factor,NH4_Factor,NO3_Factor,PO4_Factor,TOC_Factor,SPM_Factor
+ * 1,Jan,dry,15,1.0,1.0,1.0,1.0,1.0,1.0
+ * ...
+ * 12,Dec,dry,45,1.0,1.0,1.0,1.0,1.0,1.0
+ * 
+ * These factors multiply the base loads during simulation:
+ *   Q_actual = Q_base × Q_Factor[month]
+ *   C_actual = C_base × Species_Factor[month]
+ * ===========================================================================*/
+
+/**
+ * Free memory allocated for seasonal factors
+ */
+void FreeLateralSeasonalFactors(LateralSeasonalFactors *factors) {
+    if (!factors) return;
+    
+    if (factors->daily_Q_factor) { free(factors->daily_Q_factor); factors->daily_Q_factor = NULL; }
+    if (factors->daily_NH4_factor) { free(factors->daily_NH4_factor); factors->daily_NH4_factor = NULL; }
+    if (factors->daily_NO3_factor) { free(factors->daily_NO3_factor); factors->daily_NO3_factor = NULL; }
+    if (factors->daily_PO4_factor) { free(factors->daily_PO4_factor); factors->daily_PO4_factor = NULL; }
+    if (factors->daily_TOC_factor) { free(factors->daily_TOC_factor); factors->daily_TOC_factor = NULL; }
+    if (factors->daily_SPM_factor) { free(factors->daily_SPM_factor); factors->daily_SPM_factor = NULL; }
+    
+    factors->num_days = 0;
+    factors->use_daily = 0;
+    factors->loaded = 0;
+}
+
+/**
+ * Load monthly seasonal factors from CSV
+ * 
+ * @param net Network structure with lateral_factors field
+ * @param case_dir Path to case directory
+ * @return 0 on success, -1 on failure (model can continue with default factors)
+ */
+int LoadLateralSeasonalFactors(Network *net, const char *case_dir) {
+    if (!net || !case_dir) return -1;
+    
+    LateralSeasonalFactors *factors = &net->lateral_factors;
+    
+    /* Initialize with default factors (all 1.0 = no seasonal variation) */
+    for (int m = 0; m < CGEM_LATERAL_MAX_MONTHS; ++m) {
+        factors->Q_factor[m] = 1.0;
+        factors->NH4_factor[m] = 1.0;
+        factors->NO3_factor[m] = 1.0;
+        factors->PO4_factor[m] = 1.0;
+        factors->TOC_factor[m] = 1.0;
+        factors->SPM_factor[m] = 1.0;
+    }
+    factors->use_daily = 0;
+    factors->num_days = 0;
+    factors->loaded = 0;
+    strncpy(factors->climate_preset, "default", sizeof(factors->climate_preset));
+    
+    /* Try to load monthly factors file */
+    char path[CGEM_MAX_PATH];
+    snprintf(path, sizeof(path), "%s/lateral_seasonal_factors.csv", case_dir);
+    
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        printf("No lateral seasonal factors file found: %s\n", path);
+        printf("  Using constant factors (Q=1.0, C=1.0 for all months)\n");
+        factors->loaded = 1;  /* Mark as loaded (with defaults) */
+        return 0;
+    }
+    
+    printf("Loading lateral seasonal factors from: %s\n", path);
+    
+    char line[512];
+    int line_num = 0;
+    int months_loaded = 0;
+    
+    /* Read header line */
+    if (!fgets(line, sizeof(line), fp)) {
+        fclose(fp);
+        return -1;
+    }
+    
+    while (fgets(line, sizeof(line), fp)) {
+        line_num++;
+        
+        int month;
+        char month_name[16], season[16];
+        double rain_mm, q_factor, nh4_factor, no3_factor, po4_factor, toc_factor, spm_factor;
+        
+        /* Parse CSV line */
+        int parsed = sscanf(line, "%d,%15[^,],%15[^,],%lf,%lf,%lf,%lf,%lf,%lf,%lf",
+                           &month, month_name, season, &rain_mm,
+                           &q_factor, &nh4_factor, &no3_factor, &po4_factor,
+                           &toc_factor, &spm_factor);
+        
+        if (parsed < 6) {
+            /* Try simpler format without SPM */
+            parsed = sscanf(line, "%d,%15[^,],%15[^,],%lf,%lf,%lf,%lf,%lf,%lf",
+                           &month, month_name, season, &rain_mm,
+                           &q_factor, &nh4_factor, &no3_factor, &po4_factor, &toc_factor);
+            spm_factor = toc_factor;  /* Default SPM = TOC factor */
+        }
+        
+        if (parsed < 5) {
+            fprintf(stderr, "Warning: Failed to parse seasonal factors line %d\n", line_num);
+            continue;
+        }
+        
+        /* Validate month (1-12) */
+        if (month < 1 || month > 12) {
+            fprintf(stderr, "Warning: Invalid month %d on line %d\n", month, line_num);
+            continue;
+        }
+        
+        /* Store factors (convert to 0-indexed) */
+        int m = month - 1;
+        factors->Q_factor[m] = q_factor;
+        factors->NH4_factor[m] = nh4_factor;
+        factors->NO3_factor[m] = no3_factor;
+        factors->PO4_factor[m] = po4_factor;
+        factors->TOC_factor[m] = toc_factor;
+        factors->SPM_factor[m] = spm_factor;
+        
+        months_loaded++;
+    }
+    
+    fclose(fp);
+    
+    if (months_loaded < 12) {
+        fprintf(stderr, "Warning: Only loaded %d months (expected 12)\n", months_loaded);
+    }
+    
+    factors->loaded = 1;
+    
+    /* Print summary */
+    printf("  Loaded %d months of seasonal factors\n", months_loaded);
+    printf("  Monthly Q factors: ");
+    for (int m = 0; m < 12; ++m) {
+        printf("%.1f ", factors->Q_factor[m]);
+    }
+    printf("\n");
+    
+    /* Optionally load daily factors for higher resolution */
+    snprintf(path, sizeof(path), "%s/lateral_daily_factors.csv", case_dir);
+    fp = fopen(path, "r");
+    if (fp) {
+        printf("  Loading daily factors from: %s\n", path);
+        
+        /* Count lines to allocate arrays */
+        int num_lines = 0;
+        while (fgets(line, sizeof(line), fp)) num_lines++;
+        rewind(fp);
+        
+        /* Skip header */
+        fgets(line, sizeof(line), fp);
+        num_lines--;  /* Don't count header */
+        
+        if (num_lines > 0 && num_lines <= CGEM_LATERAL_MAX_DAYS) {
+            /* Allocate daily arrays */
+            factors->daily_Q_factor = (double *)malloc(num_lines * sizeof(double));
+            factors->daily_NH4_factor = (double *)malloc(num_lines * sizeof(double));
+            factors->daily_NO3_factor = (double *)malloc(num_lines * sizeof(double));
+            factors->daily_PO4_factor = (double *)malloc(num_lines * sizeof(double));
+            factors->daily_TOC_factor = (double *)malloc(num_lines * sizeof(double));
+            factors->daily_SPM_factor = (double *)malloc(num_lines * sizeof(double));
+            
+            if (factors->daily_Q_factor && factors->daily_NH4_factor) {
+                int day_idx = 0;
+                while (fgets(line, sizeof(line), fp) && day_idx < num_lines) {
+                    int day, doy, month;
+                    char season[16];
+                    double q_f, nh4_f, no3_f, po4_f, toc_f, spm_f;
+                    
+                    if (sscanf(line, "%d,%d,%d,%15[^,],%lf,%lf,%lf,%lf,%lf,%lf",
+                              &day, &doy, &month, season,
+                              &q_f, &nh4_f, &no3_f, &po4_f, &toc_f, &spm_f) >= 6) {
+                        factors->daily_Q_factor[day_idx] = q_f;
+                        factors->daily_NH4_factor[day_idx] = nh4_f;
+                        factors->daily_NO3_factor[day_idx] = no3_f;
+                        factors->daily_PO4_factor[day_idx] = po4_f;
+                        factors->daily_TOC_factor[day_idx] = toc_f;
+                        factors->daily_SPM_factor[day_idx] = spm_f > 0 ? spm_f : toc_f;
+                        day_idx++;
+                    }
+                }
+                factors->num_days = day_idx;
+                factors->use_daily = 1;
+                printf("  Loaded %d days of daily factors\n", day_idx);
+            }
+        }
+        
+        fclose(fp);
+    }
+    
+    return 0;
+}
+
+/**
+ * Get seasonal factor for a specific day and species
+ * 
+ * @param factors Loaded seasonal factors
+ * @param day_of_year Day of year (0-364)
+ * @param species Species index
+ * @return Multiplication factor (default 1.0)
+ */
+double GetLateralFactor(LateralSeasonalFactors *factors, int day_of_year, int species) {
+    if (!factors || !factors->loaded) return 1.0;
+    
+    /* Use daily factors if available */
+    if (factors->use_daily && factors->daily_Q_factor && day_of_year < factors->num_days) {
+        switch (species) {
+            case CGEM_SPECIES_NH4: return factors->daily_NH4_factor[day_of_year];
+            case CGEM_SPECIES_NO3: return factors->daily_NO3_factor[day_of_year];
+            case CGEM_SPECIES_PO4: return factors->daily_PO4_factor[day_of_year];
+            case CGEM_SPECIES_TOC: return factors->daily_TOC_factor[day_of_year];
+            case CGEM_SPECIES_SPM: return factors->daily_SPM_factor[day_of_year];
+            case -1: return factors->daily_Q_factor[day_of_year];  /* -1 = Q factor */
+            default: return 1.0;
+        }
+    }
+    
+    /* Fall back to monthly factors */
+    int month = (day_of_year * 12) / 365;  /* Approximate month (0-11) */
+    if (month < 0) month = 0;
+    if (month > 11) month = 11;
+    
+    switch (species) {
+        case CGEM_SPECIES_NH4: return factors->NH4_factor[month];
+        case CGEM_SPECIES_NO3: return factors->NO3_factor[month];
+        case CGEM_SPECIES_PO4: return factors->PO4_factor[month];
+        case CGEM_SPECIES_TOC: return factors->TOC_factor[month];
+        case CGEM_SPECIES_SPM: return factors->SPM_factor[month];
+        case -1: return factors->Q_factor[month];  /* -1 = Q factor */
+        default: return 1.0;
+    }
+}
+

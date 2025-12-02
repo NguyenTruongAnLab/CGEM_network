@@ -205,6 +205,12 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Warning: Failed to load lateral sources\n");
         /* Continue anyway - lateral loads are optional */
     }
+    
+    /* Load seasonal factors for rainfall-driven lateral load variation */
+    if (LoadLateralSeasonalFactors(&network, case_config.base_dir) != 0) {
+        fprintf(stderr, "Warning: Failed to load lateral seasonal factors\n");
+        /* Continue anyway - defaults to constant factors (1.0) */
+    }
 
     /* Transfer config to network */
     network.dt = case_config.dt;

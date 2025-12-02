@@ -73,7 +73,8 @@ MONTHLY_Q_MULTIPLIER = {
 }
 
 # Annual mean discharge at Vietnamese border [m³/s]
-Q_ANNUAL_MEAN = 10000.0
+# Standardized to match setup_mekong_simplified.py (based on MRC Kratie average)
+Q_ANNUAL_MEAN = 13000.0
 
 # ===========================================================================
 # RIVER SPECIES CONCENTRATIONS (Seasonally Varying)

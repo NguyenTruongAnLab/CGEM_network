@@ -229,119 +229,316 @@ sal_stress_thresh = 5.0   # Onset of stress [PSU]
 sal_stress_coef = 0.5     # Mortality enhancement [-]
 ```
 
-## 6. Lateral Sources (Recommended)
+## 6. Lateral Sources System (NEW - Rainfall-Driven)
 
-C-GEM supports spatially-explicit lateral pollution loads from land use, including:
-- **Diffuse sources**: Agricultural runoff, urban stormwater
-- **Point sources**: City sewage outfalls
-- **Virtual Polders**: Gate-controlled pollution pulses
+C-GEM features a **smart lateral load system** that automates pollution input generation from:
 
-### Generate Lateral Loads from Land Use
+- **Diffuse sources**: Agricultural runoff, urban stormwater (from land use)
+- **Point sources**: City sewage outfalls (population-based)
+- **Seasonal factors**: Rainfall-driven Q and concentration multipliers
 
-The recommended workflow uses Python scripts:
+### Why Rainfall-Driven?
 
-```bash
-# Step 1: Generate synthetic land use map (if no GIS data)
+Traditional models require users to **guess** seasonal load factors (e.g., "Q_Factor = 10 in wet season"). C-GEM's approach is different:
+
+| Aspect | Traditional | C-GEM Rainfall-Driven |
+|--------|-------------|----------------------|
+| **Input** | Manual Q_Factor = 10 | Rainfall = 340 mm |
+| **Validation** | "Why 10?" | "WorldClim shows 340mm in Sep" |
+| **Physics** | None | Q = Rain/Base × Runoff_C |
+| **Transferability** | Site-specific guessing | Climate presets for any delta |
+
+### Quick Start Workflow
+
+```powershell
+# Step 1: Generate land use map (if no GIS data available)
 python scripts/generate_synthetic_landuse.py
 
-# Step 2: Generate full-year lateral loads (RECOMMENDED)
-python scripts/generate_lateral_loads.py --annual --polders
+# Step 2: Generate all lateral load files using Mekong climate
+python scripts/generate_lateral_loads_v2.py --climate Mekong
 
-# Alternative: Single season
-python scripts/generate_lateral_loads.py --season dry
-python scripts/generate_lateral_loads.py --season wet
+# Alternative: Use custom rainfall (12 monthly values in mm)
+python scripts/generate_lateral_loads_v2.py --rainfall 15,8,20,55,180,260,290,310,340,270,130,45
 ```
 
-### lateral_sources.csv Format
+This generates **4 files** automatically:
+
+| File | Purpose |
+|------|---------|
+| `lateral_sources.csv` | Base loads (dry season reference) |
+| `lateral_seasonal_factors.csv` | Monthly Q and concentration multipliers |
+| `lateral_daily_factors.csv` | Daily interpolated factors (365 days) |
+| `point_sources.csv` | City sewage with treatment efficiency |
+
+---
+
+### 6.1 Land Use Map (`landuse_map.csv`)
+
+The land use map is the **foundation** for lateral load calculation. It maps river segments to surrounding land use types.
+
+#### Format
 
 ```csv
-Branch,Segment_Index,Distance_km,Q_lat_m3_s,NH4_load_g_s,NO3_load_g_s,PO4_load_g_s,TOC_load_g_s,DIC_load_g_s,Is_Polder_Zone
-Ham_Luong,12,24.0,0.0024,0.0015,0.0008,0.00025,0.012,0.005,True
-Co_Chien,15,30.0,0.0018,0.0012,0.0006,0.00018,0.009,0.004,False
+Branch,Distance_km,Segment_Area_km2,Pct_Urban,Pct_Rice,Pct_Aqua,Pct_Mangrove,Pct_Fruit,Pct_Forest
+Tien_Main,0,2.0,5,60,10,5,15,5
+Tien_Main,2,2.0,5,55,15,5,15,5
+Ham_Luong,0,2.0,10,30,40,15,5,0
+...
 ```
 
-### Column Descriptions
+#### Data Sources for Land Use
+
+| Source | Resolution | Coverage | Cost | Link |
+|--------|------------|----------|------|------|
+| **JAXA ALOS-2** | 25m | Global | Free | [JAXA EORC](https://www.eorc.jaxa.jp/ALOS/en/dataset/lulc_e.htm) |
+| **ESA WorldCover** | 10m | Global | Free | [WorldCover](https://esa-worldcover.org/) |
+| **Sentinel-2** | 10m | Global | Free | [Copernicus](https://scihub.copernicus.eu/) |
+| **GlobeLand30** | 30m | Global | Free | [GlobeLand30](http://www.globallandcover.com/) |
+| **National GIS** | varies | Country | varies | Contact local agencies |
+
+#### Creating Your Own Land Use Map
+
+**Option A: GIS Analysis (Recommended)**
+
+1. Download satellite imagery (JAXA/Sentinel/Landsat)
+2. Perform supervised classification in QGIS/ArcGIS
+3. Buffer river centerline (e.g., 2km each side)
+4. Calculate zonal statistics for each segment
+5. Export to CSV format
+
+**Option B: Use Provided Script (Demo/Testing)**
+
+```powershell
+python scripts/generate_synthetic_landuse.py
+```
+
+This creates a synthetic land use map based on typical Mekong Delta patterns.
+
+#### JAXA Land Use Classes → C-GEM Mapping
+
+| JAXA Class Code | JAXA Description | C-GEM Category |
+|-----------------|------------------|----------------|
+| 1 | Water bodies | (excluded) |
+| 2 | Urban and built-up | Urban |
+| 3 | Paddy field | Rice |
+| 4 | Cropland | Fruit |
+| 5 | Grassland | Forest |
+| 6 | Forest | Forest |
+| 7 | Mangrove | Mangrove |
+| 8 | Wetland | Mangrove |
+| 9 | Aquaculture pond | Aqua |
+
+---
+
+### 6.2 Base Loads (`lateral_sources.csv`)
+
+Contains the **dry season base loads** that will be multiplied by seasonal factors.
+
+#### Format (NEW v2)
+
+```csv
+Branch,Segment_Index,Distance_km,Area_km2,Runoff_C,Is_Polder_Zone,Q_lat_base_m3_s,NH4_conc_base_mg_L,NO3_conc_base_mg_L,PO4_conc_base_mg_L,TOC_conc_base_mg_L,DIC_conc_base_mg_L,SPM_conc_base_mg_L
+Tien_Main,0,0,2.0,0.435,True,0.00174,3.3,5.9,0.89,23.5,15.2,85.0
+Ham_Luong,15,30,2.0,0.70,False,0.0028,8.0,3.0,2.0,80.0,30.0,200.0
+```
+
+#### Column Descriptions
 
 | Column | Type | Unit | Description |
 |--------|------|------|-------------|
-| `Branch` | string | - | Branch name |
-| `Segment_Index` | int | - | Grid cell index |
-| `Distance_km` | float | km | Distance from mouth |
-| `Q_lat_m3_s` | float | m³/s | Lateral inflow rate |
-| `NH4_load_g_s` | float | g/s | Ammonium mass flux |
-| `NO3_load_g_s` | float | g/s | Nitrate mass flux |
-| `PO4_load_g_s` | float | g/s | Phosphate mass flux |
-| `TOC_load_g_s` | float | g/s | Total organic carbon flux |
-| `DIC_load_g_s` | float | g/s | Dissolved inorganic carbon flux |
-| `Is_Polder_Zone` | bool | - | True if gate-controlled |
+| `Branch` | string | - | Branch name (must match topology.csv) |
+| `Segment_Index` | int | - | Grid cell index (0 = upstream end) |
+| `Distance_km` | float | km | Distance from upstream |
+| `Area_km2` | float | km² | Contributing drainage area |
+| `Runoff_C` | float | - | Runoff coefficient (0.1-0.9) |
+| `Is_Polder_Zone` | bool | - | True if rice/aqua dominated (>50%) |
+| `Q_lat_base_m3_s` | float | m³/s | Base lateral inflow rate |
+| `NH4_conc_base_mg_L` | float | mg N/L | Base NH4 concentration |
+| `NO3_conc_base_mg_L` | float | mg N/L | Base NO3 concentration |
+| `PO4_conc_base_mg_L` | float | mg P/L | Base PO4 concentration |
+| `TOC_conc_base_mg_L` | float | mg C/L | Base TOC concentration |
+| `DIC_conc_base_mg_L` | float | mg C/L | Base DIC concentration |
+| `SPM_conc_base_mg_L` | float | mg/L | Base SPM concentration |
 
-### Seasonal Hydrology
+#### JAXA Emission Factors (Built-in)
 
-Lateral flow rates vary dramatically between seasons in monsoon-dominated systems:
+The Python script uses these literature-based **Event Mean Concentrations (EMC)**:
 
-| Season | Months | Flow Rate | Notes |
-|--------|--------|-----------|-------|
-| Dry | Dec-May | 0.001 m³/s/km² | Groundwater seepage only |
-| Transition | Apr-May, Nov | 0.004 m³/s/km² | Shoulder seasons |
-| Wet | Jun-Oct | 0.01 m³/s/km² | Monsoon runoff |
+| Land Use | NH4 (mg/L) | NO3 (mg/L) | PO4 (mg/L) | TOC (mg/L) | SPM (mg/L) | Runoff_C | Source |
+|----------|------------|------------|------------|------------|------------|----------|--------|
+| **Urban** | 10.0 | 3.0 | 1.5 | 50 | 150 | 0.85 | Burton & Pitt (2002) |
+| **Rice** | 2.5 | 6.0 | 0.8 | 20 | 80 | 0.40 | Yan et al. (2003) |
+| **Aqua** | 8.0 | 3.0 | 2.0 | 80 | 200 | 0.70 | Páez-Osuna (2001) |
+| **Mangrove** | 0.2 | 0.1 | 0.1 | 100 | 50 | 0.90 | Alongi (2014) |
+| **Fruit** | 3.0 | 8.0 | 1.0 | 25 | 60 | 0.30 | Regional data |
+| **Forest** | 0.3 | 0.5 | 0.05 | 15 | 20 | 0.15 | Natural background |
 
-Monthly flow multipliers (relative to dry season):
+---
 
-| Month | Multiplier | Notes |
-|-------|------------|-------|
-| Jan-Mar | 1.0× | Dry season baseline |
-| Apr | 2.0× | Early transition |
-| May | 4.0× | Late transition |
-| Jun-Jul | 8-10× | Monsoon onset |
-| Aug-Sep | 10× | Peak wet season |
-| Oct-Nov | 6-3× | Recession |
-| Dec | 1.5× | Early dry |
+### 6.3 Seasonal Factors (`lateral_seasonal_factors.csv`)
 
-### Virtual Polders (Gate Simulation)
+Contains **monthly multipliers** for Q and concentrations, derived from rainfall physics.
 
-The Mekong Delta has extensive polder systems where sluice gates control drainage:
+#### Format
 
-- **High tide**: Gates CLOSED → No pollution release (Q_lat = 0)
-- **Low tide**: Gates OPEN → Flushing pulse (Q_lat × 3.0)
-
-This creates realistic "pollution pulses" that match field observations without complex gate logic in the C solver.
-
-**Enable with:**
-```bash
-python scripts/generate_lateral_loads.py --annual --polders
+```csv
+Month,Month_Name,Season,Rain_mm,Q_Factor,NH4_Factor,NO3_Factor,PO4_Factor,TOC_Factor,SPM_Factor
+1,Jan,dry,15,1.0,1.0,1.0,1.0,1.0,1.0
+2,Feb,dry,8,1.0,1.0,1.0,1.0,1.0,1.0
+...
+9,Sep,wet,340,13.878,0.895,0.716,1.074,1.645,1.645
+...
 ```
 
-**Output files:**
-- `polder_loads/gate_factor_timeseries.csv` - Hourly gate factors for 365 days
-- `polder_loads/polder_zones.csv` - Segments identified as polder-controlled
-- `lateral_loads_monthly/` - Per-month load files
+#### Physics: Rainfall → Factors
 
-### Point Sources
+**Q Factor** (Flow multiplier):
+$$Q_{factor} = \frac{Rain_{month}}{Rain_{dry\_average}}$$
 
-Major cities are treated as concentrated outfalls:
+**Concentration Factor** (First-flush + dilution):
 
-| City | Branch | Population | NH4 Load | Notes |
-|------|--------|------------|----------|-------|
-| Can Tho | Hau_Main | 1.5M | ~210 kg N/day | Largest city in delta |
-| My Tho | Tien_Main | 0.5M | ~70 kg N/day | Provincial capital |
+- **Rising limb** (Q_factor < 5): First flush wash-off
+  $$C_{factor} = Q_{factor}^{0.25}$$
 
-Per-capita emission factors:
-- NH4: 12 g N/person/day
-- TOC: 50 g C/person/day (BOD equivalent)
+- **Peak flow** (Q_factor ≥ 5): Dilution dominates
+  $$C_{factor} = (5^{0.25}) \times (5/Q_{factor})^{0.4}$$
 
-### Land Use Emission Factors
+#### Climate Presets Available
 
-Literature-based emission factors [kg/ha/yr]:
+| Preset | Region | Annual Rain | Dry Months | Peak Month |
+|--------|--------|-------------|------------|------------|
+| `Mekong` | Vietnam | 1923 mm | Jan-Apr | Sep (340mm) |
+| `RedRiver` | N. Vietnam | 1668 mm | Jan-Mar, Dec | Aug (320mm) |
+| `SaigonDongNai` | S. Vietnam | 1892 mm | Jan-Apr | Sep (320mm) |
+| `Ganges` | Bangladesh | 1720 mm | Jan-Mar, Dec | Jul (350mm) |
+| `Niger` | Nigeria | 2325 mm | Jan-Feb, Dec | Jul (380mm) |
+| `Irrawaddy` | Myanmar | 2395 mm | Jan-Apr, Dec | Jul (550mm) |
+| `Mediterranean` | Europe | 605 mm | Jun-Aug | Dec (95mm) |
 
-| Land Use | NH4 | NO3 | PO4 | TOC | Source |
-|----------|-----|-----|-----|-----|--------|
-| Urban | 150 | 50 | 20 | 500 | Garnier et al. (2005) |
-| Rice | 30 | 20 | 5 | 100 | Yan et al. (2003) |
-| Aquaculture | 200 | 100 | 40 | 1000 | Páez-Osuna (2001) |
-| Mangrove | -10 | -20 | 2 | 2000 | Alongi (2014) |
-| Fruit | 40 | 30 | 10 | 200 | Regional data |
+#### Data Sources for Rainfall
 
-Note: Negative values for mangroves indicate net nutrient sink (denitrification).
+| Source | Resolution | Period | Cost | Link |
+|--------|------------|--------|------|------|
+| **WorldClim** | 1km | 1970-2000 | Free | [WorldClim](https://www.worldclim.org/) |
+| **TRMM/GPM** | 0.25° | 1998-present | Free | [NASA GES DISC](https://disc.gsfc.nasa.gov/) |
+| **ERA5** | 0.25° | 1979-present | Free | [Copernicus CDS](https://cds.climate.copernicus.eu/) |
+| **CHIRPS** | 0.05° | 1981-present | Free | [CHC UCSB](https://www.chc.ucsb.edu/data/chirps) |
+| **Local gauges** | Point | varies | varies | National met agencies |
+
+#### Using Custom Rainfall
+
+```powershell
+# Custom 12-value array (mm): Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec
+python scripts/generate_lateral_loads_v2.py --rainfall 10,5,15,40,150,250,300,320,350,280,100,30
+```
+
+---
+
+### 6.4 Daily Factors (`lateral_daily_factors.csv`)
+
+Optional **daily interpolated factors** for smooth seasonal transitions.
+
+#### Format
+
+```csv
+Day,Day_of_Year,Month,Season,Q_Factor,NH4_Factor,NO3_Factor,PO4_Factor,TOC_Factor,SPM_Factor
+0,0,1,dry,1.0,1.0,1.0,1.0,1.0,1.0
+1,1,1,dry,1.0001,1.0001,1.0001,1.0001,1.0001,1.0001
+...
+243,243,9,wet,13.5,0.91,0.73,1.09,1.64,1.64
+...
+```
+
+The C model automatically uses daily factors if the file exists, otherwise falls back to monthly.
+
+---
+
+### 6.5 Point Sources (`point_sources.csv`)
+
+Contains **city sewage outfalls** with population-based loads.
+
+#### Format
+
+```csv
+Name,Branch,Segment_Index,Distance_km,Population,Treatment,Q_m3_s,NH4_mg_L,NO3_mg_L,PO4_mg_L,TOC_mg_L,DIC_mg_L,SPM_mg_L
+Can_Tho,Hau_River,40,80.0,1500000,primary,2.6042,72000.0,1.0,6000.0,280000.0,30.0,50.0
+My_Tho,My_Tho,20,40.0,500000,none,0.8681,80000.0,1.0,6452.0,400000.0,30.0,50.0
+```
+
+#### Per-Capita Emission Factors
+
+| Parameter | Value | Unit | Source |
+|-----------|-------|------|--------|
+| Water use | 150 | L/person/day | WHO guidelines |
+| NH4 | 12 | g N/person/day | Metcalf & Eddy |
+| PO4 | 2 | g P/person/day | Metcalf & Eddy |
+| TOC | 60 | g C/person/day | BOD equivalent |
+
+#### Treatment Removal Efficiencies
+
+| Treatment Level | NH4 | NO3 | PO4 | TOC | SPM |
+|-----------------|-----|-----|-----|-----|-----|
+| none | 0% | 0% | 0% | 0% | 0% |
+| primary | 10% | 0% | 10% | 30% | 50% |
+| secondary | 60% | 20% | 30% | 80% | 90% |
+| tertiary | 90% | 80% | 90% | 95% | 95% |
+
+#### Population Data Sources
+
+| Source | Coverage | Cost | Link |
+|--------|----------|------|------|
+| **WorldPop** | Global | Free | [WorldPop](https://www.worldpop.org/) |
+| **GPWv4** | Global | Free | [SEDAC](https://sedac.ciesin.columbia.edu/data/collection/gpw-v4) |
+| **National census** | Country | varies | Local statistical offices |
+| **OSM/Wikipedia** | Global | Free | City population estimates |
+
+---
+
+### 6.6 Complete Workflow Example
+
+```powershell
+# Navigate to project directory
+cd C:\Users\nguytruo\Documents\Github\CGEM_network
+
+# 1. Generate land use map (if needed)
+python scripts/generate_synthetic_landuse.py
+
+# 2. Generate all lateral load files with Mekong climate
+python scripts/generate_lateral_loads_v2.py --climate Mekong
+
+# 3. Verify generated files
+Get-ChildItem INPUT/Cases/Mekong_Delta_Full/*.csv | Select-Object Name
+
+# 4. Run simulation
+.\bin\Debug\CGEM_Network.exe INPUT\Cases\Mekong_Delta_Full\case_config.txt
+```
+
+#### Expected Output
+
+```
+======================================================================
+C-GEM LATERAL LOAD GENERATOR (Rainfall-Driven v2)
+======================================================================
+
+Using climate preset: Mekong
+  Description: Mekong Delta, Vietnam (Monsoon tropical)
+  Rainfall (mm): [15, 8, 20, 55, 180, 260, 290, 310, 340, 270, 130, 45]
+  Annual total: 1923 mm
+  Dry months: [1, 2, 3, 4]
+
+  Monthly Factors:
+Month_Name  Rain_mm  Q_Factor  NH4_Factor  TOC_Factor
+       Jan       15     1.000       1.000       1.300
+       Feb        8     1.000       1.000       1.300
+       ...
+       Sep      340    13.878       0.895       1.645
+       ...
+
+Loaded 466 segments from 9 branches
+Generated 4 files successfully.
+```
+
+---
 
 ## 7. Calibration Files
 
