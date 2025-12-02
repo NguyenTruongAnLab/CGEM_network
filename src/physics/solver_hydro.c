@@ -205,19 +205,20 @@ static void mix_junction_concentrations(Network *net) {
                 }
                 
                 if (is_flowing_in && Q_mag > 0.0) {
-                    /* Advective flux: branch is bringing water INTO junction */
-                    if (is_ocean_connected && sp == CGEM_SPECIES_SALINITY && C_interior > 5.0) {
-                        /* Ocean-connected branch bringing salt during reverse flow:
-                         * REDUCE its contribution to prevent tidal pumping.
-                         * Use the minimum of interior conc and a "river background" value */
-                        double river_background = 1.0;  /* Background salinity from river [psu] */
-                        double effective_C = fmin(C_interior, river_background + 0.1 * C_interior);
-                        numerator += Q_mag * effective_C;
-                        denominator += Q_mag;
-                    } else {
-                        numerator += Q_mag * C_interior;
-                        denominator += Q_mag;
-                    }
+                    /* Advective flux: branch is bringing water INTO junction
+                     * 
+                     * FIX (December 2025): Removed artificial salinity clamping that was
+                     * preventing salt intrusion. The previous code artificially limited
+                     * salt flux from ocean-connected branches, creating an invisible
+                     * barrier at junctions.
+                     * 
+                     * Physical principle: Junctions should allow full mass transport.
+                     * Tidal pumping is a REAL physical process (Savenije 2012) that
+                     * should not be artificially suppressed.
+                     */
+                    (void)is_ocean_connected;  /* Suppress unused warning */
+                    numerator += Q_mag * C_interior;
+                    denominator += Q_mag;
                 }
                 
                 /* Note: Dispersion is NOT added here. Each branch's transport solver

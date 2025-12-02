@@ -790,8 +790,14 @@ static void calculate_advection(Branch *b, int species, double dt) {
     if (b->down_node_type == NODE_LEVEL_BC) {
         double vx_boundary = b->velocity[2];
         
-        if (vx_boundary > 0.002) {
-            /* EBB TIDE (vx > 0): Flushing */
+        /* FIX (December 2025): Removed velocity threshold (0.002) that created
+         * a "dead zone" during slack tide. The boundary should be transparent
+         * to flow regardless of how small the velocity is. The previous threshold
+         * caused salt to accumulate at the boundary, creating an artificial plateau.
+         * Reference: Fischer et al. (1979) - open boundary treatments.
+         */
+        if (vx_boundary > 0.0) {
+            /* EBB TIDE (vx > 0): Flushing - salt exits to ocean */
             double AA_old = b->totalArea_old2[1];
             double AA_new = b->totalArea[1];
             double rat = (AA_new > 0) ? AA_old / AA_new : 1.0;
@@ -811,7 +817,7 @@ static void calculate_advection(Branch *b, int species, double dt) {
             
             if (conc[1] < 0.0) conc[1] = 0.0;
         }
-        else if (vx_boundary < -0.002) {
+        else if (vx_boundary < 0.0) {
             /* FLOOD TIDE (vx < 0): Ocean water enters */
             double AA_old = b->totalArea_old2[1];
             double AA_new = b->totalArea[1];
@@ -834,13 +840,15 @@ static void calculate_advection(Branch *b, int species, double dt) {
             if (conc[1] < 0.0) conc[1] = 0.0;
             if (conc[1] > c_ocean) conc[1] = c_ocean;
         }
-        /* If |vx| < threshold (slack tide), leave cell unchanged */
+        /* vx == 0 exactly: Slack tide - no advective flux, cell unchanged
+         * This is now a truly instantaneous condition, not an artificial dead zone */
     }
     
     /* Upstream boundary (j=M-1) */
     if (b->up_node_type == NODE_DISCHARGE_BC) {
         double vx_boundary = b->velocity[M-2];
-        if (vx_boundary > 0.002) {
+        /* FIX (December 2025): Removed velocity threshold for consistency */
+        if (vx_boundary > 0.0) {
             /* Normal ebb flow - river water pushes salt downstream */
             double AA_old = b->totalArea_old2[M-1];
             double AA_new = b->totalArea[M-1];
