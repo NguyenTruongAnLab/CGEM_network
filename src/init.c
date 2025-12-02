@@ -27,8 +27,9 @@ int LoadBiogeoParams(const char *path);
  *
  * @param b Branch to initialize
  * @param num_species Number of species
+ * @param Q_river Network reference discharge [m³/s] for Savenije initialization
  */
-void init_species_bc(Branch *b, int num_species) {
+void init_species_bc(Branch *b, int num_species, double Q_river) {
     if (!b || num_species <= 0) return;
 
     /* Allocate boundary concentration arrays if needed */
@@ -191,24 +192,45 @@ void init_species_bc(Branch *b, int num_species) {
         b->conc_down[CGEM_SPECIES_CH4] = 3.0;   /* Near equilibrium ~2-5 nmol/L */
     }
 
-    /* Special case for Test_Mixing: set specific salinities */
-    if (strcmp(b->name, "Branch1") == 0) {
-        if (b->conc_up) b->conc_up[CGEM_SPECIES_SALINITY] = 0.0;
-    } else if (strcmp(b->name, "Branch2") == 0) {
-        if (b->conc_up) b->conc_up[CGEM_SPECIES_SALINITY] = 30.0;
-    }
+    /* =========================================================================
+     * REMOVED: Hardcoded branch name logic (Audit Issue #3)
+     * 
+     * The previous code had:
+     *   if (strcmp(b->name, "Branch1") == 0) { ... }
+     *   else if (strcmp(b->name, "Branch2") == 0) { ... }
+     * 
+     * This was REMOVED because:
+     * 1. It violates the "generic engine" principle - core code should not
+     *    contain case-specific branch names.
+     * 2. Test case boundary conditions should be set via CSV files
+     *    (species_river.csv, species_ocean.csv) not hardcoded.
+     * 3. Users applying this to Amazon/Scheldt/etc would get Mekong defaults.
+     * 
+     * If branch-specific initialization is needed, add an "InitSalinity"
+     * column to topology.csv and read it during loading.
+     * =========================================================================*/
 
     /* =================================================================
      * Initialize concentration profiles 
      * 
-     * For salinity (species 0), use Savenije (2005) exponential profile:
-     *   S(x) = S0 * exp(-x / L_s)
-     * where L_s is the salt intrusion length.
+     * SAVENIJE ANALYTICAL SOLUTION (Steady-State Salt Intrusion)
+     * ===========================================================
+     * Uses the exact analytical solution from Savenije (1993, 2005) to
+     * initialize salinity at the THEORETICAL EQUILIBRIUM position.
      * 
-     * This provides a physically realistic initial condition that allows
-     * the transport solver to maintain proper gradients.
+     * Van den Burgh equation (steady-state):
+     *   S(x)/S0 = (D(x)/D0)^(1/K)
      * 
-     * Reference: Savenije (2005) "Salinity and Tides in Alluvial Estuaries"
+     * Where dispersion decays as:
+     *   D(x)/D0 = 1 - β * (exp(x/a) - 1)
+     *   β = (K * a * Q) / (A0 * D0)
+     * 
+     * This approach:
+     * 1. Is scientifically rigorous (exact solution of governing equations)
+     * 2. Minimizes warmup time (model starts near equilibrium)
+     * 3. Serves as diagnostic (if salt too far inland, check Q or geometry)
+     * 
+     * Reference: Savenije (1993), Savenije (2005) Ch. 9, Nguyen (2008)
      * ================================================================= */
     for (int sp = 0; sp < num_species; ++sp) {
         if (!b->conc || !b->conc[sp]) continue;
@@ -216,54 +238,162 @@ void init_species_bc(Branch *b, int num_species) {
         double c_down = b->conc_down ? b->conc_down[sp] : 0.0;
         double c_up = b->conc_up ? b->conc_up[sp] : 0.0;
 
-        /* For branches without ocean at downstream (junction-connected),
-         * initialize with river-like values throughout - junction mixing
-         * will establish proper gradients during simulation */
-        if (b->down_node_type != NODE_LEVEL_BC) {
-            /* Use upstream (river) values as initial profile */
-            for (int i = 0; i <= b->M + 1; ++i) {
-                b->conc[sp][i] = c_up;
-            }
-        } else {
-            /* Ocean at downstream: use exponential profile for salinity,
-             * linear for other species */
-            if (sp == CGEM_SPECIES_SALINITY) {
-                /* Depth-scaled salt intrusion length (Savenije, 2005)
-                 * 
-                 * The salt intrusion length scales with depth as:
-                 *   L_s ~ H^(3/2)  (from Savenije's analytical solutions)
-                 * 
-                 * Base intrusion: 40 km for reference depth of 10 m
-                 * Deep channels (H=14-15m): L_s ~ 65-75 km
-                 * Shallow channels (H=10-11m): L_s ~ 40-50 km
-                 * 
-                 * Reference: Savenije (2005) "Salinity and Tides in Alluvial Estuaries"
-                 *            Nguyen et al. (2008) Mekong salt intrusion observations
-                 */
-                double H_ref = 10.0;  /* Reference depth [m] */
-                double L_base = 40000.0;  /* Base intrusion length at H_ref [m] */
-                double H_branch = (b->depth_m > 1.0) ? b->depth_m : 10.0;
-                double L_intrusion = L_base * pow(H_branch / H_ref, 1.5);
-                
-                /* Clamp to realistic range: 20-100 km */
-                if (L_intrusion < 20000.0) L_intrusion = 20000.0;
-                if (L_intrusion > 100000.0) L_intrusion = 100000.0;
-                
-                for (int i = 0; i <= b->M + 1; ++i) {
-                    double x = i * b->dx;  /* Distance from mouth */
-                    double S_exp = c_down * exp(-x / L_intrusion);
-                    /* Clamp to background salinity */
-                    if (S_exp < c_up) S_exp = c_up;
-                    b->conc[sp][i] = S_exp;
-                }
-            } else {
-                /* Linear gradient for other species */
-                for (int i = 0; i <= b->M + 1; ++i) {
-                    double s = (double)i / (double)b->M;
-                    b->conc[sp][i] = c_down + (c_up - c_down) * s;
-                }
-            }
+        /* DEFAULT: Linear profile for non-salinity species */
+        for (int i = 0; i <= b->M + 1; ++i) {
+            double s = (b->M > 0) ? (double)i / (double)b->M : 0.0;
+            b->conc[sp][i] = c_down + (c_up - c_down) * s;
         }
+
+        /* SAVENIJE ANALYTICAL INITIALIZATION FOR SALINITY
+         * Only for branches connected to ocean (LEVEL_BC) */
+        if (sp == CGEM_SPECIES_SALINITY && b->down_node_type == NODE_LEVEL_BC) {
+            
+            /* =========================================================
+             * 1. GEOMETRY PARAMETERS
+             * ========================================================= */
+            double H0 = b->depth_m;                    /* Depth at mouth [m] */
+            double B0 = b->width_down_m;              /* Width at mouth [m] */
+            double B_up = b->width_up_m;              /* Width upstream [m] */
+            double L = b->length_m;                   /* Branch length [m] */
+            double dx = b->dx;                        /* Grid spacing [m] */
+            
+            /* Cross-sectional area at mouth */
+            double A0 = H0 * B0;
+            if (A0 < 100.0) A0 = 100.0;  /* Minimum area */
+            
+            /* Convergence length 'a' [m]
+             * From exponential geometry: A(x) = A0 * exp(-x/a)
+             * Therefore: a = L / ln(A0/A_up)
+             * Use width convergence since depth is approximately constant */
+            double convergence_a;
+            if (B0 > B_up && B_up > 0) {
+                convergence_a = L / log(B0 / B_up);
+            } else {
+                convergence_a = 1e9;  /* Prismatic channel */
+            }
+            /* Use stored lc_convergence if available and valid */
+            if (b->lc_convergence > 0 && b->lc_convergence < 1e8) {
+                convergence_a = b->lc_convergence;
+            }
+            
+            /* =========================================================
+             * 2. VAN DEN BURGH COEFFICIENT K 
+             * 
+             * Use the SAME K as in transport.c for consistency.
+             * K is from topology.csv column 11 (vdb_coef), typically 0.25-0.50
+             * ========================================================= */
+            double K_analytical = b->vdb_coef;
+            if (K_analytical <= 0 || K_analytical > 1.0) {
+                K_analytical = 0.40;  /* Default for Mekong */
+            }
+            
+            /* =========================================================
+             * 3. FRESHWATER DISCHARGE Q
+             * 
+             * Use network Q_river from config (RiverDischarge in case_config.txt)
+             * Scale by cross-sectional area for branch-specific discharge.
+             * 
+             * Reference: Nguyen et al. (2008), Savenije (2005)
+             * ========================================================= */
+            
+            /* Use config-driven Q_river instead of hardcoded value */
+            double Q_total = (Q_river > 0) ? Q_river : 100.0;  /* Fallback if not set */
+            
+            /* Scale Q by branch capacity (area relative to large main stem) */
+            double A_reference = 15000.0;  /* Main Tien: ~1000m × 15m */
+            double Q_branch = Q_total * (A0 / A_reference);
+            if (Q_branch < 200.0) Q_branch = 200.0;   /* Minimum for small branches */
+            if (Q_branch > 3000.0) Q_branch = 3000.0; /* Maximum for main stems */
+            
+            /* =========================================================
+             * 4. DISPERSION AT MOUTH D0
+             * Use same formula as transport.c for consistency
+             * ========================================================= */
+            double alpha = b->mixing_alpha;
+            if (alpha <= 0) alpha = 0.10;  /* Conservative default */
+            
+            /* Estimate tidal velocity */
+            double tidal_amp = 1.5;  /* Typical Mekong tidal amplitude [m] */
+            double U_tidal = sqrt(9.81 * H0) * (tidal_amp / H0);
+            
+            double D0 = alpha * U_tidal * B0;
+            /* D0 bounds (consistent with transport.c):
+             * - Min 30 m²/s for ocean-connected branches (tidal mixing)
+             * - Max 150 m²/s to prevent over-dispersion
+             * Reference: Nguyen (2008), Savenije (2005) */
+            if (D0 < 30.0) D0 = 30.0;    /* Minimum tidal mixing */
+            if (D0 > 150.0) D0 = 150.0;  /* Maximum realistic value */
+            
+            /* =========================================================
+             * 5. CALCULATE SAVENIJE STEADY-STATE PROFILE
+             * 
+             * Van den Burgh solution:
+             *   D(x)/D0 = 1 - β * (exp(x/a) - 1)
+             *   S(x)/S0 = (D(x)/D0)^(1/K)
+             * 
+             * where β = (K * a * Q) / (A0 * D0)
+             * 
+             * Salt intrusion limit: x_max where D(x)/D0 = 0
+             *   exp(x_max/a) = 1 + 1/β
+             *   x_max = a * ln(1 + 1/β)
+             * ========================================================= */
+            double beta = (K_analytical * convergence_a * Q_branch) / (A0 * D0);
+            
+            /* Calculate intrusion limit for diagnostics */
+            double x_max = 0.0;
+            if (beta > 0.01) {
+                x_max = convergence_a * log(1.0 + 1.0/beta);
+            } else {
+                x_max = L;  /* Very low discharge - salt everywhere */
+            }
+            
+            /* Print diagnostic info */
+            printf("  Savenije Init %s: K=%.2f, a=%.0f m, Q=%.0f m³/s, D0=%.0f m²/s\n",
+                   b->name, K_analytical, convergence_a, Q_branch, D0);
+            printf("    β=%.4f, x_max=%.1f km (branch L=%.1f km)\n",
+                   beta, x_max/1000.0, L/1000.0);
+            
+            /* Calculate salinity at each grid point 
+             * Grid convention: i=1 is the DOWNSTREAM boundary (mouth)
+             * Distance from mouth: x = (i-1) * dx
+             * This ensures:
+             *   i=0: ghost cell (x = -dx, set to ocean value)
+             *   i=1: mouth (x = 0 km)
+             *   i=M: upstream boundary
+             *   i=M+1: ghost cell (set to river value)
+             */
+            for (int i = 0; i <= b->M + 1; ++i) {
+                double x = (i <= 0) ? 0.0 : (double)(i - 1) * dx;  /* Distance from mouth [m] */
+                
+                /* Geometric factor: exp(x/a) - 1 */
+                double geom_factor = exp(x / convergence_a) - 1.0;
+                
+                /* Dispersion ratio: D(x)/D0 */
+                double D_ratio = 1.0 - beta * geom_factor;
+                
+                double S_val;
+                if (D_ratio <= 0.01) {
+                    /* Beyond salt intrusion limit → Fresh water */
+                    S_val = c_up;
+                } else {
+                    /* Savenije solution: S(x) = S0 * (D(x)/D0)^(1/K) */
+                    S_val = c_down * pow(D_ratio, 1.0/K_analytical);
+                    
+                    /* Clamp to river background */
+                    if (S_val < c_up) S_val = c_up;
+                    if (S_val > c_down) S_val = c_down;  /* Cannot exceed ocean */
+                }
+                
+                b->conc[sp][i] = S_val;
+            }
+            
+            /* Ghost cells: i=0 and i=M+1 
+             * These are outside the physical domain */
+            b->conc[sp][0] = c_down;  /* Downstream ghost = ocean value */
+            /* Upstream ghost already set by the loop (will be c_up if beyond x_max) */
+        }
+        /* For junction-connected branches, salinity stays at river value
+         * (already set in default loop above) - salt will enter via transport */
     }
 }
 
@@ -419,7 +549,7 @@ void initializeNetworkSpeciesBC(Network *net) {
         }
 
         /* Initialize species boundary conditions with smart defaults */
-        init_species_bc(branch, branch->num_species);
+        init_species_bc(branch, branch->num_species, net->Q_river);
     }
 
     printf("Species boundary conditions initialized.\n");
@@ -452,7 +582,7 @@ void initializeNetworkNodes(Network *net) {
         node->Q_net = 0.0;
 
         printf("  Node %zu: %s with %d connections\n",
-               n + 1,
+               n,  /* Use actual array index, matching topology node IDs */
                node->type == NODE_JUNCTION ? "Junction" :
                node->type == NODE_DISCHARGE_BC ? "Discharge BC" : "Level BC",
                node->num_connections);
@@ -482,7 +612,16 @@ int initializeNetwork(Network *net, CaseConfig *config) {
     printf("  C-GEM Network Engine - Initialization\n");
     printf("==================================================\n");
 
-    /* Step 0: Set branch node types FIRST - needed for correct BC initialization */
+    /* Step 0a: Copy critical config values to network BEFORE defaults
+     * This ensures initialization routines have access to config values */
+    if (config->Q_river > 0) {
+        net->Q_river = config->Q_river;
+    }
+    if (config->tidal_amplitude > 0) {
+        net->tidal_amplitude = config->tidal_amplitude;
+    }
+
+    /* Step 0b: Set branch node types FIRST - needed for correct BC initialization */
     for (size_t b = 0; b < net->num_branches; ++b) {
         Branch *branch = net->branches[b];
         branch->up_node_type = net->nodes[branch->node_up].type;

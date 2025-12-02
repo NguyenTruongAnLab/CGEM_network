@@ -41,6 +41,14 @@ kox = 0.15
 kdenit = 0.04
 knit = 0.12
 
+# Arrhenius temperature coefficients (theta)
+# Required for simplified_mode = 1 to adjust reaction rates at water_temp
+# Reference: van't Hoff/Arrhenius: k(T) = k(20°C) * theta^(T-20)
+# Typical range: 1.04-1.08 for aquatic systems (Chapra, 2008)
+theta_ox = 1.047
+theta_nit = 1.047
+theta_denit = 1.047
+
 # Half-saturation
 ktox = 40.0
 ko2 = 8.0

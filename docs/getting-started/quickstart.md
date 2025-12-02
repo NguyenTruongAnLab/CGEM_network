@@ -189,6 +189,22 @@ NodeID,BoundaryType,ForcingFile
 
 ## Common Issues
 
+### "Salinity problems"
+
+!!! danger "Check These First"
+    
+    | Symptom | Likely Cause | Solution |
+    |---------|--------------|----------|
+    | Plateau at 25-30 psu for 50+ km | Advection sign error | See transport.c upwind convention |
+    | Near-zero salinity at mouth | Dispersion BC wrong | Must use Dirichlet for dispersion |
+    | No salt at all | Dispersion disabled | Check DISABLE_DISPERSION_FOR_TEST = 0 |
+
+**Expected salinity for dry season (Q ~ 3000 m³/s):**
+
+- 2 km from mouth: 32-33 psu
+- 10 km: 8-15 psu  
+- 20 km: < 1 psu
+
 ### "No output files"
 
 - Check `WriteCSV = 1` in case_config.txt

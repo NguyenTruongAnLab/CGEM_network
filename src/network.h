@@ -109,6 +109,7 @@ typedef struct {
     /* Transport parameters */
     double D0;              /* Dispersion at mouth */
     double vdb_coef;        /* Van den Burgh coefficient (tuning) */
+    double mixing_alpha;    /* Mixing efficiency for D0 = α * U_tidal * B (0.1-1.0) */
 
     int num_species;
 
@@ -191,6 +192,14 @@ typedef struct {
     double *benthic_hb2;       /* Benthic semi-labile OC pool */
     double *benthic_hb3;       /* Benthic refractory OC pool */
     double *benthic_zf;        /* Fluid sediment layer depth [m] */
+    
+    /* =======================================================================
+     * SEDIMENT BED LAYER (Fluid Mud Tracking)
+     * Tracks accumulated sediment and organic carbon for benthic-pelagic coupling
+     * Reference: Winterwerp (2002), Wang et al. (2018)
+     * =======================================================================*/
+    double *bed_mass;          /* Deposited sediment mass [kg/m²] per grid cell */
+    double *bed_oc;            /* Organic carbon in bed [kg C/m²] per grid cell */
     
     /* Gas exchange */
     double pco2_atm;           /* Atmospheric pCO2 [µatm] */

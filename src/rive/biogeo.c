@@ -20,6 +20,124 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* ============================================================================
+ * DATA CONVERSION UTILITIES FOR SIMPLIFIED MODE
+ * ============================================================================
+ * These conversion factors allow C-GEM to be applied in data-sparse regions
+ * where only standard water quality monitoring data (BOD5, COD) is available.
+ * 
+ * SIMPLIFIED MODE (simplified_mode = 1 in biogeo_params.txt):
+ * - Uses single TOC pool instead of multi-pool RIVE HD1/HD2/HD3/HP1/HP2/HP3
+ * - Suitable for data-sparse tropical systems with only bulk measurements
+ * - Reduces calibration parameters while maintaining key biogeochemical fluxes
+ * 
+ * ============================================================================
+ * CONVERSION FACTORS (Reference: Chapra, 2008; Tchobanoglous et al., 2014)
+ * ============================================================================
+ * 
+ * 1. BOD5 → TOC Conversion:
+ *    -----------------------
+ *    BOD5 represents O2 consumed in 5 days of biodegradation.
+ *    For first-order decay with rate k_bod (typically 0.23/day for domestic):
+ *    
+ *      BOD_ultimate = BOD5 / (1 - exp(-5 * k_bod))
+ *      
+ *    Using stoichiometry C:O2 = 12:32 (mineralization of glucose):
+ *      TOC = BOD_ultimate * (12/32) = BOD_ultimate * 0.375
+ *      
+ *    For k_bod = 0.23/day:
+ *      TOC ≈ BOD5 / (1 - exp(-1.15)) * 0.375 ≈ BOD5 * 0.53
+ *      
+ *    USAGE: TOC [mg C/L] = BOD5 [mg O2/L] * 0.53
+ *    
+ *    Note: This assumes mostly biodegradable organic matter. For industrial
+ *    wastewater or refractory DOM, use site-specific calibration.
+ * 
+ * 2. COD → TOC Conversion:
+ *    ----------------------
+ *    COD represents total O2 demand for complete oxidation.
+ *    Theoretical stoichiometry for organic carbon:
+ *      CH2O + O2 → CO2 + H2O
+ *      12 g C requires 32 g O2
+ *      
+ *    Therefore:
+ *      TOC = COD / 2.67
+ *      
+ *    USAGE: TOC [mg C/L] = COD [mg O2/L] / 2.67
+ *    
+ *    Note: This assumes organic matter only. If significant inorganic
+ *    reductants (sulfide, Fe2+) are present, adjust accordingly.
+ * 
+ * 3. Chlorophyll-a → Phytoplankton Biomass:
+ *    --------------------------------------
+ *    Chl-a is commonly measured; convert to carbon biomass:
+ *      
+ *      PHY [µg C/L] = Chl-a [µg/L] × C:Chl ratio
+ *      
+ *    C:Chl ratios (from literature):
+ *      - Diatoms (PHY1): 30-60, use 40 (typical eutrophic)
+ *      - Non-siliceous (PHY2): 40-80, use 50 (flagellates)
+ *      
+ *    USAGE: 
+ *      PHY1 = Chl_a_diatoms * 40  (or total Chl-a * 0.6 * 40 for diatom fraction)
+ *      PHY2 = Chl_a_green * 50    (or total Chl-a * 0.4 * 50 for green fraction)
+ * 
+ * ============================================================================
+ * EXAMPLE: Converting monitoring data for Mekong Delta
+ * ============================================================================
+ * Monitoring station reports: BOD5 = 8 mg/L, COD = 25 mg/L, Chl-a = 15 µg/L
+ * 
+ * → TOC (from BOD5): 8 * 0.53 = 4.2 mg C/L  (biodegradable fraction)
+ * → TOC (from COD):  25 / 2.67 = 9.4 mg C/L (total oxidizable)
+ * → Use average or COD-based for tropical rivers with refractory DOM
+ * → PHY1 (60% diatoms): 15 * 0.6 * 40 / 1000 = 0.36 mg C/L = 30 µM C
+ * → PHY2 (40% green):   15 * 0.4 * 50 / 1000 = 0.30 mg C/L = 25 µM C
+ * 
+ * Reference: 
+ *   - Chapra (2008) Surface Water-Quality Modeling, Ch. 22-25
+ *   - Tchobanoglous et al. (2014) Wastewater Engineering, 5th Ed.
+ *   - Garnier et al. (2000) RIVE model documentation
+ * ============================================================================
+ */
+
+/* Conversion factor: BOD5 → TOC (assumes k_bod = 0.23/day) */
+#define BOD5_TO_TOC_FACTOR  0.53
+
+/* Conversion factor: COD → TOC (stoichiometric, C:O2 = 12:32) */
+#define COD_TO_TOC_FACTOR   (1.0 / 2.67)
+
+/* C:Chl-a ratios for phytoplankton conversion */
+#define CHLA_TO_PHY1_C_RATIO  40.0  /* Diatoms */
+#define CHLA_TO_PHY2_C_RATIO  50.0  /* Non-siliceous algae */
+
+/**
+ * Convert BOD5 to TOC for simplified mode input
+ * @param bod5 Five-day biochemical oxygen demand [mg O2/L]
+ * @return Total organic carbon [mg C/L]
+ */
+static inline double bod5_to_toc(double bod5) {
+    return bod5 * BOD5_TO_TOC_FACTOR;
+}
+
+/**
+ * Convert COD to TOC for simplified mode input
+ * @param cod Chemical oxygen demand [mg O2/L]
+ * @return Total organic carbon [mg C/L]
+ */
+static inline double cod_to_toc(double cod) {
+    return cod * COD_TO_TOC_FACTOR;
+}
+
+/**
+ * Convert Chlorophyll-a to phytoplankton carbon biomass
+ * @param chla Chlorophyll-a concentration [µg/L]
+ * @param c_to_chl C:Chl ratio (use CHLA_TO_PHY1_C_RATIO or CHLA_TO_PHY2_C_RATIO)
+ * @return Phytoplankton biomass [µg C/L]
+ */
+static inline double chla_to_phy_carbon(double chla, double c_to_chl) {
+    return chla * c_to_chl;
+}
+
 /* Global configurations */
 static GHGConfig g_ghg_config = {0};
 static int g_ghg_config_initialized = 0;

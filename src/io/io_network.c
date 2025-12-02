@@ -377,7 +377,8 @@ int LoadTopology(const char *path, Network *net) {
          *  9: Group (optional, default 0)
          * 10: RS   (optional, default 1.0) - Storage width ratio for mangroves
          * 11: VDB_K (optional, default 0.35) - Van den Burgh dispersion coefficient
-         * 12: BiogeoParams (optional) - Path to branch-specific biogeo params file
+         * 12: Mixing_Alpha (optional, default 0.25) - D0 mixing efficiency: D0 = α * U_tidal * B
+         * 13: BiogeoParams (optional) - Path to branch-specific biogeo params file
          */
         int column = 0;
         int tmp_id = -1;
@@ -392,9 +393,10 @@ int LoadTopology(const char *path, Network *net) {
         int tmp_group = 0;
         double tmp_storage_ratio = 1.0;      /* Default RS = 1.0 (prismatic channel) */
         double tmp_vdb_coef = 0.35;          /* Default Van den Burgh K (Savenije, 2005) */
+        double tmp_mixing_alpha = 0.25;      /* Default mixing efficiency for D0 (Fischer, 1979) */
         char tmp_biogeo_path[CGEM_MAX_PATH] = {0}; /* Empty = use global defaults */
         char *token = strtok(text, ",");
-        while (token && column < 13) {
+        while (token && column < 14) {
             char *value = trim_in_place(token);
             switch (column) {
                 case 0:
@@ -404,10 +406,13 @@ int LoadTopology(const char *path, Network *net) {
                     snprintf(tmp_name, sizeof(tmp_name), "%s", value);
                     break;
                 case 2:
-                    tmp_node_up = (int)strtol(value, NULL, 10) - 1;
+                    /* Keep node IDs as-is from topology.csv (no -1 offset)
+                     * This matches boundary_map.csv which uses same node IDs */
+                    tmp_node_up = (int)strtol(value, NULL, 10);
                     break;
                 case 3:
-                    tmp_node_down = (int)strtol(value, NULL, 10) - 1;
+                    /* Keep node IDs as-is from topology.csv (no -1 offset) */
+                    tmp_node_down = (int)strtol(value, NULL, 10);
                     break;
                 case 4:
                     tmp_length = strtod(value, NULL);
@@ -437,6 +442,14 @@ int LoadTopology(const char *path, Network *net) {
                     tmp_vdb_coef = strtod(value, NULL);
                     break;
                 case 12:
+                    /* Mixing_Alpha: D0 mixing efficiency coefficient (Fischer formula)
+                     * D0 = α * U_tidal * B where α typically 0.1-0.5 for estuaries
+                     * Reference: Fischer et al. (1979), Savenije (2005) */
+                    tmp_mixing_alpha = strtod(value, NULL);
+                    if (tmp_mixing_alpha < 0.01) tmp_mixing_alpha = 0.25;  /* Sanity check */
+                    if (tmp_mixing_alpha > 2.0) tmp_mixing_alpha = 2.0;    /* Cap at max */
+                    break;
+                case 13:
                     /* BiogeoParams: Path to branch-specific biogeochemistry parameters */
                     snprintf(tmp_biogeo_path, sizeof(tmp_biogeo_path), "%s", value);
                     break;
@@ -462,6 +475,9 @@ int LoadTopology(const char *path, Network *net) {
         }
         if (column < 12) {
             tmp_vdb_coef = 0.35;  /* Literature mid-range if not specified */
+        }
+        if (column < 13) {
+            tmp_mixing_alpha = 0.25;  /* Fischer (1979) default for estuaries */
         }
         /* tmp_biogeo_path defaults to empty string (use global params) */
 
@@ -505,10 +521,11 @@ int LoadTopology(const char *path, Network *net) {
         branch->storage_ratio = tmp_storage_ratio;  /* RS for mangrove/tidal flat storage */
         branch->has_biogeo = 1;  /* Always enable biogeo for now */
         branch->vdb_coef = tmp_vdb_coef;
+        branch->mixing_alpha = tmp_mixing_alpha;
         snprintf(branch->biogeo_params_path, sizeof(branch->biogeo_params_path), "%s", tmp_biogeo_path);
         
         /* Diagnostic output for configuration verification */
-        printf("  Parsed branch %d: %s (RS=%.1f, K=%.2f", tmp_id, tmp_name, tmp_storage_ratio, tmp_vdb_coef);
+        printf("  Parsed branch %d: %s (RS=%.1f, K=%.2f, α=%.2f", tmp_id, tmp_name, tmp_storage_ratio, tmp_vdb_coef, tmp_mixing_alpha);
         if (tmp_biogeo_path[0] != '\0') {
             printf(", biogeo=%s", tmp_biogeo_path);
         }
@@ -562,7 +579,7 @@ cleanup:
         // Initialize node types and connections later
     }
 
-    // Set node types and connections
+    // Set node connections (types will be set properly by LoadBoundaries)
     for (size_t i = 0; i < net->num_nodes; ++i) {
         int connections = 0;
         for (size_t j = 0; j < count; ++j) {
@@ -577,13 +594,19 @@ cleanup:
             }
         }
         net->nodes[i].num_connections = connections;
-        if (connections == 1) {
-            if (i == 4) {  // Assuming node 4 is ocean
-                net->nodes[i].type = NODE_LEVEL_BC;
-            } else {
-                net->nodes[i].type = NODE_DISCHARGE_BC;
-            }
-        } else if (connections > 1) {
+        
+        /* Default type assignment based on connections:
+         * - Multi-connection nodes are always junctions
+         * - Single-connection nodes: default to DISCHARGE_BC, but LoadBoundaries
+         *   will overwrite with LEVEL_BC for ocean boundaries based on boundary_map.csv
+         */
+        if (connections > 1) {
+            net->nodes[i].type = NODE_JUNCTION;
+        } else if (connections == 1) {
+            /* Default to DISCHARGE_BC - will be corrected by LoadBoundaries if ocean */
+            net->nodes[i].type = NODE_DISCHARGE_BC;
+        } else {
+            /* No connections - orphan node, treat as junction placeholder */
             net->nodes[i].type = NODE_JUNCTION;
         }
     }
@@ -652,12 +675,18 @@ int LoadBoundaries(const char *path, Network *net) {
             column++;
         }
 
-        if (column < 3 || node_id < 1 || node_id > (int)net->num_nodes) {
-            fprintf(stderr, "Invalid boundary row: node_id=%d, columns=%d\n", node_id, column);
+        if (column < 3 || node_id < 0 || node_id >= (int)net->num_nodes) {
+            fprintf(stderr, "Invalid boundary row: node_id=%d, columns=%d, max_nodes=%zu\n", 
+                    node_id, column, net->num_nodes);
             continue;
         }
 
-        Node *node = &net->nodes[node_id - 1];
+        /* 
+         * CRITICAL FIX: Node IDs in boundary_map.csv match topology.csv node IDs directly.
+         * The internal nodes array is indexed by these IDs directly (no -1 offset).
+         * This matches load_network_from_csv which uses branch->node_up/node_down directly.
+         */
+        Node *node = &net->nodes[node_id];
 
         /* Build full path */
         char full_path[CGEM_MAX_PATH + 256];

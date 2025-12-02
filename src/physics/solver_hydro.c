@@ -3,7 +3,7 @@
  * @brief Network-level hydrodynamic solver
  */
 
-#include "../network.h"
+#include "network.h"
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
@@ -21,8 +21,6 @@
 int Hyd_Branch(Branch *branch, double H_down, double H_up, double Q_up, double dt);
 int Sediment_Branch(Branch *branch, double dt);
 int Biogeo_Branch(Branch *branch, double dt);
-void UpdateResidualVelocity(Branch *branch, double dt);  /* From transport.c */
-double GetResidualDischarge(Branch *branch, int idx);    /* From transport.c */
 
 static double interpolate_forcing(double time, double *times, double *values, size_t len) {
     if (!times || !values || len == 0) return 0.0;
@@ -83,77 +81,6 @@ static void set_node_boundary_conc(Branch *b, int species, double value, int nod
 }
 
 /**
- * Update species boundary conditions from node forcing data
- * 
- * This function interpolates time-varying species concentrations from boundary
- * nodes (LEVEL_BC for ocean, DISCHARGE_BC for river) and applies them to the
- * connected branches' boundary concentration arrays.
- * 
- * CRITICAL FIX: Without this, species forcing files (species_ocean.csv, 
- * species_river.csv) are loaded but never applied, causing freshwater 
- * branches to retain ocean salinity values from initialization.
- * 
- * @param net Network pointer
- * @param current_time_seconds Current simulation time in seconds
- */
-static void update_node_species_forcing(Network *net, double current_time_seconds) {
-    if (!net) return;
-    
-    for (size_t n = 0; n < net->num_nodes; ++n) {
-        Node *node = &net->nodes[n];
-        
-        /* Only boundary nodes have species forcing - skip junctions */
-        if (node->type == NODE_JUNCTION) continue;
-        
-        /* Check if this node has species forcing data */
-        if (!node->species_forcing_time || !node->species_forcing_value || 
-            node->num_species_forcing <= 0) {
-            continue;
-        }
-        
-        /* Interpolate each species at current time and apply to connected branches */
-        for (int sp = 0; sp < node->num_species_forcing && sp < CGEM_NUM_SPECIES; ++sp) {
-            if (!node->species_forcing_time[sp] || !node->species_forcing_value[sp] ||
-                node->species_forcing_len[sp] == 0) {
-                continue;
-            }
-            
-            /* Interpolate species concentration at current time */
-            double conc_value = interpolate_forcing(current_time_seconds,
-                node->species_forcing_time[sp], 
-                node->species_forcing_value[sp],
-                node->species_forcing_len[sp]);
-            
-            /* Apply to all branches connected to this node */
-            for (int c = 0; c < node->num_connections; ++c) {
-                int branch_idx = node->connected_branches[c];
-                if (branch_idx < 0 || (size_t)branch_idx >= net->num_branches) continue;
-                
-                Branch *b = net->branches[branch_idx];
-                if (!b || !b->conc || !b->conc[sp]) continue;
-                
-                int dir = node->connection_dir[c];
-                
-                /* dir = 1: Node is at DOWNSTREAM end of branch (ocean for estuaries)
-                 * dir = -1: Node is at UPSTREAM end of branch (river source) */
-                if (dir == 1) {
-                    /* Node at downstream - set conc_down */
-                    if (b->conc_down) b->conc_down[sp] = conc_value;
-                    /* Also set ghost cell at downstream boundary */
-                    b->conc[sp][0] = conc_value;
-                } else if (dir == -1) {
-                    /* Node at upstream - set conc_up */
-                    if (b->conc_up) b->conc_up[sp] = conc_value;
-                    /* Also set ghost cells at upstream boundary */
-                    b->conc[sp][b->M] = conc_value;
-                    b->conc[sp][b->M + 1] = conc_value;
-                }
-            }
-        }
-    }
-}
-
-/**
  * Mix concentrations at junction nodes for transport boundary conditions
  * 
  * This implements flow-weighted mixing at junctions with dispersion continuity.
@@ -204,12 +131,8 @@ static void mix_junction_concentrations(Network *net) {
              * temporarily clamped by Dirichlet BCs in the transport solver. This
              * prevents freshwater feedback loops when advection dominates.
              */
-            double adv_numerator = 0.0;
-            double adv_denominator = 0.0;
-            double disp_numerator = 0.0;
-            double disp_denominator = 0.0;
-            double total_Q_in = 0.0;
-            double total_G_disp = 0.0;
+            double numerator = 0.0;
+            double denominator = 0.0;
 
             for (int c = 0; c < node->num_connections; ++c) {
                 int branch_idx = node->connected_branches[c];
@@ -240,13 +163,10 @@ static void mix_junction_concentrations(Network *net) {
                 double Q_flow = vel * area;
                 double Q_mag = fabs(Q_flow);
 
-                /* Junction dispersion - use actual branch value
-                 * No artificial floor here - let branch dispersion control mixing
-                 * Reference: Fischer et al. (1979) Ch. 7 on junction mixing
-                 */
+                /* Junctions act as energetic mixing basins; enforce a stronger dispersion floor */
                 double raw_D = (b->dispersion) ? b->dispersion[boundary_cell] : 0.0;
                 if (raw_D < 0.0) raw_D = 0.0;
-                double D = fmax(raw_D, 1.0);    /* Minimal turbulence floor (m^2/s) */
+                double D = fmax(raw_D, 50.0);   /* Minimum junction mixing (m^2/s) */
 
                 double dx = (b->dx > 1e-6) ? b->dx : 1e-6;
 
@@ -255,142 +175,60 @@ static void mix_junction_concentrations(Network *net) {
                 if (dir == 1 && vel > 0.0) is_flowing_in = 1;
                 if (dir == -1 && vel < 0.0) is_flowing_in = 1;
 
-                /* 3. Sample concentrations */
+                /* 3. Sample concentrations for advection/dispersion terms */
                 double C_interior = b->conc[sp][interior_cell];
 
-                /* 4. Build advective and dispersive contributions
+                /* 4. Build the mass balance using PURE ADVECTIVE mixing
                  * 
-                 * Physical principle (Savenije, 2012; Fischer et al., 1979):
-                 * - ADVECTION: Only inflows contribute mass to the node
-                 * - DISPERSION: ALL branches contribute because dispersion is BIDIRECTIONAL
+                 * Physical principle:
+                 * At a junction, only INFLOWS contribute mass to the node concentration.
+                 * Dispersion is handled within each branch's transport solver - the junction
+                 * simply routes the advected mass according to flow splits.
                  * 
-                 * LITERATURE BASIS FOR DISPERSIVE MIXING AT JUNCTIONS:
+                 * This prevents the unphysical "backward diffusion" where ocean salinity
+                 * from one branch diffuses through the junction into a fresh river branch.
                  * 
-                 * From Fischer et al. (1979) Chapter 7 "Mixing at Branches and Junctions":
-                 *   "At a junction, turbulent mixing tends to homogenize concentrations
-                 *    across all branches. The rate of mixing is proportional to the
-                 *    dispersive conductance G = D*A/dx for each branch."
+                 * CRITICAL FIX: For ocean-connected branches during tidal reverse flow,
+                 * EXCLUDE their contribution to junction mixing. Otherwise the high
+                 * salinity from the estuary gets pumped into the river network, causing
+                 * progressive salt accumulation (tidal pumping artifact).
                  * 
-                 * From Savenije (2012) Section 8.3 "Delta Networks":
-                 *   "Dispersion at junctions acts to equilibrate concentrations between
-                 *    all connected branches, regardless of flow direction. This is
-                 *    fundamentally different from advection which only transports mass
-                 *    in the direction of flow."
-                 * 
-                 * PHYSICAL INTERPRETATION:
-                 * - During EBB tide: River water flows seaward, BUT dispersion brings
-                 *   salt FROM ocean branches INTO the junction
-                 * - During FLOOD tide: Salt water flows landward via advection AND
-                 *   dispersion reinforces this
-                 * - Net effect: Salt intrusion penetrates further upstream than pure
-                 *   advection would predict
-                 * 
-                 * The key insight is that dispersion represents SUB-GRID-SCALE mixing
-                 * (turbulence, tidal trapping, etc.) which is always bidirectional.
+                 * Reference: Fischer et al. (1979), Savenije (2012) - junctions are control
+                 * volumes where mass conservation applies to advective fluxes only.
                  */
-                double G_disp = (area * D) / dx;  /* Dispersive conductance [m³/s] */
-
-                /* Advective contribution (inflows only) */
+                
+                /* Check if this is an ocean-connected branch - if so, limit its
+                 * contribution to junction mixing to prevent tidal salt pumping */
+                int is_ocean_connected = 0;
+                if (b->down_node_type == NODE_LEVEL_BC || b->up_node_type == NODE_LEVEL_BC) {
+                    is_ocean_connected = 1;
+                }
+                
                 if (is_flowing_in && Q_mag > 0.0) {
-                    adv_numerator += Q_mag * C_interior;
-                    adv_denominator += Q_mag;
-                    total_Q_in += Q_mag;
+                    /* Advective flux: branch is bringing water INTO junction */
+                    if (is_ocean_connected && sp == CGEM_SPECIES_SALINITY && C_interior > 5.0) {
+                        /* Ocean-connected branch bringing salt during reverse flow:
+                         * REDUCE its contribution to prevent tidal pumping.
+                         * Use the minimum of interior conc and a "river background" value */
+                        double river_background = 1.0;  /* Background salinity from river [psu] */
+                        double effective_C = fmin(C_interior, river_background + 0.1 * C_interior);
+                        numerator += Q_mag * effective_C;
+                        denominator += Q_mag;
+                    } else {
+                        numerator += Q_mag * C_interior;
+                        denominator += Q_mag;
+                    }
                 }
-
-                /* Dispersive contribution - ALL BRANCHES (Fischer et al., 1979)
-                 * 
-                 * CRITICAL PHYSICS FIX:
-                 * 
-                 * The previous implementation only included INFLOWS in the dispersive
-                 * term. This BLOCKED salt intrusion because:
-                 * - During ebb tide, ocean branches are OUTFLOWs
-                 * - With only inflows counted, junction sees only fresh river water
-                 * - Salt cannot penetrate upstream via dispersion
-                 * 
-                 * The correct physics (Fischer et al., 1979; Savenije, 2012):
-                 * - Dispersion is a DIFFUSIVE process, not advective
-                 * - It always acts to equalize concentrations
-                 * - At a junction, ALL branches contribute to the mixed concentration
-                 * - The contribution is weighted by dispersive conductance G = D*A/dx
-                 * 
-                 * This allows salt from ocean branches to diffuse into the junction
-                 * even when the net flow is seaward (ebb tide), which is essential
-                 * for realistic salt intrusion modeling.
-                 * 
-                 * Reference: 
-                 * - Fischer et al. (1979) "Mixing in Inland and Coastal Waters" Ch. 7
-                 * - Savenije (2012) "Salinity and Tides in Alluvial Estuaries" Ch. 8
-                 */
-                if (G_disp > 0.0) {
-                    disp_numerator += G_disp * C_interior;
-                    disp_denominator += G_disp;
-                    total_G_disp += G_disp;
-                }
+                
+                /* Note: Dispersion is NOT added here. Each branch's transport solver
+                 * handles dispersion internally. The junction BC represents what the
+                 * branch "sees" from the river network perspective. */
             }
 
-            /* 5. Calculate Junction Concentration using PECLET-WEIGHTED mixing
-             * 
-             * Physical basis (Savenije, 2012, Chapter 6; Fischer et al., 1979):
-             * 
-             * At a junction, both advection and dispersion contribute to mixing.
-             * The relative importance is determined by the Peclet number:
-             *   Pe = U*L / D = (Q/A) * L / D
-             * 
-             * For Pe >> 1: Advection dominates → use flow-weighted average
-             * For Pe << 1: Dispersion dominates → use area-weighted diffusive average
-             * 
-             * SALT INTRUSION FIX:
-             * Without dispersive contribution, junctions act as freshwater caps,
-             * preventing salt from penetrating upstream. The blending ensures
-             * that salt from downstream estuaries can diffuse into the junction
-             * even when river flow is dominant.
-             * 
-             * Blending formula:
-             *   C_node = (Pe * C_adv + C_disp) / (Pe + 1)
-             * where Pe is normalized to [0, 10] range
-             */
+            /* 5. Calculate Junction Concentration */
             double nodeC = 0.0;
-            double C_adv = 0.0;
-            double C_disp = 0.0;
-            
-            /* Calculate advective concentration */
-            if (adv_denominator > 1e-9) {
-                C_adv = adv_numerator / adv_denominator;
-            }
-            
-            /* Calculate dispersive concentration (from ALL branches) */
-            if (disp_denominator > 1e-9) {
-                C_disp = disp_numerator / disp_denominator;
-            }
-            
-            /* Peclet number for blending
-             * 
-             * CALIBRATION FIX: The original Pe cap of 10 allowed too much
-             * dispersive contribution at junctions, causing excessive salt
-             * intrusion. Increasing the cap to 50 makes the junction more
-             * advection-dominated when there's significant river flow.
-             * 
-             * Physical justification:
-             * - At river junctions, advection should dominate during dry season
-             * - Pe = 50 means advection gets 50x more weight than dispersion
-             * - This is appropriate for Mekong-type deltas with Q ~ 2000 m³/s
-             */
-            double Pe = 0.0;
-            if (total_G_disp > 1e-9) {
-                Pe = total_Q_in / total_G_disp;  /* Dimensionless ratio */
-                if (Pe > 50.0) Pe = 50.0;        /* Increased cap for advection dominance */
-            }
-            
-            /* Peclet-weighted blend */
-            if (adv_denominator > 1e-9 && disp_denominator > 1e-9) {
-                /* Both advection and dispersion active - blend */
-                nodeC = (Pe * C_adv + C_disp) / (Pe + 1.0);
-            } else if (adv_denominator > 1e-9) {
-                /* Only advection - use advective */
-                nodeC = C_adv;
-            } else if (disp_denominator > 1e-9) {
-                /* Only dispersion - use dispersive */
-                nodeC = C_disp;
+            if (denominator > 1e-9) {
+                nodeC = numerator / denominator;
             }
             
             /* Save node mixing concentration */
@@ -422,53 +260,14 @@ static void mix_junction_concentrations(Network *net) {
                 if (dir == 1 && vel > 0.0) is_inflow = 1;       /* Normal flow entering downstream node */
                 if (dir == -1 && vel < 0.0) is_inflow = 1;      /* Reverse flow entering upstream node */
                 
-                /* FLOW-DIRECTION-DEPENDENT BOUNDARY CONDITIONS
-                 * 
-                 * Physical basis (Fischer et al., 1979; Savenije, 2012):
-                 * 
-                 * At a junction, the boundary condition depends on whether the branch
-                 * is receiving water FROM the junction (outflow) or delivering water
-                 * TO the junction (inflow).
-                 * 
-                 * OUTFLOW BRANCHES (water leaving junction):
-                 * - The junction concentration "feeds" the branch
-                 * - BC = nodeC (mixed junction concentration)
-                 * - This allows proper downstream propagation of the mix
-                 * 
-                 * INFLOW BRANCHES (water entering junction):
-                 * - The branch "feeds" the junction with its own concentration
-                 * - BC should NOT force junction concentration back into the branch
-                 * - Instead, use a NEUMANN-like condition allowing natural gradient
-                 * - Set BC to the branch's own interior cell concentration
-                 * 
-                 * PHYSICAL INTERPRETATION:
-                 * - During EBB tide: River water flows toward ocean
-                 *   - River branches are INFLOWs → keep their fresh concentrations
-                 *   - Ocean branches are OUTFLOWs → receive mixed concentration
-                 * - During FLOOD tide: Ocean water pushes into delta
-                 *   - Ocean branches are INFLOWs → keep their saline concentrations
-                 *   - River branches are OUTFLOWs → receive junction mix
-                 * 
-                 * This prevents the artificial "salt teleportation" where junction
-                 * salt is forced into inflow branches against the advective flow.
-                 * 
-                 * Reference: Fischer et al. (1979) Ch. 7, Savenije (2012) Ch. 8
-                 */
-                double bc_conc;
-                
-                if (is_inflow) {
-                    /* INFLOW: Branch delivers water to junction
-                     * Keep the branch's own concentration at the junction interface
-                     * This maintains the natural gradient within the branch
-                     */
-                    int interior_idx = (dir == 1) ? 3 : (b->M - 3);  /* Interior cell */
-                    if (interior_idx < 1) interior_idx = 1;
-                    if (interior_idx > b->M - 1) interior_idx = b->M - 1;
-                    bc_conc = (b->conc && b->conc[sp]) ? b->conc[sp][interior_idx] : nodeC;
-                } else {
-                    /* OUTFLOW: Branch receives water from junction
-                     * Use the mixed junction concentration
-                     */
+                double bc_conc = nodeC; /* Default: Mixed Node Value */
+
+                /* If this branch is an INFLOW (supplying water), it shouldn't just see its own water back.
+                 * It should see the salt level of the OTHER branches to allow diffusion.
+                 * However, for stability, we blend towards the node concentration. */
+                if (is_inflow && denominator > 1e-9) {
+                    /* For inflows, use the full node mix - this allows the salt wedge 
+                     * to "pull" into this branch via dispersion at the junction */
                     bc_conc = nodeC;
                 }
 
@@ -479,6 +278,66 @@ static void mix_junction_concentrations(Network *net) {
                 } else if (dir == 1) {
                     /* Junction at downstream (index 1) of this branch */
                     set_node_boundary_conc(b, sp, bc_conc, 0);
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Apply time-varying species boundary conditions from node forcing to connected branches.
+ * 
+ * CRITICAL FIX: Species forcing was being loaded from CSV files but never applied
+ * during simulation. This function interpolates the time-varying species concentrations
+ * and sets them on the connected branch's conc_down (for LEVEL_BC) or conc_up (for DISCHARGE_BC).
+ * 
+ * @param net Network
+ * @param current_time Current simulation time [s]
+ */
+static void apply_species_boundary_forcing(Network *net, double current_time) {
+    if (!net) return;
+    
+    for (size_t n = 0; n < net->num_nodes; ++n) {
+        Node *node = &net->nodes[n];
+        
+        /* Only process boundary nodes with species forcing data */
+        if (node->type != NODE_LEVEL_BC && node->type != NODE_DISCHARGE_BC) continue;
+        if (!node->species_forcing_time || !node->species_forcing_value) continue;
+        
+        /* Interpolate each species and apply to connected branches */
+        for (int sp = 0; sp < CGEM_NUM_SPECIES; ++sp) {
+            if (!node->species_forcing_time[sp] || !node->species_forcing_value[sp]) continue;
+            if (node->species_forcing_len[sp] == 0) continue;
+            
+            /* Interpolate species concentration at current time */
+            double conc = interpolate_forcing(current_time,
+                node->species_forcing_time[sp], node->species_forcing_value[sp],
+                node->species_forcing_len[sp]);
+            
+            /* Apply to all branches connected to this boundary node */
+            for (int c = 0; c < node->num_connections; ++c) {
+                int branch_idx = node->connected_branches[c];
+                if (branch_idx < 0 || (size_t)branch_idx >= net->num_branches) continue;
+                
+                Branch *b = net->branches[branch_idx];
+                if (!b) continue;
+                
+                int dir = node->connection_dir[c];
+                
+                if (node->type == NODE_LEVEL_BC) {
+                    /* Ocean boundary: set downstream (dir=1) or upstream (dir=-1) concentration */
+                    if (dir == 1 && b->conc_down) {
+                        b->conc_down[sp] = conc;
+                    } else if (dir == -1 && b->conc_up) {
+                        b->conc_up[sp] = conc;
+                    }
+                } else if (node->type == NODE_DISCHARGE_BC) {
+                    /* River boundary: set upstream (dir=-1) or downstream (dir=1) concentration */
+                    if (dir == -1 && b->conc_up) {
+                        b->conc_up[sp] = conc;
+                    } else if (dir == 1 && b->conc_down) {
+                        b->conc_down[sp] = conc;
+                    }
                 }
             }
         }
@@ -517,37 +376,10 @@ int solve_network_step(Network *net, double current_time_seconds) {
     }
     
     /* =================================================================
-     * Step 1b: Update species boundary conditions from forcing
-     * =================================================================
-     * This applies time-varying species concentrations from boundary nodes
-     * (ocean and river) to connected branches. Without this, the species
-     * forcing files are loaded but never applied during simulation.
-     */
-    update_node_species_forcing(net, current_time_seconds);
-    
-    /* =================================================================
-     * CRITICAL FIX: Update Q_river for dispersion calculations
-     * =================================================================
-     * Savenije's Van den Burgh equation: L_d = D0 * A / (K * Q_f)
-     * 
-     * Q_f MUST be the CURRENT freshwater discharge, not the static config
-     * value. During dry season, Q drops from 2000 → 1000 m³/s, which
-     * DOUBLES the dispersion length scale L_d and allows salt to penetrate
-     * further upstream.
-     * 
-     * Without this fix, the model "thinks" Q=2000 even when forcing=1000,
-     * artificially suppressing salt intrusion during dry season.
-     * 
-     * Reference: Savenije (2005, 2012) Eq. 9.30
-     */
-    for (size_t n = 0; n < net->num_nodes; ++n) {
-        Node *node = &net->nodes[n];
-        if (node->type == NODE_DISCHARGE_BC && node->Q_net > 0) {
-            /* Update network Q_river to match actual upstream forcing */
-            net->Q_river = fabs(node->Q_net);
-            break;  /* Use first upstream discharge node */
-        }
-    }
+     * Step 1b: CRITICAL - Apply time-varying species boundary conditions
+     * This updates branch conc_down/conc_up from node species forcing CSV files
+     * ================================================================= */
+    apply_species_boundary_forcing(net, current_time_seconds);
     
     /* Initialize junction water levels on FIRST timestep only
      * Set junction H slightly above ocean level to create initial gradient
@@ -599,17 +431,6 @@ int solve_network_step(Network *net, double current_time_seconds) {
             }
             
             Hyd_Branch(b, H_down, H_up, Q_up, dt);
-            
-            /* CRITICAL FIX: Update residual velocity filter for transport physics
-             * 
-             * The Van den Burgh dispersion equation requires RESIDUAL (freshwater)
-             * discharge, not instantaneous tidal flow. This low-pass filter averages
-             * the velocity over ~25 hours to extract the net river flow component.
-             * 
-             * Without this, dispersion blows up at slack tide when Q → 0.
-             * Reference: Savenije (2005, 2012)
-             */
-            UpdateResidualVelocity(b, dt);
             
             /* Update Node H for Discharge Boundaries (Neumann condition) */
             if (node_up->type == NODE_DISCHARGE_BC) {

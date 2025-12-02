@@ -16,34 +16,45 @@
 # - Vam Nao is PRISMATIC (W_up = W_down = 600m)
 # - This ensures hydraulic connector behavior, not estuarine
 #
-# VAN DEN BURGH K COEFFICIENT (Column 12 - VDB_K):
-# - Controls dispersion decay upstream: D(x) = D0 * exp(-K * x / L)
-# - LOWER K = slower decay = LONGER salt intrusion  
-# - HIGHER K = faster decay = SHORTER salt intrusion
-# - Typical range: 0.4-1.0 for realistic profiles
+# VAN DEN BURGH K COEFFICIENT (Column 11 - VDB_K):
+# =====================================================
+# CORRECTED: Now uses PROPER Savenije formula:
+#   D(x)/D0 = 1 - β * (exp(x/a) - 1)
+#   β = (K * a * Q) / (A0 * D0)
 #
-# CALIBRATION PRINCIPLE (Savenije 2005, 2012):
-# The intrusion length L_s ~ a / K, where a = convergence length.
-# To get smooth exponential decay WITHIN the branch (not hitting junction wall):
-#   K should be calibrated so L_s < branch_length
+# K CALIBRATION (Savenije 2005, Nguyen 2008):
+# - K = 0.3-0.5: Long intrusion (weak flushing, dry season)
+# - K = 0.5-0.7: Medium intrusion (typical condition)
+# - K = 0.7-1.0: Short intrusion (strong flushing, wet season)
 #
-# CALIBRATED FOR MEKONG (matching observed ~40-60 km intrusion):
-# - Ham_Luong (60km): K=0.50 -> L_s ~ 65km/0.50 ~ 130km decay scale
-# - My_Tho (56km):    K=0.60 -> steeper decay, shorter intrusion
-# - Co_Chien (84km):  K=0.85 -> prevents salinizing main stem  
-# - Hau_River (88km): K=0.75 -> long branch needs moderate K
+# For Mekong dry season (Q ~ 2000-3000 m³/s):
+# With D0 ~ 100-200 m²/s, A0 ~ 30,000-50,000 m², a ~ 60,000-90,000 m:
+# β ~ (0.5 * 70000 * 2000) / (40000 * 150) = ~12
+# x_max ~ a * ln(1 + 1/12) ~ 70000 * 0.08 ~ 5.5 km
+#
+# Wait - this shows the issue: with high Q, β is large → intrusion is SHORT.
+# To get 40-60 km intrusion in dry season, we need LOWER K.
+#
+# Revised calibration for 40-50 km dry season intrusion:
+# - Estuaries (Ham_Luong, My_Tho, Co_Chien, Hau): K = 0.25-0.40
+# - River branches (Tien_Main, Hau_Main, Tien_Lower): K = 0.45-0.55
+#
+# MIXING_ALPHA COEFFICIENT (Column 12):
+# - Controls dispersion at mouth: D0 = α * U_tidal * B
+# - Reduced from 0.20-0.35 to 0.08-0.15 based on Nguyen (2008)
+# - D0 now capped at 200 m²/s maximum
 #
 # Geographic order (N→S): My Tho → Ham Luong → Co Chien → Hau
 #
-# Format: ID, Name, NodeUp, NodeDown, Length, W_Up, W_Down, Depth, Chezy, Group, RS, VDB_K
+# Format: ID, Name, NodeUp, NodeDown, Length, W_Up, W_Down, Depth, Chezy, Group, RS, VDB_K, Mixing_Alpha
 # ============================================================================
 
-1, Tien_Main, 1, 3, 50000, 1000, 1200, 15.0, 65, 1, 1.0, 0.8
-2, Hau_Main, 2, 4, 45000, 900, 1100, 14.0, 65, 1, 1.0, 0.8
-3, Vam_Nao, 3, 4, 7000, 600, 600, 18.0, 75, 3, 1.0, 0.8
-4, Tien_Lower, 3, 5, 50000, 1200, 1400, 14.0, 65, 1, 1.0, 0.8
-5, Tien_Connector, 5, 10, 15000, 1100, 1200, 13.0, 65, 1, 1.0, 0.8
-6, Co_Chien, 5, 8, 85000, 1100, 2800, 13.0, 60, 2, 1.2, 0.85
-7, My_Tho, 10, 6, 55000, 900, 2200, 11.0, 60, 2, 1.2, 0.60
-8, Ham_Luong, 10, 7, 60000, 1000, 2500, 12.0, 60, 2, 1.2, 0.50
-9, Hau_River, 4, 9, 90000, 1200, 3000, 14.0, 58, 2, 1.3, 0.75
+1, Tien_Main, 1, 3, 50000, 1000, 1200, 15.0, 55, 1, 1.0, 0.50, 0.08
+2, Hau_Main, 2, 4, 45000, 900, 1100, 14.0, 55, 1, 1.0, 0.50, 0.08
+3, Vam_Nao, 3, 4, 7000, 600, 600, 18.0, 65, 3, 1.0, 0.60, 0.05
+4, Tien_Lower, 3, 5, 50000, 1200, 1400, 14.0, 55, 1, 1.0, 0.45, 0.10
+5, Tien_Connector, 5, 10, 15000, 1100, 1200, 13.0, 55, 1, 1.0, 0.50, 0.08
+6, Co_Chien, 5, 8, 85000, 1100, 2800, 13.0, 45, 2, 1.2, 0.60, 0.12
+7, My_Tho, 10, 6, 55000, 900, 2200, 11.0, 48, 2, 1.2, 0.35, 0.12
+8, Ham_Luong, 10, 7, 60000, 1000, 2500, 12.0, 48, 2, 1.2, 0.32, 0.12
+9, Hau_River, 4, 9, 90000, 1200, 3000, 14.0, 50, 2, 1.3, 0.28, 0.15

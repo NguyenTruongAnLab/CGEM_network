@@ -9,10 +9,6 @@
  * - Tidal forcing at ocean boundary
  * - Discharge boundary at upstream
  * 
- * ENHANCEMENTS (Audit recommendations):
- * - Optional Manning's n friction (standard for natural rivers)
- * - Dynamic storage width ratio RS(H) for floodplain effects
- * 
  * Grid convention (matching Fortran):
  * - Even indices (0, 2, 4, ...): Interfaces (velocity U, fluxes)
  * - Odd indices (1, 3, 5, ...): Cell centers (area AA, concentrations)
@@ -21,8 +17,8 @@
  * Reference: Savenije (2012), Gisen et al. (2015)
  */
 
-#include "../network.h"
-#include "../define.h"
+#include "network.h"
+#include "define.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,64 +27,6 @@
 /* --------------------------------------------------------------------------
  * Helper functions
  * -------------------------------------------------------------------------- */
-
-/**
- * Convert Manning's n to Chezy coefficient
- * 
- * Chezy C = H^(1/6) / n
- * 
- * Manning's n is preferred for natural rivers because it's more
- * physically intuitive and widely tabulated.
- * 
- * Typical values:
- * - Clean, straight river: n = 0.025-0.035
- * - Winding, weedy banks:  n = 0.035-0.050
- * - Vegetated floodplain:  n = 0.05-0.15
- * 
- * @param manning_n Manning coefficient [s/m^{1/3}]
- * @param depth Water depth [m]
- * @return Chezy coefficient [m^{0.5}/s]
- */
-static double manning_to_chezy(double manning_n, double depth) {
-    if (manning_n <= 0.0 || depth <= CGEM_MIN_DEPTH) {
-        return 50.0;  /* Default Chezy */
-    }
-    return pow(depth, 1.0/6.0) / manning_n;
-}
-
-/**
- * Calculate dynamic storage width ratio based on water level
- * 
- * When water rises above bank level, it spreads into floodplains
- * which act as storage, not conveyance. This increases the effective
- * storage-to-conveyance ratio.
- * 
- * RS(H) = RS_channel           if H <= H_bank
- * RS(H) = RS_floodplain        if H > H_bank
- * 
- * A smoother transition could use:
- * RS(H) = RS_channel + (RS_floodplain - RS_channel) * sigmoid((H - H_bank) / delta)
- * 
- * @param branch Branch with storage parameters
- * @param H Local water level [m]
- * @return Storage width ratio [-]
- */
-static double calc_dynamic_storage_ratio(Branch *branch, double H) {
-    if (!branch) return CGEM_RS;
-    
-    double RS_base = (branch->storage_ratio > 0.0) ? branch->storage_ratio : CGEM_RS;
-    
-    /* Check if dynamic storage is configured */
-    if (branch->H_bank <= 0.0 || branch->RS_floodplain <= 0.0) {
-        return RS_base;
-    }
-    
-    /* Simple step function (can be smoothed if needed) */
-    if (H > branch->H_bank) {
-        return branch->RS_floodplain;
-    }
-    return branch->RS_channel;
-}
 
 /**
  * Compute tidal elevation at the ocean boundary
@@ -224,8 +162,9 @@ void InitializeBranchGeometry(Branch *branch, double target_dx) {
         branch->waterLevel[i] = 0.0;
         
         /* Initialize velocity to small positive value to kickstart flow
-         * This represents expected downstream flow direction */
-        branch->velocity[i] = 0.1;
+         * Sign convention: Positive = flow from index 1 (downstream) to M (upstream)
+         * This will be adjusted by the solver based on water level gradients */
+        branch->velocity[i] = 0.05;
         
         /* Chezy coefficient (can be spatially varying) */
         /* Linear interpolation from downstream (Chezy_lb) to upstream (Chezy_ub) */
@@ -238,13 +177,15 @@ void InitializeBranchGeometry(Branch *branch, double target_dx) {
         if (chezy_up <= 0) chezy_up = 40.0;
         branch->chezyArray[i] = chezy_down + (chezy_up - chezy_down) * s;
         
-        /* Initialize dispersion */
-        branch->dispersion[i] = 200.0;
+        /* Initialize dispersion - placeholder, will be computed by transport module
+         * using Van den Burgh K coefficient from topology.csv */
+        branch->dispersion[i] = 50.0;  /* Default - will be overwritten */
     }
 
-    /* Maintain literature-based Van den Burgh coefficient (override only if unset) */
+    /* NOTE: Do NOT overwrite vdb_coef here - it was already loaded from topology.csv 
+     * by io_network.c. Only set default if not already set. */
     if (branch->vdb_coef <= 0.0) {
-        branch->vdb_coef = 0.35;  /* Savenije (2005) mid-range default */
+        branch->vdb_coef = 0.5;  /* Default if not specified in topology */
     }
 
     /* Initialize concentrations if species exist */
@@ -272,11 +213,14 @@ void InitializeBranchGeometry(Branch *branch, double target_dx) {
  * Set boundary conditions for the current timestep
  * Set_new_boundary_conditions
  * 
- * SCIENTIFIC APPROACH: Only set water levels here. Velocity is computed
- * by update_boundary_velocity_MOC() using Method of Characteristics.
- * This separates the Dirichlet BC (level) from the momentum calculation.
+ * SCIENTIFIC APPROACH: 
+ * 1. Set water levels (Dirichlet BC) at ocean/junction boundaries
+ * 2. Set discharge-derived velocity at river boundaries
  * 
- * Reference: Stelling (1984), Abbott & Minns (1998)
+ * Note: Boundary velocities for level BCs are computed in update_arrays()
+ * using the momentum balance with the solved interior velocities.
+ * 
+ * Reference: Stelling (1984), Abbott & Minns (1998), Savenije (2012)
  */
 static void set_boundary_conditions(Branch *b, double H_down, double H_up, double Q_upstream) {
     if (!b) return;
@@ -294,12 +238,16 @@ static void set_boundary_conditions(Branch *b, double H_down, double H_up, doubl
             b->freeArea[1] = H_down * b->width[1];
             b->totalArea[1] = b->refArea[1] + b->freeArea[1];
         }
-        /* Note: Velocity at boundary is computed in update_boundary_velocity_MOC() */
+        /* Note: Velocity at boundary is computed in update_arrays() */
     }
 
     /* Upstream boundary: discharge BC, level BC, or junction water level */
     if (b->up_node_type == NODE_DISCHARGE_BC && Q_upstream > -9000.0) {
-        /* Discharge BC: set velocity directly from Q (Neumann-type condition) */
+        /* Discharge BC: set velocity directly from Q (Neumann-type condition)
+         * 
+         * The discharge Q represents volumetric flow INTO the domain.
+         * Positive Q = river inflow = positive velocity (downstream direction)
+         */
         double areaM = (b->totalArea && b->totalArea[b->M] > 0.0) ? b->totalArea[b->M] : b->refArea[b->M];
         if (fabs(areaM) < 1e-10) areaM = 1e-6;
         b->velocity[b->M] = Q_upstream / areaM;
@@ -313,7 +261,7 @@ static void set_boundary_conditions(Branch *b, double H_down, double H_up, doubl
             b->freeArea[M] = H_up * b->width[M];
             b->totalArea[M] = b->refArea[M] + b->freeArea[M];
         }
-        /* Note: Velocity at boundary is computed in update_boundary_velocity_MOC() */
+        /* Note: Velocity at boundary is computed in update_arrays() */
     }
 
     /* Safety: ensure non-zero areas */
@@ -330,24 +278,42 @@ static void set_boundary_conditions(Branch *b, double H_down, double H_up, doubl
  *   tri_diag[i] = main diagonal (b)
  *   tri_upper[i] = upper diagonal (c)
  *   tri_rhs[i] = right-hand side (d)
- * 
- * ENHANCEMENTS:
- * - Optional Manning's n friction (use_manning flag)
- * - Dynamic storage width ratio RS(H)
  */
 static void assemble_matrix(Branch *b, double dt) {
     int M = b->M;
     double dx = b->dx;
     double g = CGEM_GRAVITY;
+    /* Use per-branch storage ratio instead of global constant */
+    double RS = (b->storage_ratio > 0.0) ? b->storage_ratio : CGEM_RS;
     double inv_dt = 1.0 / dt;
     double inv_2dx = 0.5 / dx;
     
+    /* =======================================================================
+     * BAROCLINIC PRESSURE GRADIENT (Density-Driven Flow)
+     * 
+     * The full momentum equation includes a baroclinic term:
+     *   ∂U/∂t + ... = -g*∂ζ/∂x - (g*H)/(2*ρ) * ∂ρ/∂x
+     * 
+     * For salt water: ρ = ρ0 * (1 + β*S) where β ≈ 0.00078 per PSU
+     * So: ∂ρ/∂x ≈ ρ0 * β * ∂S/∂x
+     * 
+     * The baroclinic term becomes:
+     *   F_baroclinic = -(g*H*β/2) * ∂S/∂x
+     * 
+     * This drives the gravitational circulation: bottom salt wedge flowing
+     * upstream against freshwater flowing downstream at surface.
+     * 
+     * In 1D (vertically-averaged), this appears as an effective force
+     * that helps push salt further upstream than barotropic flow alone.
+     * 
+     * Reference: Savenije (2005), MacCready & Geyer (2010)
+     * =======================================================================*/
+    double beta_sal = 0.00078;  /* Haline contraction coefficient [1/PSU] */
+    int has_salinity = (b->conc && b->num_species > CGEM_SPECIES_SALINITY && 
+                        b->conc[CGEM_SPECIES_SALINITY]);
+    
     /* Interior points */
     for (int j = 3; j <= M - 3; j += 2) {
-        /* Calculate dynamic storage ratio at this location */
-        double H_local = b->waterLevel[j];
-        double RS = calc_dynamic_storage_ratio(b, H_local);
-        
         /* Continuity equation at odd indices (cell centers) */
         b->tri_lower[j] = -b->totalArea[j-1] * inv_2dx;
         b->tri_diag[j] = RS * inv_dt;
@@ -358,21 +324,9 @@ static void assemble_matrix(Branch *b, double dt) {
         int i = j + 1;
         double U_i = b->velocity[i];
         double H_i = b->depth[i];
+        double C_i = b->chezyArray[i];
         
         if (H_i < CGEM_MIN_DEPTH) H_i = CGEM_MIN_DEPTH;
-        
-        /* ===================================================================
-         * FRICTION TERM: Chezy or Manning's n
-         * 
-         * Manning's n is preferred for natural rivers (audit recommendation)
-         * C = H^(1/6) / n  (convert to equivalent Chezy)
-         * ===================================================================*/
-        double C_i;
-        if (b->use_manning && b->manning_n && b->manning_n[i] > 0.0) {
-            C_i = manning_to_chezy(b->manning_n[i], H_i);
-        } else {
-            C_i = b->chezyArray[i];
-        }
         if (C_i < 10.0) C_i = 50.0;
         
         double friction = (fabs(U_i) / (C_i * C_i)) / H_i;
@@ -385,18 +339,38 @@ static void assemble_matrix(Branch *b, double dt) {
             convective = (b->velocity[i+2] - b->velocity[i-2]) / (4.0 * g * dx);
         }
         
+        /* Baroclinic term: adds driving force from salinity gradient */
+        double baroclinic_rhs = 0.0;
+        if (has_salinity && i >= 2 && i <= M - 2) {
+            double S_im1 = b->conc[CGEM_SPECIES_SALINITY][i-1];
+            double S_ip1 = b->conc[CGEM_SPECIES_SALINITY][i+1];
+            double dS_dx = (S_ip1 - S_im1) / (2.0 * dx);
+            
+            /* F_baroclinic = -(g*H*β/2) * dS/dx
+             * Negative sign: increasing salinity downstream drives flow upstream
+             * The 0.5 factor accounts for 1D vertical averaging
+             * 
+             * DIMENSIONAL ANALYSIS (Audit verification):
+             * The momentum equation is divided by g for the coupled solve,
+             * so: RHS units = U/(g*dt) = [m/s]/([m/s²][s]) = dimensionless
+             * 
+             * Baroclinic: (g * H * β * dS/dx) / g = H * β * dS/dx
+             *           = [m] × [1/PSU] × [PSU/m] = dimensionless ✓
+             * 
+             * The g*.../ g form is kept explicit for clarity of physical origin.
+             */
+            baroclinic_rhs = -0.5 * g * H_i * beta_sal * dS_dx / g;
+        }
+        
         b->tri_lower[i] = -inv_2dx / b->width[i-1];
         b->tri_diag[i] = 1.0/(g*dt) + friction + convective;
         b->tri_upper[i] = inv_2dx / b->width[i+1];
-        b->tri_rhs[i] = U_i / (g * dt);
+        b->tri_rhs[i] = U_i / (g * dt) + baroclinic_rhs;
     }
     
     /* Last continuity equation (j = M-1) */
     {
         int j = M - 1;
-        double H_local = b->waterLevel[j];
-        double RS = calc_dynamic_storage_ratio(b, H_local);
-        
         b->tri_lower[j] = -b->totalArea[j-2] * inv_2dx;
         b->tri_diag[j] = RS * inv_dt;
         b->tri_upper[j] = 0.0;
@@ -410,27 +384,38 @@ static void assemble_matrix(Branch *b, double dt) {
         int i = 2;
         double U_i = b->velocity[i];
         double H_i = b->depth[i];
+        double C_i = b->chezyArray[i];
         
         if (H_i < CGEM_MIN_DEPTH) H_i = CGEM_MIN_DEPTH;
-        
-        double C_i;
-        if (b->use_manning && b->manning_n && b->manning_n[i] > 0.0) {
-            C_i = manning_to_chezy(b->manning_n[i], H_i);
-        } else {
-            C_i = b->chezyArray[i];
-        }
         if (C_i < 10.0) C_i = 50.0;
         
         double friction = (fabs(U_i) / (C_i * C_i)) / H_i;
         double convective = (b->velocity[4] - b->velocity[2]) / (4.0 * g * dx);
         
-        /* Tidal boundary forcing enters RHS */
+        /* Tidal boundary forcing: the freeArea gradient term
+         * 
+         * In the original staggered grid formulation, the boundary forcing
+         * enters through the continuity equation coupling. The term here
+         * represents the influence of the boundary water level on the 
+         * momentum balance at the first interior velocity point.
+         * 
+         * The freeArea[1]/width[1] = waterLevel[1] (the boundary tidal level)
+         */
         double tidal_term = inv_2dx * b->freeArea[1] / b->width[1];
+        
+        /* Baroclinic term at boundary */
+        double baroclinic_rhs = 0.0;
+        if (has_salinity) {
+            double S_1 = b->conc[CGEM_SPECIES_SALINITY][1];
+            double S_3 = b->conc[CGEM_SPECIES_SALINITY][3];
+            double dS_dx = (S_3 - S_1) / (2.0 * dx);
+            baroclinic_rhs = -0.5 * g * H_i * beta_sal * dS_dx / g;
+        }
         
         b->tri_lower[i] = 0.0;
         b->tri_diag[i] = 1.0/(g*dt) + friction + convective;
         b->tri_upper[i] = inv_2dx / b->width[3];
-        b->tri_rhs[i] = U_i / (g * dt) + tidal_term;
+        b->tri_rhs[i] = U_i / (g * dt) + tidal_term + baroclinic_rhs;
     }
 }
 
@@ -486,16 +471,18 @@ static int check_convergence(Branch *b, double *old_freeArea, double *old_veloci
  * Update arrays after solving
  * Update_hydrodynamic_arrays
  * 
- * Includes explicit momentum-based boundary velocity calculation.
- * This solves the discrete momentum equation at boundaries:
- *   (U_new - U_old)/dt = -g * dH/dx - g * Sf
+ * CRITICAL FIX: Boundary velocity is computed from momentum balance using
+ * the water level gradient between boundary and interior. This ensures
+ * proper tidal velocity oscillation (positive during ebb, negative during flood).
  * 
- * Reference: Cunge et al. (1980), Abbott & Minns (1998)
+ * Reference: Cunge et al. (1980), Abbott & Minns (1998), Stelling (1984)
  */
 static void update_arrays(Branch *b, double *solution) {
     int M = b->M;
+    double g = CGEM_GRAVITY;
+    double dx = b->dx;
     
-    /* Extract velocity (even indices) and free area (odd indices) */
+    /* Extract velocity (even indices) and free area (odd indices) from solution */
     for (int j = 2; j <= M - 2; j += 2) {
         b->velocity[j] = solution[j];
         b->freeArea[j+1] = solution[j+1];
@@ -527,28 +514,105 @@ static void update_arrays(Branch *b, double *solution) {
     b->freeArea[M] = 1.5 * b->freeArea[M-1] - 0.5 * b->freeArea[M-3];
     
     /* ======================================================================
-     * BOUNDARY VELOCITY: PRESERVE JUNCTION-ADJUSTED VALUES
+     * BOUNDARY VELOCITY: CHARACTERISTIC METHOD (Method of Characteristics)
      * 
-     * For junction-connected boundaries, we DON'T extrapolate from interior.
-     * The junction solver will directly adjust these velocities for mass balance.
+     * For tidal estuaries, the boundary velocity must respond to the water
+     * level gradient, NOT be constrained by interior flow patterns.
      * 
-     * Only extrapolate for ocean boundaries where tidal flow is naturally
-     * established by the interior solution.
+     * The characteristic equation for shallow water waves gives:
+     *   U_boundary = U_interior - (g/c) * (H_boundary - H_interior)
+     * 
+     * where c = sqrt(g*h) is the wave speed.
+     * 
+     * This is mathematically equivalent to:
+     *   U_boundary = U_interior - sqrt(g/h) * (H_boundary - H_interior)
+     * 
+     * During FLOOD (H_boundary > H_interior):
+     *   → The second term is negative → U_boundary < U_interior
+     *   → If gradient is strong enough, U_boundary becomes negative (inflow)
+     * 
+     * During EBB (H_boundary < H_interior):
+     *   → The second term is positive → U_boundary > U_interior
+     *   → U_boundary stays positive (outflow)
+     * 
+     * Reference: Abbott & Ionescu (1967), Stelling (1984), Casulli (1990)
      * ====================================================================== */
     
-    /* 1. Downstream Boundary (Index 1/0) */
+    /* 1. Downstream Boundary (Index 1/0) - Ocean tidal forcing */
     if (b->down_node_type == NODE_LEVEL_BC) {
-        /* Ocean boundary - extrapolate from interior */
-        b->velocity[1] = b->velocity[2];
-        b->velocity[0] = b->velocity[2];
+        /* Get water levels */
+        double H_boundary = b->waterLevel[1];  /* Tidal level at boundary [m] */
+        double H_interior = b->waterLevel[3];  /* First interior cell [m] */
+        
+        /* Get depth and wave speed */
+        double depth = fmax(b->depth[2], CGEM_MIN_DEPTH);
+        double c_wave = sqrt(g * depth);  /* Shallow water wave speed [m/s] */
+        
+        /* Interior velocity (from matrix solution) */
+        double U_int = b->velocity[2];
+        
+        /* ================================================================
+         * CHARACTERISTIC BOUNDARY CONDITION
+         * 
+         * From characteristic theory:
+         *   ∂η/∂t + c ∂η/∂x = 0  (wave propagation)
+         *   c ∂u/∂t + g ∂η/∂x = 0  (momentum)
+         * 
+         * Combining: u_boundary = u_interior - (g/c) * (η_boundary - η_interior)
+         *          = u_interior - sqrt(g/h) * dη
+         * 
+         * Physical interpretation:
+         * - Higher tide at boundary (dη > 0) → water pushed IN → u < 0
+         * - Lower tide at boundary (dη < 0) → water flows OUT → u > 0
+         * ================================================================*/
+        double dH = H_boundary - H_interior;  /* Water level difference */
+        double characteristic_coef = sqrt(g / depth);  /* sqrt(g/h) ≈ 0.88 for h=12m */
+        
+        /* Boundary velocity from characteristics */
+        double U_boundary = U_int - characteristic_coef * dH;
+        
+        /* For Mekong dry season with Q~3300 m³/s, the river flow dominates
+         * and flood tide velocities should be weaker. But the characteristic
+         * method naturally handles this because U_int is already positive
+         * due to river flow, and flood tide only reduces this velocity. */
+        
+        /* Physical limits: tidal velocities in Mekong are typically 0.5-1.5 m/s 
+         * Reference: Nguyen et al. (2008), Wolanski et al. (1996) */
+        double U_max = 2.0;  /* Maximum realistic velocity [m/s] */
+        U_boundary = CGEM_CLAMP(U_boundary, -U_max, U_max);
+        
+        b->velocity[1] = U_boundary;
+        b->velocity[0] = U_boundary;
     }
     /* For NODE_JUNCTION: velocity[1] is set by junction solver - don't overwrite */
 
     /* 2. Upstream Boundary (Index M) */
     if (b->up_node_type == NODE_LEVEL_BC) {
-        /* Level BC - extrapolate from interior */
-        b->velocity[M] = (M >= 2) ? b->velocity[M-2] : 0.1;
-        b->velocity[M+1] = b->velocity[M];
+        /* Similar momentum-based approach for upstream level BC */
+        double H_boundary = b->waterLevel[M];
+        double H_interior = b->waterLevel[M-1];  /* USE waterLevel, not freeArea/width */
+        
+        double depth = fmax(b->depth[M-2], CGEM_MIN_DEPTH);
+        double c_wave = sqrt(g * depth);
+        double U_int = (M >= 2) ? b->velocity[M-2] : 0.0;
+        double dt_eff = dx / fmax(fabs(U_int) + c_wave, 1.0);
+        
+        double C_chezy = fmax(b->chezyArray[M-2], 30.0);
+        double friction_factor = fabs(U_int) / (C_chezy * C_chezy * depth);
+        
+        double dH_dx = (H_interior - H_boundary) / dx;  /* Note: reversed for upstream */
+        
+        double U_boundary = U_int - dt_eff * g * dH_dx - dt_eff * friction_factor * U_int;
+        
+        double dU = U_boundary - U_int;
+        double max_dU = 0.5 * c_wave;
+        if (fabs(dU) > max_dU) {
+            dU = (dU > 0) ? max_dU : -max_dU;
+            U_boundary = U_int + dU;
+        }
+        
+        b->velocity[M] = U_boundary;
+        b->velocity[M+1] = U_boundary;
     }
     /* For NODE_JUNCTION: velocity[M] is set by junction solver - don't overwrite */
     /* For NODE_DISCHARGE_BC: velocity[M] is already set in set_boundary_conditions */
@@ -623,9 +687,16 @@ int Hyd_Branch(Branch *branch, double H_down, double H_up, double Q_up, double d
         /* Save for next timestep */
         branch->totalArea_old[i] = branch->totalArea[i];
         
-        /* Update water level relative to reference */
-        branch->waterLevel[i] = branch->depth[i] - 
-            (branch->refArea[i] / branch->width[i]);
+        /* Update water level relative to reference 
+         * BUT preserve Dirichlet BC water levels at boundaries */
+        int is_downstream_bc = (i <= 1 && branch->down_node_type == NODE_LEVEL_BC);
+        int is_upstream_bc = (i >= M && branch->up_node_type == NODE_LEVEL_BC);
+        
+        if (!is_downstream_bc && !is_upstream_bc) {
+            branch->waterLevel[i] = branch->depth[i] - 
+                (branch->refArea[i] / branch->width[i]);
+        }
+        /* Boundary water levels are preserved from set_boundary_conditions() */
     }
     
     return converged ? 0 : -2;

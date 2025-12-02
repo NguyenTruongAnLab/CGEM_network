@@ -10,7 +10,6 @@
  * - Open boundary condition handling
  * - Species environment flag filtering (only transport env=1 species)
  * - Flux bookkeeping for mass balance diagnostics
- * - **LOW-PASS VELOCITY FILTER for residual discharge** (Audit fix)
  * 
  * Grid convention (matching Fortran):
  * - Concentrations defined at odd indices (cell centers)
@@ -19,8 +18,8 @@
  * Reference: Savenije (2012), Volta et al. (2014), Gisen et al. (2015)
  */
 
-#include "../network.h"
-#include "../define.h"
+#include "network.h"
+#include "define.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,72 +28,6 @@
 /* Local flux storage for diagnostics (per-species, reused each timestep) */
 static double g_adv_flux[CGEM_MAX_BRANCH_CELLS + 2];
 static double g_disp_flux[CGEM_MAX_BRANCH_CELLS + 2];
-
-/* ============================================================================
- * RESIDUAL VELOCITY LOW-PASS FILTER
- * 
- * The Van den Burgh dispersion equation requires RESIDUAL (freshwater) discharge,
- * NOT instantaneous tidal discharge. In branching deltas like the Mekong, using
- * instantaneous Q leads to massive over-dispersion during peak tidal flow.
- * 
- * This filter extracts the tidally-averaged velocity from the instantaneous signal:
- *   u_residual[new] = (1 - alpha) * u_residual[old] + alpha * u_instantaneous
- * 
- * With alpha = dt / T_filter, where T_filter ~ 25 hours (>M2 period)
- * 
- * Reference: Savenije (2005), Audit recommendation for "Residual Discharge Problem"
- * ============================================================================*/
-
-/**
- * Update the residual velocity array using exponential low-pass filter
- * 
- * @param branch Branch to update
- * @param dt Current timestep [s]
- */
-void UpdateResidualVelocity(Branch *branch, double dt) {
-    if (!branch || !branch->u_residual || branch->M <= 0) return;
-    
-    /* Filter time constant: ~ 25 hours (longer than M2 period of 12.42 hours) */
-    /* This ensures we capture the mean flow, not tidal oscillations */
-    double T_filter = 25.0 * 3600.0;  /* 25 hours in seconds */
-    double alpha = dt / T_filter;
-    
-    /* Override with branch-specific value if set */
-    if (branch->residual_alpha > 0.0 && branch->residual_alpha < 1.0) {
-        alpha = branch->residual_alpha;
-    }
-    
-    /* Clamp alpha to reasonable range */
-    if (alpha > 0.1) alpha = 0.1;   /* Max 10% per step (prevents instability) */
-    if (alpha < 1e-6) alpha = 1e-6;
-    
-    int M = branch->M;
-    for (int i = 0; i <= M + 1; ++i) {
-        branch->u_residual[i] = (1.0 - alpha) * branch->u_residual[i] + 
-                                 alpha * branch->velocity[i];
-    }
-}
-
-/**
- * Get residual discharge at a branch cross-section
- * Uses the filtered velocity if available, otherwise falls back to instantaneous
- * 
- * @param branch Branch
- * @param idx Grid index
- * @return Residual discharge [m³/s]
- */
-double GetResidualDischarge(Branch *branch, int idx) {
-    if (!branch || idx < 0 || idx > branch->M + 1) return 0.0;
-    
-    double u_res = branch->velocity[idx];  /* Default to instantaneous */
-    
-    if (branch->u_residual && fabs(branch->u_residual[idx]) > 1e-10) {
-        u_res = branch->u_residual[idx];
-    }
-    
-    double area = (branch->totalArea) ? branch->totalArea[idx] : 1.0;
-    return u_res * area;
-}
 
 /**
  * Compute junction dispersion for branches not connected to ocean
@@ -248,6 +181,48 @@ static void set_junction_ghost_cells(double *arr, int ghost_a, int ghost_b, doub
 }
 
 /* --------------------------------------------------------------------------
+ * Residual Velocity Filter (Audit Fix Issue #1)
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Update residual (tidally-averaged) velocity using exponential moving average
+ * 
+ * CRITICAL for Van den Burgh dispersion: The Savenije formulation requires
+ * FRESHWATER (residual) discharge, not instantaneous tidal discharge.
+ * 
+ * Filter time constant: ~2 tidal cycles (24.84 hours) to smooth out M2 tide.
+ * This extracts the net downstream flow from the oscillating tidal signal.
+ * 
+ * Reference: Savenije (2005), Audit recommendation
+ * 
+ * @param b Branch to update
+ * @param dt Time step [s]
+ */
+static void update_residual_velocity(Branch *b, double dt) {
+    if (!b || !b->u_residual || !b->velocity) return;
+    
+    int M = b->M;
+    
+    /* Filter time constant: ~2 tidal cycles to be safe
+     * M2 tidal period = 12.42 hours, so 2 cycles = 24.84 hours */
+    double T_filter = 24.84 * 3600.0;  /* [s] */
+    double alpha = dt / T_filter;
+    
+    /* Clamp alpha to prevent instability */
+    if (alpha > 1.0) alpha = 1.0;
+    if (alpha < 0.0001) alpha = 0.0001;  /* Minimum for numerical progress */
+    
+    /* Store filter coefficient for diagnostics */
+    b->residual_alpha = alpha;
+    
+    /* Apply exponential moving average to all velocity points */
+    for (int i = 0; i <= M + 1; ++i) {
+        /* u_residual(t+dt) = (1 - alpha) * u_residual(t) + alpha * u(t) */
+        b->u_residual[i] = (1.0 - alpha) * b->u_residual[i] + alpha * b->velocity[i];
+    }
+}
+
+/* --------------------------------------------------------------------------
  * Van den Burgh Dispersion Coefficient
  * -------------------------------------------------------------------------- */
 
@@ -266,24 +241,62 @@ static void set_junction_ghost_cells(double *arr, int ghost_a, int ghost_b, doub
  * from local geometry (used for upstream branches at junctions).
  * 
  * @param branch Branch to compute dispersion for
- * @param Q_total Total upstream discharge [m³/s]
+ * @param Q_total Total upstream discharge [m³/s] (fallback, may be tidal)
  * @param D0_override Override D0 value (set to -1 to compute from geometry)
+ * @param net_Q_river Network reference discharge [m³/s] for Q estimation
  */
-static void ComputeDispersionCoefficient_Internal(Branch *branch, double Q_total, double D0_override) {
+static void ComputeDispersionCoefficient_Internal(Branch *branch, double Q_total, 
+                                                   double D0_override, double net_Q_river) {
     if (!branch || branch->M <= 0) return;
     
     int M = branch->M;
     double dx = branch->dx;
     double g = CGEM_GRAVITY;
     
-    /* Reference values at mouth (i=0) */
-    double H0 = branch->depth[1];        /* Depth at mouth */
-    double B0 = branch->width[1];        /* Width at mouth */
-    double LC = branch->lc_convergence;  /* Convergence length */
+    /* Reference values at mouth (i=1, downstream) */
+    double H0 = branch->depth[1];        /* Depth at mouth [m] */
+    double B0 = branch->width[1];        /* Width at mouth [m] */
+    double LC = branch->lc_convergence;  /* Convergence length [m] */
     
     if (H0 < CGEM_MIN_DEPTH) H0 = CGEM_MIN_DEPTH;
     if (B0 < CGEM_MIN_WIDTH) B0 = CGEM_MIN_WIDTH;
     if (LC < 1000.0) LC = 1e9;  /* Very large for prismatic */
+    
+    /* Cross-sectional area at mouth */
+    double A0 = H0 * B0;
+    if (A0 < 100.0) A0 = 100.0;  /* Minimum area */
+    
+    /* =====================================================================
+     * SAVENIJE VAN DEN BURGH DISPERSION (Savenije 2005, 2012)
+     * 
+     * The CORRECT Savenije formula for dispersion decay includes BOTH
+     * the geometry (convergence) AND the river discharge (Q):
+     * 
+     *   D(x)/D0 = 1 - β * (exp(x/a) - 1)     [Eq. 9.13 in Savenije 2005]
+     * 
+     * where:
+     *   β = (K * a * Q) / (A0 * D0)           [Eq. 9.14]
+     *   K = Van den Burgh coefficient (0.3-0.8, typically ~0.5)
+     *   a = convergence length [m]
+     *   Q = freshwater discharge [m³/s]
+     *   A0 = cross-sectional area at mouth [m²]
+     *   D0 = dispersion at mouth [m²/s]
+     * 
+     * The salt intrusion limit is where D(x) → 0:
+     *   x_max = a * ln(1 + 1/β)
+     * 
+     * PHYSICAL INTERPRETATION:
+     * - Higher Q → higher β → FASTER dispersion decay → SHORTER intrusion
+     * - Higher K → higher β → FASTER dispersion decay → SHORTER intrusion
+     * - Higher D0 → lower β → SLOWER decay → LONGER intrusion
+     * 
+     * This is the FUNDAMENTAL difference from simple exponential decay!
+     * The previous code: D(x) = D0 * exp(-K*x/a) ignored Q entirely,
+     * causing unrealistic salt intrusion regardless of river discharge.
+     * 
+     * Reference: Savenije (2005) "Salinity and Tides in Alluvial Estuaries"
+     *            Nguyen et al. (2008) Mekong Delta application
+     * ===================================================================== */
     
     double D0;
     
@@ -291,155 +304,211 @@ static void ComputeDispersionCoefficient_Internal(Branch *branch, double Q_total
         /* Use junction-derived D0 for continuity */
         D0 = D0_override;
     } else {
-        /* Dispersion at mouth using Savenije (2005, 2012) formulation
+        /* =================================================================
+         * D0 at mouth: Using conservative estimate
          * 
-         * From Savenije (2005) Table 9.2, typical D0 values for estuaries:
-         * - Thames: 100-400 m²/s
-         * - Scheldt: 50-200 m²/s  
-         * - Mekong: 150-400 m²/s (Nguyen et al., 2008)
+         * Savenije (2005) provides empirical relation:
+         *   D0 ≈ 50-200 m²/s for large tropical estuaries
          * 
-         * Using calibrated empirical relationship based on Canter-Cremers number:
-         *   D0 = k * sqrt(N * g) * H^1.5
+         * Fischer (1979): D0 = α * U_tidal * B
+         * But this often overestimates for stratified systems.
          * 
-         * LITERATURE-BASED CALIBRATION:
+         * For Mekong (Nguyen 2008): D0 ~ 100-200 m²/s at mouth
          * 
-         * The Canter-Cremers number N relates tidal mixing to geometry:
-         *   N = π * Q_f / (H0 * B0)
-         * 
-         * For the Mekong Delta (Nguyen et al., 2008):
-         * - Q_f ~ 3000-3500 m³/s (dry season)
-         * - H0 ~ 12-15 m
-         * - B0 ~ 2000-3000 m
-         * - Observed D0 ~ 200-400 m²/s
-         * 
-         * Empirical coefficient k calibration:
-         * - k = 8-12: Causes D0 ~ 500-800 m²/s → excessive dispersion
-         * - k = 4-6:  Gives D0 ~ 200-400 m²/s → matches observations
-         * 
-         * Using k = 5.0 to achieve target D0 ~ 300 m²/s
-         * 
-         * Reference: Savenije (2005) "Salinity and Tides in Alluvial Estuaries"
-         *            Nguyen et al. (2008) Mekong salt intrusion study
-         */
-        /* Canter-Cremers number N = (Pi * Q) / (H0 * B0)
-         * This is an estuary shape parameter, NOT scaled by vdb_coef.
-         * vdb_coef (K) controls dispersion DECAY, not mouth dispersion.
-         */
-        double N = CGEM_PI * fabs(Q_total) / (H0 * B0);
+         * We use a CONSERVATIVE estimate based on mixing_alpha:
+         *   D0 = α * sqrt(g*H) * tidal_amp / H * B
+         * but CAPPED at physically realistic values.
+         * ================================================================= */
         
-        /* Savenije (2005) Canter-Cremers formulation:
-         *   D0 = k * sqrt(N * g) * H0^1.5
+        /* Tidal velocity scale */
+        double tidal_amp = 1.5;  /* Typical Mekong tidal amplitude [m] */
+        double U_tidal = sqrt(g * H0) * (tidal_amp / H0);
+        
+        /* Use calibrated mixing efficiency from topology.csv */
+        double alpha = branch->mixing_alpha;
+        if (alpha <= 0) alpha = 0.15;  /* Conservative default */
+        
+        /* Fischer formula */
+        D0 = alpha * U_tidal * B0;
+        
+        /* =====================================================================
+         * D0 BOUNDS: PHYSICALLY REALISTIC VALUES
          * 
-         * SCIENTIFIC BASIS:
-         * The empirical coefficient k depends on estuary type:
-         * - k = 14-26: Classic shallow estuaries (Savenije, 2005)
-         * - k = 6-10:  Deep alluvial estuaries (H > 10m)
-         * - k = 4-6:   Large tropical deltas (Mekong, Ganges)
+         * Literature values for tidally-averaged dispersion (Savenije 2005):
+         * - D0 ~ 50-150 m²/s for well-mixed tropical estuaries
+         * - D0 ~ 100 m²/s typical for Mekong (Nguyen 2008)
+         * - D0 ~ 30-80 m²/s for partially mixed estuaries
          * 
-         * For MEKONG distributaries (H = 11-15m):
-         * - Target D0 = 200-400 m²/s at mouth (from Nguyen et al., 2008)
-         * - Using k = 5.0 to achieve D0 ~ 250-350 m²/s
-         * - This allows proper gradient formation within branch length
-         * 
-         * CALIBRATION NOTE (2024-12):
-         * Reduced from k=8 to k=5 based on literature values.
-         * Higher D0 causes dispersion to dominate over advection, creating
-         * nearly constant salinity until hitting the junction boundary.
-         * 
-         * Reference: Savenije (2005) Table 9.2, Nguyen et al. (2008)
-         */
-        D0 = 5.0 * sqrt(N * g) * pow(H0, 1.5);
+         * The cap should be 150 m²/s (not 10 m²/s which was diagnostic).
+         * Too low D0 → salt can't penetrate during flood → unrealistic
+         * Too high D0 → salt spreads too far → plateau profile
+         * =====================================================================*/
+        if (D0 > 150.0) D0 = 150.0;  /* Upper bound: avoid over-dispersion */
     }
     
     /*
      * Only enforce the tidal-mixing floor on branches that touch the open
-     * ocean. Interior tributaries should keep their low junction-derived D0 so
-     * the freshwater cap is not eroded by excessive dispersion.
+     * ocean. Interior tributaries should keep their low junction-derived D0.
      */
     int has_ocean_boundary = (branch->down_node_type == NODE_LEVEL_BC) ||
                              (branch->up_node_type == NODE_LEVEL_BC);
 
-    if (D0 < 0.0) D0 = 0.0;           /* Physical lower bound */
-    if (has_ocean_boundary && D0 < 30.0) D0 = 30.0;   /* Minimum tidal mixing */
-    if (D0 > 1000.0) D0 = 1000.0;     /* Cap at realistic max */
+    /* Realistic bounds for tropical estuaries */
+    if (D0 < 0.0) D0 = 0.0;
+    if (has_ocean_boundary && D0 < 30.0) D0 = 30.0;   /* Minimum tidal mixing at mouth */
+    /* Note: D0 already capped at 150 m²/s above */
 
     branch->D0 = D0;
     branch->dispersion[0] = D0;
     branch->dispersion[1] = D0;
     
-    /* Calculate dispersion along the branch using Savenije (2012) formulation
+    /* =====================================================================
+     * PROPER VAN DEN BURGH DISPERSION PROFILE
      * 
-     * SAVENIJE EXPONENTIAL DECAY MODEL:
-     * The key insight from Savenije (2005, 2012) is that in a well-mixed 
-     * alluvial estuary, both salinity AND dispersion decay exponentially
-     * from the mouth upstream:
-     * 
-     *   D(x) = D0 * exp(-x / a)
-     *   S(x) = S0 * exp(-x / L)
-     * 
-     * where:
-     *   a = convergence length (width decay scale)
-     *   L = salt intrusion length (depends on a, Q, H)
-     *   D0 = dispersion at mouth
-     *   x = distance from MOUTH (not from upstream!)
-     * 
-     * The Van den Burgh K coefficient relates D decay to S decay:
-     *   D(x) = D0 * exp(-K * x / a)
-     * 
-     * CRITICAL: x is measured from the OCEAN BOUNDARY (mouth), not upstream.
-     * In our grid: x_from_mouth = branch->length - (i * dx)
-     * 
-     * Reference: Savenije (2005) Chapter 4, Eq. 4.22-4.25
-     */
-    double a = branch->lc_convergence;  /* Convergence length [m] */
-    if (a < 1000.0 || a > 1e9) {
-        /* No convergence (prismatic) or invalid - use branch length */
-        a = branch->length_m;
-    }
+     * Use Q_total (passed in, already clamped to river discharge) to compute
+     * the β parameter and apply the full Savenije formula.
+     * ===================================================================== */
     
+    /* Van den Burgh K coefficient (should be ~0.5 for analytical solution) */
     double K = branch->vdb_coef;
-    if (K <= 0.0) {
-        K = 0.35;  /* Default to alluvial estuary mid-range (Savenije, 2005) */
+    
+    /* For the Savenije analytical formula, K should be 0.3-0.8.
+     * The topology.csv may have larger K values intended for numerical decay.
+     * We cap K at 1.0 for the physical β calculation. */
+    double K_physical = CGEM_CLAMP(K, 0.2, 1.0);
+    
+    /* =========================================================================
+     * CRITICAL FIX (Audit Issue #1): Use RESIDUAL velocity for Q calculation
+     * 
+     * The Van den Burgh equation is derived for STEADY-STATE (tidally averaged)
+     * conditions. Using instantaneous Q (which oscillates ±10,000 m³/s) causes:
+     *   1. Dispersion coefficient oscillating wildly within tidal cycle
+     *   2. Destruction of salt wedge physics
+     *   3. Need for unphysical calibration parameters (K > 1.0)
+     * 
+     * Solution: Use low-pass filtered (residual) velocity to calculate Q.
+     * This represents the net freshwater discharge Q_f (~2,000 m³/s for Mekong).
+     * 
+     * Reference: Savenije (2005), Nguyen et al. (2008)
+     * =========================================================================*/
+    
+    /* =========================================================================
+     * FRESHWATER DISCHARGE ESTIMATION FOR DISPERSION
+     * 
+     * The Van den Burgh equation requires FRESHWATER (residual) discharge Q_f,
+     * NOT instantaneous tidal discharge. The key insight is:
+     * 
+     *   Q_f = Net river discharge through this branch
+     * 
+     * For a delta distributary, Q_f is the fraction of total river discharge
+     * flowing through this branch. We estimate this as:
+     * 
+     *   Q_branch = Q_river_total * (A_branch / A_total)
+     * 
+     * where A is cross-sectional area at the upstream end.
+     * 
+     * CRITICAL: During warmup, u_residual is not yet established. We MUST use
+     * a physics-based estimate, not a tiny fallback value, otherwise:
+     *   - β → 0 (because Q → 0)
+     *   - x_max → ∞ (salt penetrates entire branch)
+     *   - Salt spreads everywhere before flushing can occur
+     * 
+     * Reference: Savenije (2005) Ch. 9, Nguyen et al. (2008)
+     * =========================================================================*/
+    double Q;
+    
+    /* First, try to use established residual velocity */
+    double Q_residual = 0.0;
+    if (branch->u_residual && branch->totalArea) {
+        double U_res = branch->u_residual[branch->M];
+        double A_up = branch->totalArea[branch->M];
+        Q_residual = fabs(U_res * A_up);
     }
-    /* Literature range: K ≈0.2–2.0 for convergent estuaries (Savenije, 2012; Gisen et al., 2015) */
-    K = CGEM_CLAMP(K, 0.1, 2.0);
     
-    /* Compute dispersion decay scale: L_D = a / K
-     * This is the e-folding length for dispersion decay.
-     * Lower K = longer L_D = slower decay = longer salt intrusion
-     */
-    double L_D = a / K;
-    L_D = CGEM_CLAMP(L_D, 5000.0, 500000.0);  /* 5-500 km */
+    /* Check if residual is "established" (meaningful value > 10% of river Q) */
+    double Q_river_estimate = (net_Q_river > 0) ? net_Q_river : 3300.0;  /* Fallback */
+    int residual_established = (Q_residual > Q_river_estimate * 0.05);
     
-    for (int i = 2; i <= M + 1; ++i) {
-        /* Distance from MOUTH (ocean boundary) */
-        double x_from_mouth;
+    if (residual_established) {
+        /* Use the filtered residual discharge */
+        Q = Q_residual;
+    } else {
+        /* =====================================================================
+         * WARMUP PHASE: Estimate Q from network discharge and branch geometry
+         * 
+         * For Mekong Delta with 9 branches:
+         *   - Tien receives 60% (~1980 m³/s), split among Tien_Main, Co_Chien, My_Tho
+         *   - Hau receives 40% (~1320 m³/s), split among Hau_Main, Ham_Luong, Hau_River
+         * 
+         * We use cross-sectional area ratio as a proxy for discharge fraction:
+         *   Q_branch ≈ Q_river * (A_branch / ΣA_all_branches)
+         * 
+         * For simplicity, assume each main distributary gets ~1/3 of its parent.
+         * This gives Q ~ 400-700 m³/s per outlet, which is physically realistic.
+         * =====================================================================*/
         
-        if (branch->down_node_type == NODE_LEVEL_BC) {
-            /* Ocean at downstream (normal estuary orientation) */
-            /* Index 1 is at mouth, index M is upstream */
-            x_from_mouth = (i - 1) * dx;
-        } else if (branch->up_node_type == NODE_LEVEL_BC) {
-            /* Ocean at upstream (reversed) */
-            x_from_mouth = (M - i) * dx;
+        /* Get upstream cross-sectional area */
+        double A_up = (branch->totalArea && branch->M > 0) ? 
+                      branch->totalArea[branch->M] : branch->width_up_m * branch->depth_m;
+        if (A_up < 100.0) A_up = 100.0;
+        
+        /* Reference area for largest Mekong distributary (~3000m x 15m) */
+        double A_reference = 45000.0;
+        
+        /* Estimate branch's share of total discharge */
+        double area_fraction = A_up / A_reference;
+        if (area_fraction > 1.0) area_fraction = 1.0;
+        if (area_fraction < 0.1) area_fraction = 0.1;
+        
+        Q = Q_river_estimate * area_fraction;
+        
+        /* Clamp to realistic range for Mekong distributaries */
+        /* Nguyen (2008): Individual distributary Q ~ 200-1500 m³/s in dry season */
+        if (Q < 100.0) Q = 100.0;
+        if (Q > 2000.0) Q = 2000.0;
+    }
+    
+    /* β = (K * a * Q) / (A0 * D0) */
+    double beta = (K_physical * LC * Q) / (A0 * D0);
+    
+    /* Calculate salt intrusion limit for diagnostics */
+    double x_max = 0.0;
+    if (beta > 0.01) {
+        x_max = LC * log(1.0 + 1.0/beta);
+    } else {
+        x_max = branch->length_m;  /* Very low Q → salt everywhere */
+    }
+    
+    /* Diagnostic (only print once per branch initialization) */
+    static int init_printed[100] = {0};  /* Track which branches printed */
+    if (branch->id >= 0 && branch->id < 100 && !init_printed[branch->id]) {
+        printf("  Dispersion %s: D0=%.0f m²/s, K=%.2f, β=%.3f, x_max=%.1f km (Q=%.0f m³/s)\n",
+               branch->name, D0, K_physical, beta, x_max/1000.0, Q);
+        init_printed[branch->id] = 1;
+    }
+    
+    /* Calculate dispersion at each grid point using Savenije formula */
+    for (int i = 2; i <= M + 1; ++i) {
+        /* Distance from mouth [m] */
+        double x = (i - 1) * dx;
+        
+        /* Geometric factor: exp(x/a) - 1 */
+        double geom_factor = exp(x / LC) - 1.0;
+        
+        /* Dispersion ratio: D(x)/D0 = 1 - β * geom_factor */
+        double D_ratio = 1.0 - beta * geom_factor;
+        
+        double D_curr;
+        if (D_ratio <= 0.01) {
+            /* Beyond intrusion limit: use minimum dispersion (molecular diffusion only) */
+            D_curr = 1.0;  /* Very low floor for freshwater zone */
         } else {
-            /* Interior branch - use distance from downstream end */
-            x_from_mouth = (i - 1) * dx;
+            D_curr = D0 * D_ratio;
         }
         
-        /* Savenije exponential decay: D(x) = D0 * exp(-x / L_D) */
-        double decay_factor = exp(-x_from_mouth / L_D);
-        double D_curr = D0 * decay_factor;
-        
-        /* Ensure realistic dispersion bounds
-         * 
-         * Physical basis (Fischer et al., 1979; Savenije, 2012):
-         * - Tidal mixing at mouth: D0 ~ 100-1000 m²/s
-         * - River turbulent diffusion upstream: ~ 1-10 m²/s
-         * - The exponential decay ensures gradual transition
-         */
-        if (D_curr < 1.0) D_curr = 1.0;          /* Minimum river turbulence [m²/s] */
-        if (D_curr > 10000.0) D_curr = 10000.0;  /* Cap at reasonable max */
+        /* Ensure realistic dispersion bounds */
+        if (D_curr < 1.0) D_curr = 1.0;          /* Minimum molecular diffusion */
+        if (D_curr > 100.0) D_curr = 100.0;      /* Cap at realistic max */
         
         branch->dispersion[i] = D_curr;
     }
@@ -450,7 +519,7 @@ static void ComputeDispersionCoefficient_Internal(Branch *branch, double Q_total
  * (for backward compatibility - always computes D0 from geometry)
  */
 void ComputeDispersionCoefficient(Branch *branch, double Q_total) {
-    ComputeDispersionCoefficient_Internal(branch, Q_total, -1.0);
+    ComputeDispersionCoefficient_Internal(branch, Q_total, -1.0, 0.0);
 }
 
 /* --------------------------------------------------------------------------
@@ -491,6 +560,7 @@ static int species_is_transported(int species) {
  */
 static void apply_open_boundaries(Branch *b, int species, double c_down, 
                                    double c_up, double dt) {
+    (void)dt;  /* Unused for now */
     int M = b->M;
     double *conc = b->conc[species];
     BranchBoundaryConfig cfg;
@@ -502,9 +572,9 @@ static void apply_open_boundaries(Branch *b, int species, double c_down,
         set_junction_ghost_cells(conc, cfg.down_ghost_primary,
                                  cfg.down_ghost_secondary, c_down, M + 1);
     } else {
-        /* Ocean or other BC: full Dirichlet */
-        set_dirichlet_value(conc, cfg.down_cell, cfg.down_ghost_primary,
-                            cfg.down_ghost_secondary, c_down, M + 1);
+        /* Ocean or other BC: set ghost cells for boundary stencil */
+        set_junction_ghost_cells(conc, cfg.down_ghost_primary,
+                                 cfg.down_ghost_secondary, c_down, M + 1);
     }
 
     /* Handle upstream boundary (index M-1, connects to node_up) */
@@ -513,9 +583,9 @@ static void apply_open_boundaries(Branch *b, int species, double c_down,
         set_junction_ghost_cells(conc, cfg.up_ghost_primary,
                                  cfg.up_ghost_secondary, c_up, M + 1);
     } else {
-        /* Discharge or other BC: full Dirichlet */
-        set_dirichlet_value(conc, cfg.up_cell, cfg.up_ghost_primary,
-                            cfg.up_ghost_secondary, c_up, M + 1);
+        /* Discharge or other BC: set ghost cells for boundary stencil */
+        set_junction_ghost_cells(conc, cfg.up_ghost_primary,
+                                 cfg.up_ghost_secondary, c_up, M + 1);
     }
 }
 
@@ -563,8 +633,39 @@ static void calculate_advection(Branch *b, int species, double dt) {
     memset(g_adv_flux, 0, sizeof(g_adv_flux));
     double *flux = g_adv_flux;
     
+    /* =========================================================================
+     * VELOCITY SIGN CONVENTION AND FLUX DEFINITION:
+     * 
+     * VELOCITY:
+     *   - POSITIVE velocity = flow from UPSTREAM (M) toward DOWNSTREAM (1)
+     *                       = flow toward LOWER indices (leftward)
+     *                       = EBB tide / river discharge direction
+     *   - NEGATIVE velocity = flow toward HIGHER indices (rightward)  
+     *                       = FLOOD tide direction
+     * 
+     * FLUX CONVENTION (Standard Finite Volume):
+     *   - Flux F represents mass flow rate in POSITIVE index direction (rightward)
+     *   - F > 0 means mass flowing toward higher indices
+     *   - F < 0 means mass flowing toward lower indices
+     * 
+     * CONVERSION:
+     *   - Since velocity > 0 means flow LEFTWARD, we need F = -vx * A * C
+     *   - This makes F < 0 when vx > 0 (flow is leftward)
+     * 
+     * UPDATE FORMULA:
+     *   d(V*C)/dt = -(F_right - F_left) = -(F[j+1] - F[j-1])
+     *   
+     *   With our convention, if vx > 0 everywhere (ebb):
+     *   - F[j+1] < 0 (flow through right interface going left)
+     *   - F[j-1] < 0 (flow through left interface going left)
+     *   - |F[j-1]| < |F[j+1]| if upstream has lower concentration
+     *   - (F[j+1] - F[j-1]) < 0 → concentration decreases (correct for flushing)
+     * 
+     * Reference: Hirsch (2007), Toro (2009)
+     * =========================================================================*/
+    
     for (int j = 1; j <= M - 2; j += 2) {
-        int iface = j + 1;  /* Interface between j and j+2 */
+        int iface = j + 1;  /* Interface between cells j and j+2 */
         double vx = b->velocity[iface];
         double cfl = fabs(vx) * dt / (2.0 * dx);
         
@@ -574,62 +675,86 @@ static void calculate_advection(Branch *b, int species, double dt) {
         double f, rg, philen, conc_face;
         
         if (vx > 0.0) {
-            /* Flow to the right (downstream to upstream in our convention)
-             * Upwind cell is j, need gradient from j-2 to j */
-            f = cold[j+2] - cold[j];
-            
-            if (fabs(f) > 1e-35) {
-                if (j >= 3) {
-                    /* Ratio of consecutive gradients */
-                    rg = (cold[j] - cold[j-2]) / f;
-                    /* Use Superbee limiter */
-                    philen = superbee_limiter(rg);
-                } else {
-                    /* At boundary: use first-order upwind (no reconstruction) */
-                    philen = 0.0;
-                }
-            } else {
-                philen = 0.0;
-            }
-            
-            /* Reconstructed face value - bounded by local min/max */
-            conc_face = cold[j] + 0.5 * (1.0 - cfl) * philen * f;
-            /* Ensure face value is bounded (TVD property) */
-            double cmin = CGEM_MIN(cold[j], cold[j+2]);
-            double cmax = CGEM_MAX(cold[j], cold[j+2]);
-            conc_face = CGEM_CLAMP(conc_face, cmin, cmax);
-            flux[iface] = vx * b->totalArea[iface] * conc_face;
-            
-        } else if (vx < 0.0) {
-            /* Flow to the left (upstream to downstream)
-             * Upwind cell is j+2, need gradient from j+2 to j+4 */
-            f = cold[j] - cold[j+2];
+            /* Positive velocity: flow toward lower indices (leftward)
+             * Upwind cell is j+2 (higher index) */
+            f = cold[j] - cold[j+2];  /* Gradient in flow direction */
             
             if (fabs(f) > 1e-35) {
                 if (j + 4 <= M) {
                     rg = (cold[j+2] - cold[j+4]) / f;
-                    /* Use Superbee limiter */
                     philen = superbee_limiter(rg);
                 } else {
-                    /* At boundary: use first-order upwind */
                     philen = 0.0;
                 }
             } else {
                 philen = 0.0;
             }
             
-            /* Reconstructed face value - bounded by local min/max */
+            /* Reconstructed face value from upwind cell j+2 */
             conc_face = cold[j+2] + 0.5 * (1.0 - cfl) * philen * f;
-            /* Ensure face value is bounded (TVD property) */
             double cmin = CGEM_MIN(cold[j], cold[j+2]);
             double cmax = CGEM_MAX(cold[j], cold[j+2]);
             conc_face = CGEM_CLAMP(conc_face, cmin, cmax);
-            flux[iface] = vx * b->totalArea[iface] * conc_face;
+            
+            /* FLUX = -vx * A * C (negative for leftward flow) */
+            flux[iface] = -vx * b->totalArea[iface] * conc_face;
+            
+        } else if (vx < 0.0) {
+            /* Negative velocity: flow toward higher indices (rightward)
+             * Upwind cell is j (lower index) */
+            f = cold[j+2] - cold[j];  /* Gradient in flow direction */
+            
+            if (fabs(f) > 1e-35) {
+                if (j >= 3) {
+                    rg = (cold[j] - cold[j-2]) / f;
+                    philen = superbee_limiter(rg);
+                } else {
+                    philen = 0.0;
+                }
+            } else {
+                philen = 0.0;
+            }
+            
+            /* Reconstructed face value from upwind cell j */
+            conc_face = cold[j] + 0.5 * (1.0 - cfl) * philen * f;
+            double cmin = CGEM_MIN(cold[j], cold[j+2]);
+            double cmax = CGEM_MAX(cold[j], cold[j+2]);
+            conc_face = CGEM_CLAMP(conc_face, cmin, cmax);
+            
+            /* FLUX = -vx * A * C (positive for rightward flow since vx < 0) */
+            flux[iface] = -vx * b->totalArea[iface] * conc_face;
         }
         /* If vx == 0, flux remains 0 */
     }
     
-    /* Update concentrations using flux divergence */
+    /* Update concentrations using flux divergence 
+     * 
+     * d(V*C)/dt = -(F_right - F_left) = -(Flux[j+1] - Flux[j-1])
+     * 
+     * With positive flux = rightward flow:
+     * - During ebb (vx > 0): Flux < 0 (leftward), higher upstream conc
+     *   → (F[j+1] - F[j-1]) < 0 → concentration increases... wait that's wrong
+     * 
+     * Let me reconsider: with flux = -vx * A * C:
+     * - vx > 0, C_upwind from j+2: flux = -vx * A * C[j+2] < 0
+     * - At interface j-1: flux[j-1] = -vx * A * C[j] < 0
+     * - If C[j+2] > C[j]: |flux[j+1]| > |flux[j-1]| → flux[j+1] < flux[j-1]
+     * - (flux[j+1] - flux[j-1]) < 0 → C increases? No, that's wrong for flushing!
+     * 
+     * The issue is the negative sign. During ebb, MORE salt enters from upstream
+     * than leaves to downstream. This should INCREASE salt in the cell, which is
+     * wrong - ebb should FLUSH salt!
+     * 
+     * Actually, the problem is that with vx > 0, the upwind cell is j+2 (upstream).
+     * If salt is being flushed (upstream is fresher), then C[j+2] < C[j].
+     * - flux[j+1] = -vx * A * C[j+2] < 0 (but magnitude is small)
+     * - flux[j-1] = -vx * A * C[j] < 0 (magnitude is larger)
+     * - flux[j+1] > flux[j-1] (both negative, j+1 is less negative)
+     * - (flux[j+1] - flux[j-1]) > 0 → concentration DECREASES ✓
+     * 
+     * This is correct! During flushing, fresh water from upstream displaces 
+     * salty water in the cell, pushing it downstream.
+     */
     for (int j = 3; j <= M - 2; j += 2) {
         double AA_old = b->totalArea_old2[j];
         double AA_new = b->totalArea[j];
@@ -639,11 +764,114 @@ static void calculate_advection(Branch *b, int species, double dt) {
         
         conc[j] = rat * cold[j] - rat1 * (flux[j+1] - flux[j-1]);
     }
+    
+    /* =========================================================================
+     * BOUNDARY CELL UPDATE (j=1 for ocean, j=M-1 for river)
+     * 
+     * With flux = -vx * A * C (positive = rightward flow):
+     * 
+     * During EBB (vx > 0):
+     *   - Flow is leftward (toward ocean)
+     *   - flux[2] = -vx * A * C_upwind < 0 (leftward flow)
+     *   - At ocean (interface 0): water exits to ocean
+     * 
+     * For cell 1 during ebb:
+     *   - Mass flux from interior (interface 2): flux[2] < 0 (leftward)
+     *   - Mass flux to ocean (interface 0): F_ocean = -vx * A * C[1] < 0
+     *   - Net change: d(V*C)/dt = -(F[2] - F[0]) = -(flux[2] - F_ocean)
+     * 
+     * Since both are negative during ebb, the cell loses mass overall if
+     * more leaves to ocean than enters from interior.
+     * 
+     * Reference: Fischer et al. (1979), Savenije (2012)
+     * =========================================================================*/
+    
+    /* Downstream boundary (j=1) - ocean boundary for estuarine branches */
+    if (b->down_node_type == NODE_LEVEL_BC) {
+        double vx_boundary = b->velocity[2];
+        
+        if (vx_boundary > 0.002) {
+            /* EBB TIDE (vx > 0): Flushing */
+            double AA_old = b->totalArea_old2[1];
+            double AA_new = b->totalArea[1];
+            double rat = (AA_new > 0) ? AA_old / AA_new : 1.0;
+            double rat1 = (AA_new > 0) ? dt / (2.0 * dx * AA_new) : 0.0;
+            
+            /* Flux from interior to cell 1 at interface 2 (from advection loop) */
+            /* With flux = -vx * A * C, this is negative during ebb */
+            double F_interior = flux[2];
+            
+            /* Flux to ocean at interface 0: F = -vx * A * C[1] < 0 */
+            double vx_ocean = b->velocity[0];
+            if (vx_ocean < 0.001) vx_ocean = vx_boundary;
+            double F_ocean = -vx_ocean * b->totalArea[0] * cold[1];
+            
+            /* Update: d(V*C)/dt = -(F_right - F_left) = -(F_interior - F_ocean) */
+            conc[1] = rat * cold[1] - rat1 * (F_interior - F_ocean);
+            
+            if (conc[1] < 0.0) conc[1] = 0.0;
+        }
+        else if (vx_boundary < -0.002) {
+            /* FLOOD TIDE (vx < 0): Ocean water enters */
+            double AA_old = b->totalArea_old2[1];
+            double AA_new = b->totalArea[1];
+            double rat = (AA_new > 0) ? AA_old / AA_new : 1.0;
+            double rat1 = (AA_new > 0) ? dt / (2.0 * dx * AA_new) : 0.0;
+            
+            /* During flood, vx < 0 means flow is rightward (into estuary) */
+            /* Flux at interface 2: F = -vx * A * C > 0 (rightward, carrying cell 1's water to cell 3) */
+            double F_interior = flux[2];
+            
+            /* Flux from ocean at interface 0: F = -vx * A * C_ocean > 0 (ocean water entering) */
+            double vx_ocean = fabs(b->velocity[0]);
+            if (vx_ocean < 0.001) vx_ocean = fabs(vx_boundary);
+            double c_ocean = (b->conc_down) ? b->conc_down[species] : cold[0];
+            double F_ocean = vx_ocean * b->totalArea[0] * c_ocean;
+            
+            /* Update: d(V*C)/dt = -(F_right - F_left) = -(F_interior - F_ocean) */
+            conc[1] = rat * cold[1] - rat1 * (F_interior - F_ocean);
+            
+            if (conc[1] < 0.0) conc[1] = 0.0;
+            if (conc[1] > c_ocean) conc[1] = c_ocean;
+        }
+        /* If |vx| < threshold (slack tide), leave cell unchanged */
+    }
+    
+    /* Upstream boundary (j=M-1) */
+    if (b->up_node_type == NODE_DISCHARGE_BC) {
+        double vx_boundary = b->velocity[M-2];
+        if (vx_boundary > 0.002) {
+            /* Normal ebb flow - river water pushes salt downstream */
+            double AA_old = b->totalArea_old2[M-1];
+            double AA_new = b->totalArea[M-1];
+            double rat = (AA_new > 0) ? AA_old / AA_new : 1.0;
+            double rat1 = (AA_new > 0) ? dt / (2.0 * dx * AA_new) : 0.0;
+            
+            /* Flux at interface M-2 (between M-3 and M-1) */
+            double F_interior = flux[M-2];
+            
+            /* Flux from river: F = -vx * A * C_river < 0 during ebb */
+            double c_river = (b->conc_up) ? b->conc_up[species] : 0.1;
+            double F_river = -vx_boundary * b->totalArea[M] * c_river;
+            
+            /* Update cell M-1: -(F_interior - F_river) */
+            conc[M-1] = rat * cold[M-1] - rat1 * (F_interior - F_river);
+            if (conc[M-1] < 0.0) conc[M-1] = 0.0;
+        }
+    }
 }
-
 /* --------------------------------------------------------------------------
  * Crank-Nicolson Dispersion Scheme
  * -------------------------------------------------------------------------- */
+
+/* DIAGNOSTIC FLAG: Set to 1 to completely disable dispersion for testing 
+ * 
+ * AUDIT FIX (December 2025): Re-enabled dispersion. The salinity plateau
+ * was caused by advection boundary handling, not dispersion. With proper
+ * flow-dependent BC (Dirichlet on inflow, Neumann on outflow), dispersion
+ * is necessary for realistic tidal mixing.
+ */
+#define DISABLE_DISPERSION_FOR_TEST 0
 
 /**
  * Calculate dispersive transport using Crank-Nicolson implicit scheme
@@ -666,17 +894,19 @@ static void calculate_dispersion(Branch *b, int species, double dt,
     double dx = b->dx;
     double *conc = b->conc[species];
     
-    /* Determine if this is an ocean-connected branch with junction upstream
-     * This requires special treatment: Neumann BC at upstream instead of Dirichlet
-     * 
-     * Physical basis (Savenije 2012):
-     * For estuaries, the salinity profile should decay exponentially from ocean.
-     * At the upstream end (junction), forcing Dirichlet BC to junction concentration
-     * creates an artificial cliff. Using Neumann (zero-gradient) allows natural decay.
-     */
-    int use_neumann_upstream = (b->down_node_type == NODE_LEVEL_BC && 
-                                 b->up_node_type != NODE_LEVEL_BC &&
-                                 b->up_node_type != NODE_DISCHARGE_BC);
+#if DISABLE_DISPERSION_FOR_TEST
+    /* DIAGNOSTIC: Dispersion completely disabled - testing pure advection */
+    (void)dt; (void)c_down; (void)c_up; (void)dx;
+    /* Only set boundary ghost cells, no dispersion calculation */
+    if (b->down_node_type == NODE_LEVEL_BC) {
+        conc[0] = c_down;
+    }
+    if (b->up_node_type == NODE_DISCHARGE_BC) {
+        conc[M] = c_up;
+        conc[M+1] = c_up;
+    }
+    return;
+#endif
     
     /* Store old concentrations for flux calculation (all indices) */
     double cold[CGEM_MAX_BRANCH_CELLS + 4];
@@ -699,41 +929,91 @@ static void calculate_dispersion(Branch *b, int species, double dt,
     double d[CGEM_MAX_BRANCH_CELLS + 2];  /* Full RHS */
     
     /* =========================================================================
-     * DOWNSTREAM BOUNDARY (index 1)
-     * Always use Dirichlet BC - concentration fixed to ocean/junction value
-     * ========================================================================= */
-    a[1] = 0.0;
-    bb[1] = 1.0;
-    c[1] = 0.0;
-    d[1] = c_down;  /* Use downstream BC value */
+     * BOUNDARY-TYPE-DEPENDENT CONDITIONS FOR DISPERSION
+     * 
+     * Different boundary types require different treatment:
+     * 
+     * OCEAN (LEVEL_BC): Use FLOW-DEPENDENT BC
+     *   - During FLOOD (boundary higher than interior): Dirichlet BC - ocean salt enters
+     *   - During EBB (boundary lower than interior): Neumann BC - let interior advect out
+     *   
+     *   We use water level gradient rather than velocity as the indicator because:
+     *   1. Velocity may be positive even during flood due to river discharge
+     *   2. Water level gradient directly indicates the pressure gradient driving salt flux
+     *   
+     *   This is critical for proper tidal salinity dynamics. Pure Dirichlet BC
+     *   forces ocean salinity at all times, preventing the ebb tide from
+     *   flushing salt out, which causes a high-salinity plateau near the mouth.
+     * 
+     * JUNCTION: Use Neumann BC (zero gradient)
+     *   - Let the junction mixing algorithm handle concentrations
+     *   - Avoids double-counting of salt injection at internal nodes
+     * 
+     * RIVER (DISCHARGE_BC): Use Dirichlet BC with river concentration
+     *   - River provides freshwater during ebb/steady flow
+     *   - This is physically correct: river concentration is known/fixed
+     * 
+     * Reference: Fischer et al. (1979), Open boundary treatments
+     * =========================================================================*/
     
-    /* =========================================================================
-     * UPSTREAM BOUNDARY (index M-1)
-     * Use Dirichlet for river inlets, Neumann for ocean-connected branches
-     * ========================================================================= */
-    if (use_neumann_upstream) {
-        /* NEUMANN BC: Zero-gradient condition for ocean-connected branches
+    /* Downstream boundary */
+    if (b->down_node_type == NODE_LEVEL_BC) {
+        /* =====================================================================
+         * OCEAN BOUNDARY: ALWAYS USE DIRICHLET BC FOR DISPERSION
          * 
-         * Physical basis (Savenije 2012, Fischer et al. 1979):
-         * The steady-state salinity profile S(x) = S0 * exp(-x/L) should
-         * decay smoothly toward the upstream end. Using Neumann BC allows
-         * the exponential profile to extend naturally without artificial cliffs.
+         * Key insight from Savenije (2005) steady-state theory:
+         *   Q * S = D * A * dS/dx
          * 
-         * Implementation: Use a "soft" Neumann by setting the upstream cell
-         * to the interior extrapolation. This is more stable than modifying
-         * the tridiagonal system directly.
+         * At steady state, the advective flux OUT (Q*S) is balanced by the
+         * dispersive flux IN (D*A*dS/dx). This requires dispersion to ALWAYS
+         * transport salt from the high-concentration ocean into the estuary,
+         * regardless of flow direction.
+         * 
+         * Previous error: Using Neumann BC during ebb blocked dispersive flux,
+         * preventing salt from entering the estuary and causing unrealistically
+         * low salinity at the mouth.
+         * 
+         * The correct approach:
+         * - DISPERSION: Always Dirichlet (ocean concentration) - drives salt IN
+         * - ADVECTION: Flow-dependent - exports salt during ebb
+         * 
+         * This creates the physically correct balance between:
+         * - River flushing (advection, pushes salt out)
+         * - Tidal mixing (dispersion, brings salt in)
+         * 
+         * Reference: Savenije (2005), Fischer et al. (1979)
+         * =====================================================================*/
+        a[1] = 0.0;
+        bb[1] = 1.0;
+        c[1] = 0.0;
+        d[1] = c_down;  /* Always use ocean concentration for dispersion BC */
+    } else {
+        /* JUNCTION: Apply the mixed junction concentration
+         * CRITICAL FIX: Previously used Neumann BC which ignored junction mixing.
+         * This prevented freshwater from entering salt-filled branches.
+         * Now use Dirichlet BC with the junction-mixed concentration.
+         */
+        a[1] = 0.0;
+        bb[1] = 1.0;
+        c[1] = 0.0;
+        d[1] = c_down;  /* Apply junction-mixed concentration */
+    }
+    
+    /* Upstream boundary */
+    if (b->up_node_type == NODE_DISCHARGE_BC) {
+        /* RIVER: Dirichlet BC - river freshwater enters */
+        a[M-1] = 0.0;
+        bb[M-1] = 1.0;
+        c[M-1] = 0.0;
+        d[M-1] = c_up;
+    } else {
+        /* JUNCTION: Apply the mixed junction concentration
+         * CRITICAL FIX: Use Dirichlet BC so freshwater can enter from junction.
          */
         a[M-1] = 0.0;
         bb[M-1] = 1.0;
         c[M-1] = 0.0;
-        /* Use interior value as temporary - will be overridden after solve */
-        d[M-1] = (M >= 4) ? cold[M-3] : cold[1];
-    } else {
-        /* DIRICHLET BC: Fixed concentration for river inlets and interior branches */
-        a[M-1] = 0.0;
-        bb[M-1] = 1.0;
-        c[M-1] = 0.0;
-        d[M-1] = c_up;  /* Use upstream BC value */
+        d[M-1] = c_up;  /* Apply junction-mixed concentration */
     }
     
     /* Interior points */
@@ -780,16 +1060,6 @@ static void calculate_dispersion(Branch *b, int species, double dt,
     
     for (int j = M - 3; j >= 1; j -= 2) {
         conc[j] = conc[j] - gam[j+2] * conc[j+2];
-    }
-    
-    /* POST-PROCESSING: Enforce Neumann BC for ocean-connected branches
-     * 
-     * After the tridiagonal solve, override the upstream cell with an
-     * extrapolation from interior. This ensures smooth salinity decay.
-     */
-    if (use_neumann_upstream && M >= 4) {
-        /* Zero-gradient: C[M-1] = C[M-3] */
-        conc[M-1] = conc[M-3];
     }
     
     /* Calculate dispersive fluxes for diagnostics (matches Fortran) */
@@ -843,55 +1113,64 @@ int Transport_Branch_Network(Branch *branch, double dt, void *network_ptr) {
     
     int M = branch->M;
     
-    /* =======================================================================
-     * CRITICAL FIX: Use RESIDUAL DISCHARGE for Van den Burgh dispersion
-     * =======================================================================
-     * The Van den Burgh equation: L_d = D0 * A / (K * Q_f)
-     * 
-     * Q_f MUST be the RESIDUAL (freshwater) discharge, NOT instantaneous tidal Q.
-     * 
-     * Problem: At slack tide, instantaneous Q → 0, causing L_d → ∞
-     * This makes dispersion constant throughout the branch, allowing salt
-     * to "teleport" upstream during every slack tide (4x per day).
-     * 
-     * Solution: Use the low-pass filtered residual velocity (u_residual)
-     * which extracts the net river flow component (~25-hour averaging).
-     * 
-     * Reference: Savenije (2005, 2012) explicitly states Q must be residual.
-     * ======================================================================= */
+    /* =========================================================================
+     * RESIDUAL VELOCITY FILTER (Audit Fix Issue #1)
+     * Update low-pass filtered velocity BEFORE dispersion calculation.
+     * This extracts the tidal-mean residual flow needed for Van den Burgh.
+     * =========================================================================*/
+    update_residual_velocity(branch, dt);
     
-    /* Method 1: Use local residual discharge from filter */
-    double Q_residual = fabs(GetResidualDischarge(branch, M));
+    /* Compute dispersion coefficient profile */
+    /* For branches connected to junctions (not ocean), use flow-weighted D0 */
+    double Q_total;
+    double D0_override = -1.0;
     
-    /* Method 2: Fallback to network-wide Q_river if filter hasn't converged */
-    double net_Q_river = 100.0;  /* Safety default */
-    if (network_ptr) {
-        Network *net = (Network *)network_ptr;
-        if (net->Q_river > 10.0) {
-            net_Q_river = net->Q_river;
+    /* Determine which end connects to ocean vs junction to estimate flow direction */
+    if (branch->down_node_type == NODE_LEVEL_BC) {
+        /* Ocean at downstream (index 1) - standard case */
+        Q_total = branch->velocity[M] * branch->totalArea[M];
+    } else if (branch->up_node_type == NODE_LEVEL_BC) {
+        /* Ocean at upstream (rare, reversed branch) */
+        Q_total = branch->velocity[2] * branch->totalArea[2];
+    } else {
+        /* Internal branch (junction on both ends or junction + discharge) */
+        /* Use the larger velocity magnitude for Q estimate */
+        double Q_up = fabs(branch->velocity[M] * branch->totalArea[M]);
+        double Q_down = fabs(branch->velocity[2] * branch->totalArea[2]);
+        Q_total = (Q_up > Q_down) ? branch->velocity[M] * branch->totalArea[M] 
+                                  : branch->velocity[2] * branch->totalArea[2];
+        
+        /* For branches not connected to ocean, try to get D0 from junction */
+        if (network_ptr) {
+            D0_override = ComputeJunctionDispersion(branch, network_ptr);
         }
     }
     
-    /* Select dispersion discharge: prefer local residual, fallback to global */
-    double Q_dispersion;
-    if (Q_residual > 10.0) {
-        /* Local residual is available and significant */
-        Q_dispersion = Q_residual;
-    } else {
-        /* Fallback to network-wide Q_river (robust for early timesteps) */
-        Q_dispersion = net_Q_river;
+    /* === CRITICAL FIX: DISPERSION DISCHARGE CLAMP === */
+    /* The Van den Burgh equation relies on RESIDUAL (Freshwater) discharge.
+     * Using instantaneous tidal Q (~10,000 m3/s) causes massive over-dispersion.
+     * We must clamp Q to the Net River Discharge (~2,000 m3/s).
+     */
+    double Q_dispersion = fabs(Q_total);
+    double net_Q_river = 0.0;
+    if (network_ptr) {
+        Network *net = (Network *)network_ptr;
+        net_Q_river = net->Q_river;
+        if (net->Q_river > 1.0) {
+            /* If instantaneous flow exceeds river discharge (e.g. during tide), 
+             * clamp it to the physical river discharge for mixing calculations. */
+            if (Q_dispersion > net->Q_river) {
+                Q_dispersion = net->Q_river;
+            }
+            /* Prevent D=0 at slack tide by enforcing a small floor (10% of river) */
+            if (Q_dispersion < net->Q_river * 0.1) {
+                Q_dispersion = net->Q_river * 0.1;
+            }
+        }
     }
-    
-    /* Compute D0 override for junction-connected branches */
-    double D0_override = -1.0;
-    if (branch->down_node_type != NODE_LEVEL_BC && 
-        branch->up_node_type != NODE_LEVEL_BC && 
-        network_ptr) {
-        D0_override = ComputeJunctionDispersion(branch, network_ptr);
-    }
-    
-    /* Pass Q_dispersion (residual) to dispersion calculation */
-    ComputeDispersionCoefficient_Internal(branch, Q_dispersion, D0_override);
+
+    /* Pass Q_dispersion AND net_Q_river for proper warmup handling */
+    ComputeDispersionCoefficient_Internal(branch, Q_dispersion, D0_override, net_Q_river);
     
     /* Process each species - ONLY those with transport flag (env=1) */
     for (int sp = 0; sp < branch->num_species; ++sp) {
@@ -923,6 +1202,72 @@ int Transport_Branch_Network(Branch *branch, double dt, void *network_ptr) {
         /* Calculate dispersion - pass BC values for Dirichlet boundaries */
         calculate_dispersion(branch, sp, dt, c_down, c_up);
         
+        /* =================================================================
+         * FLOW-DEPENDENT OPEN BOUNDARY CONDITION
+         * 
+         * ACADEMICALLY ROBUST METHOD (Fischer et al. 1979, Savenije 2012):
+         * 
+         * The open boundary treatment depends on flow direction:
+         * 
+         * INFLOW (flood tide, velocity < 0 at downstream boundary):
+         *   → Use DIRICHLET BC: boundary cell = ocean concentration
+         *   → This represents ocean water entering the estuary
+         *   → Relaxation rate alpha = 0.3 (fast response to tide)
+         * 
+         * OUTFLOW (ebb tide, velocity > 0 at downstream boundary):
+         *   → Use NEUMANN BC (zero gradient): allow salt to exit
+         *   → boundary cell retains its value, advection carries it out
+         *   → No relaxation toward ocean (would prevent salt leaving)
+         * 
+         * SLACK WATER (|velocity| < threshold):
+         *   → Weak relaxation toward equilibrium
+         * 
+         * Reference: Fischer et al. (1979) "Mixing in Inland and Coastal
+         *            Waters", Chapter 6: Estuaries
+         * =================================================================*/
+        if (branch->down_node_type == NODE_LEVEL_BC) {
+            double vx = branch->velocity[2];  /* Velocity at first interface */
+            
+            if (vx < -0.002) {
+                /* FLOOD TIDE (inflow): Dirichlet BC - ocean enters */
+                /* Use fast relaxation to quickly bring in ocean water */
+                double alpha = 0.3;
+                branch->conc[sp][1] = branch->conc[sp][1] + alpha * (c_down - branch->conc[sp][1]);
+            }
+            /* EBB TIDE (outflow): No relaxation - let advection carry salt out */
+            /* Slack water: No action needed */
+        }
+        
+        /* Upstream (river) boundary: Dirichlet BC always (river concentration is known) */
+        if (branch->up_node_type == NODE_DISCHARGE_BC) {
+            double vx = branch->velocity[M-2];
+            if (vx > 0.002) {
+                /* Normal river flow: apply river concentration */
+                double alpha = 0.3;
+                branch->conc[sp][M-1] = branch->conc[sp][M-1] + alpha * (c_up - branch->conc[sp][M-1]);
+            }
+        }
+        
+        /* =====================================================================
+         * SALINITY GRADIENT LIMITER - REMOVED (Audit Issue #2)
+         * 
+         * The previous implementation forced salinity to match the Savenije
+         * steady-state profile: S(x) = S0 * (D(x)/D0)^(1/K)
+         * 
+         * This was REMOVED because:
+         * 1. It is an artificial forcing that prevents prediction of transient
+         *    events (storm surges, flood pulses) - reviewers will reject this.
+         * 2. With the residual velocity filter (Issue #1 fix), the Van den Burgh
+         *    profile should emerge NATURALLY from advection-dispersion physics.
+         * 3. The analytical solution should only be used for INITIALIZATION
+         *    (in init.c), not as a runtime constraint.
+         * 
+         * If salt intrusion is still excessive after this fix, the solution is
+         * to adjust physical parameters (K, D0, Chezy) not to clamp the result.
+         * 
+         * Reference: Audit recommendation, Savenije (2005)
+         * ===================================================================== */
+        
         /* Ensure physically valid concentrations */
         for (int i = 0; i <= M + 1; ++i) {
             /* Non-negative constraint */
@@ -930,113 +1275,25 @@ int Transport_Branch_Network(Branch *branch, double dt, void *network_ptr) {
                 branch->conc[sp][i] = 0.0;
             }
             
-            /* Physical bounds for conservative tracers (salinity)
-             * 
-             * For conservative species, concentration cannot exceed the maximum
-             * of the boundary values (ocean and river). This is a physical
-             * constraint, not an artificial limit.
-             * 
-             * Numerical schemes (especially Crank-Nicolson) can produce small
-             * overshoots; this correction maintains physical consistency.
-             */
+            /* For salinity: enforce max = ocean boundary value (35 psu typical)
+             * Salinity cannot exceed the source concentration in a mixing system */
             if (sp == CGEM_SPECIES_SALINITY) {
-                double max_bc = (c_down > c_up) ? c_down : c_up;
-                double min_bc = (c_down < c_up) ? c_down : c_up;
-                if (branch->conc[sp][i] > max_bc) {
-                    branch->conc[sp][i] = max_bc;
-                }
-                if (branch->conc[sp][i] < min_bc) {
-                    branch->conc[sp][i] = min_bc;
+                double max_sal = CGEM_MAX(c_down, c_up);
+                /* Allow small tolerance for numerical precision */
+                double sal_max = max_sal * 1.01;
+                if (sal_max < 35.0) sal_max = 35.0;  /* At least ocean typical */
+                if (branch->conc[sp][i] > sal_max) {
+                    branch->conc[sp][i] = max_sal;
                 }
             }
         }
         
-        /* Set boundary cells conditionally based on boundary type
-         * 
-         * CRITICAL FIX for Junction Salt Intrusion:
-         * 
-         * For OCEAN/DISCHARGE boundaries (Dirichlet): Force both ghost AND interior cell
-         * For JUNCTION boundaries (Neumann-like): Force ONLY ghost cells
-         * 
-         * This allows the transport solver to compute natural diffusion gradients
-         * at junctions, preventing the artificial "salt cliff" effect where
-         * interior cells are forced to freshwater values.
-         * 
-         * Reference: Fischer et al. (1979) - Junction mixing theory
-         */
-        
-        /* DOWNSTREAM BOUNDARY (index 0, 1) */
-        if (branch->down_node_type == NODE_LEVEL_BC) {
-            /* Ocean: Full Dirichlet - force ghost AND interior */
-            branch->conc[sp][0] = c_down;  /* Ghost cell */
-            branch->conc[sp][1] = c_down;  /* Interior boundary cell */
-        } else {
-            /* Junction: Only ghost cell - let interior evolve via transport */
-            branch->conc[sp][0] = c_down;  /* Ghost cell only */
-            /* conc[1] is left alone - computed by advection-dispersion */
-        }
-        
-        /* UPSTREAM BOUNDARY (index M, M+1) */
-        if (branch->up_node_type == NODE_DISCHARGE_BC) {
-            /* River inlet: Full Dirichlet - force ghost AND interior */
-            branch->conc[sp][M] = c_up;    /* Ghost cell */
-            branch->conc[sp][M+1] = c_up;  /* Outer ghost */
-            /* Also force the last interior cell for discharge BC */
-            if (M >= 2) branch->conc[sp][M-1] = c_up;
-        } else if (branch->down_node_type == NODE_LEVEL_BC) {
-            /* OCEAN-CONNECTED BRANCH with JUNCTION UPSTREAM
-             * 
-             * This is a critical case for salt intrusion physics.
-             * 
-             * Physical situation (Co_Chien, Ham_Luong, My_Tho, Hau_River):
-             * - Ocean at downstream (index 1) with high salinity
-             * - Junction at upstream (index M) with mostly fresh water
-             * 
-             * PROBLEM with Dirichlet BC at junction:
-             * - Setting ghost cells to fresh junction concentration creates
-             *   an artificial "salt cliff" at the upstream end
-             * - The exponential salinity profile cannot extend to its
-             *   natural intrusion length
-             * 
-             * SOLUTION: Use NEUMANN (zero-gradient) boundary condition
-             * - Ghost cells extrapolate from interior, not forced to junction value
-             * - Allows salt profile to naturally decay toward the junction
-             * - Junction still influences branch via advective flux
-             * 
-             * Mathematical basis (Savenije, 2012):
-             * The steady-state salinity profile S(x) = S0 * exp(-x/L) should
-             * extend continuously. A Neumann BC at the upstream end allows
-             * dS/dx to remain finite (exponential decay) rather than forcing
-             * a discontinuous jump.
-             * 
-             * Reference: Fischer et al. (1979) Ch. 7 - Open boundary conditions
-             *            Savenije (2012) Ch. 8 - Delta network salt intrusion
-             */
-            if (M >= 2) {
-                /* Extrapolate from interior (zero-gradient approximation) */
-                double dS_dx = (branch->conc[sp][M-1] - branch->conc[sp][M-2]);
-                double S_extrap = branch->conc[sp][M-1] + dS_dx;
-                
-                /* Clamp to physical bounds: cannot exceed ocean or go below river */
-                double S_ocean = c_down;
-                double S_river = 0.1;  /* Minimum freshwater */
-                S_extrap = CGEM_CLAMP(S_extrap, S_river, S_ocean);
-                
-                branch->conc[sp][M] = S_extrap;      /* Ghost cell - extrapolated */
-                branch->conc[sp][M+1] = S_extrap;    /* Outer ghost */
-            } else {
-                /* Short branch - use interior value */
-                branch->conc[sp][M] = branch->conc[sp][M-1];
-                branch->conc[sp][M+1] = branch->conc[sp][M-1];
-            }
-        } else {
-            /* Interior branch (junction on both ends)
-             * Use junction concentration but allow interior to evolve
-             */
-            branch->conc[sp][M] = c_up;    /* Ghost cell */
-            branch->conc[sp][M+1] = c_up;  /* Outer ghost */
-            /* conc[M-1] is left alone - computed by advection-dispersion */
-        }
+        /* Set ghost cells to boundary values for next timestep's advection stencil
+         * Interior boundary cells (1 and M-1) evolve via dispersion but need
+         * ghost cells set to BC values for proper flux computation */
+        branch->conc[sp][0] = c_down;      /* Downstream ghost = BC value */
+        branch->conc[sp][M] = c_up;        /* Upstream ghost */
+        branch->conc[sp][M+1] = c_up;      /* Upstream ghost 2 */
     }
     
     return 0;

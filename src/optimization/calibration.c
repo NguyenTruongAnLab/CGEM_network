@@ -70,7 +70,7 @@ static void str_toupper(char *str) {
 /* Variable type names for parsing */
 static const char* VAR_TYPE_NAMES[] = {
     /* Stage 1: Hydrodynamics */
-    "CHEZY", "LC_CONV", "VDB_COEF", "D0", "STORAGE_RATIO",
+    "CHEZY", "LC_CONV", "VDB_COEF", "D0", "MIXING_ALPHA", "STORAGE_RATIO",
     "RS_CHANNEL", "RS_FLOODPLAIN", "MANNING_N",
     /* Stage 2: Sediment */
     "WS", "FLOC_SAL_SCALE", "FLOC_FACTOR_MAX", "TAU_ERO", "TAU_DEP",
@@ -259,6 +259,7 @@ static CalibStage get_var_stage(CalibVarType var) {
         case VAR_LC_CONV:
         case VAR_VDB_COEF:
         case VAR_D0:
+        case VAR_MIXING_ALPHA:
         case VAR_STORAGE_RATIO:
         case VAR_RS_CHANNEL:
         case VAR_RS_FLOODPLAIN:
@@ -651,6 +652,9 @@ static void set_branch_param(Branch *branch, CalibVarType var, double value) {
             break;
         case VAR_D0:
             branch->D0 = value;
+            break;
+        case VAR_MIXING_ALPHA:
+            branch->mixing_alpha = value;
             break;
         case VAR_STORAGE_RATIO:
             branch->storage_ratio = value;

@@ -82,14 +82,15 @@ def load_topology(output_dir, input_arg=None):
         if os.path.exists(p):
             print(f"Loaded topology from: {p}")
             try:
-                # Read with flexible column handling - topology may have 10-12 columns
-                # Columns: ID, Name, NodeUp, NodeDown, Length, W_Up, W_Down, Depth, Chezy, Group, [RS], [BiogeoParams]
+                # Read with flexible column handling - topology may have 10-14 columns
+                # Columns: ID, Name, NodeUp, NodeDown, Length, W_Up, W_Down, Depth, Chezy, 
+                #          Group, [RS], [VDB_K], [Mixing_Alpha], [BiogeoParams]
                 df = pd.read_csv(p, comment='#', skipinitialspace=True, header=None)
                 
                 # Assign column names based on how many columns are present
                 base_cols = ['Branch_ID', 'Name', 'NodeUp', 'NodeDown', 
                              'Length', 'W_Up', 'W_Down', 'Depth', 'Chezy', 'Group']
-                optional_cols = ['RS', 'BiogeoParams']
+                optional_cols = ['RS', 'VDB_K', 'Mixing_Alpha', 'BiogeoParams']
                 
                 ncols = len(df.columns)
                 if ncols >= 10:

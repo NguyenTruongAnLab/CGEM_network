@@ -81,6 +81,7 @@ typedef enum {
     VAR_LC_CONV,            /* Convergence length [m] */
     VAR_VDB_COEF,           /* Van den Burgh dispersion coefficient [-] */
     VAR_D0,                 /* Dispersion at mouth [m²/s] */
+    VAR_MIXING_ALPHA,       /* Fischer mixing efficiency α for D0 calculation [-] */
     VAR_STORAGE_RATIO,      /* Storage width ratio RS [-] */
     VAR_RS_CHANNEL,         /* In-channel storage ratio */
     VAR_RS_FLOODPLAIN,      /* Floodplain storage ratio */

@@ -67,6 +67,14 @@ Branch *allocate_branch(int M, int num_species) {
     b->tau_dep = (double *)calloc(field_len, sizeof(double));
     b->mero = (double *)calloc(field_len, sizeof(double));
     
+    /* =======================================================================
+     * SEDIMENT BED LAYER (Fluid Mud Tracking)
+     * Tracks accumulated sediment and organic carbon for benthic-pelagic coupling
+     * Reference: Winterwerp (2002), Wang et al. (2018)
+     * =======================================================================*/
+    b->bed_mass = (double *)calloc(field_len, sizeof(double));
+    b->bed_oc = (double *)calloc(field_len, sizeof(double));
+    
     /* Reaction rates array */
     b->num_reactions = CGEM_NUM_REACTIONS;
     b->reaction_rates = (double **)calloc((size_t)b->num_reactions, sizeof(double *));
@@ -87,7 +95,7 @@ Branch *allocate_branch(int M, int num_species) {
     b->has_lateral_loads = 0;  /* Will be set to 1 if loads are loaded */
     
     /* Default transport parameters */
-    b->D0 = 200.0;
+    b->D0 = 50.0;   /* Reduced to prevent salt accumulation */
     /* Van den Burgh K coefficient (Savenije, 2005 Table 9.1):
      * 
      * SCIENTIFIC BASIS:
@@ -143,6 +151,8 @@ void free_branch(Branch *branch, int num_species) {
     free(branch->tau_ero);
     free(branch->tau_dep);
     free(branch->mero);
+    free(branch->bed_mass);
+    free(branch->bed_oc);
     free(branch->conc_down);
     free(branch->conc_up);
 

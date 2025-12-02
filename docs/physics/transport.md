@@ -93,9 +93,21 @@ The transport equation is split into:
 
 To prevent numerical oscillations near sharp fronts (e.g., salinity intrusion), C-GEM uses **Total Variation Diminishing** schemes.
 
+!!! warning "Grid Convention: Velocity Sign and Upwind Direction"
+    In C-GEM's staggered grid:
+    
+    - **Index 1 = downstream (ocean)**, **Index M = upstream (river)**
+    - **Positive velocity (vx > 0)** = flow from upstream toward downstream = **leftward in array**
+    - **Upwind cell for vx > 0** = higher index cell (j+2), NOT lower index (j)
+    
+    This is opposite to many textbook conventions where positive velocity means rightward flow!
+
 **First-order upwind** (diffusive but stable):
 
-$$F_{i+1/2} = \begin{cases} U_{i+1/2} C_i & \text{if } U > 0 \\ U_{i+1/2} C_{i+1} & \text{if } U < 0 \end{cases}$$
+$$F_{i+1/2} = \begin{cases} U_{i+1/2} C_{i+1} & \text{if } U > 0 \text{ (flow toward lower indices)} \\ U_{i+1/2} C_i & \text{if } U < 0 \text{ (flow toward higher indices)} \end{cases}$$
+
+!!! note "Flux Sign Convention"
+    C-GEM uses `flux = -vx * A * C` so that positive flux represents flow in the positive x direction (toward higher indices). This ensures consistency with the standard finite volume update formula.
 
 **Second-order with flux limiter** (less diffusive):
 
@@ -128,13 +140,30 @@ This yields a tridiagonal system solved by Thomas algorithm.
 
 ### Downstream (Ocean) Boundary
 
-**Flood tide** (flow into estuary):
+!!! warning "Critical: Separate Treatment for Advection vs Dispersion"
+    The advection and dispersion operators require **different** boundary conditions at the ocean. Mixing these up causes either salinity plateaus (blocked dispersion) or unrealistic salt accumulation.
+
+#### Advection Boundary (Flow-Dependent)
+
+**Flood tide** (vx < 0, flow into estuary):
 $$C_{boundary} = C_{ocean}$$
 
-**Ebb tide** (flow out of estuary):
-$$\frac{\partial C}{\partial x} = 0 \quad \text{(zero gradient)}$$
+**Ebb tide** (vx > 0, flow out of estuary):
+$$\frac{\partial C}{\partial x} = 0 \quad \text{(zero gradient - let interior water exit)}$$
 
-This allows the model to "exhale" its own water during ebb.
+#### Dispersion Boundary (Always Dirichlet)
+
+$$C_{boundary} = C_{ocean} \quad \text{(always, regardless of flow direction)}$$
+
+This is the key insight from **Savenije (2005)**: at steady state, the advective flux OUT (river flushing) is balanced by the dispersive flux IN (tidal mixing):
+
+$$Q \cdot S = D \cdot A \cdot \frac{dS}{dx}$$
+
+Dispersion must **always** transport salt up the concentration gradient (from ocean into estuary), even during ebb when advection is exporting salt. Using Neumann BC for dispersion during ebb would block this mechanism and cause unrealistically low salinity at the mouth.
+
+!!! danger "Common Bug: Salinity Plateau or Zero Salt at Mouth"
+    - **Plateau at 25-30 psu extending 50+ km**: Usually caused by inverted advection sign convention (upwinding from wrong cell).
+    - **Near-zero salinity at mouth**: Usually caused by using Neumann BC for dispersion during ebb, blocking salt entry.
 
 ### Upstream (River) Boundary
 
@@ -338,6 +367,41 @@ Salinity     |        \___
 Dry season:  Intrusion 60-70 km, S > 4 at Can Tho
 Wet season:  Intrusion 10-20 km, S < 1 at Can Tho
 ```
+
+---
+
+## Troubleshooting Salinity Transport
+
+### Common Bugs and Solutions
+
+| Symptom | Root Cause | Solution |
+|---------|------------|----------|
+| **Salinity plateau 25-30 psu for 50+ km** | Inverted upwind direction in advection | Use j+2 as upwind when vx > 0 (flow toward lower indices) |
+| **Near-zero salinity at mouth (2-8 psu)** | Neumann BC for dispersion during ebb | Always use Dirichlet BC for dispersion at ocean |
+| **Salt accumulating unrealistically** | Dirichlet BC for advection during ebb | Use Neumann BC for advection during ebb |
+| **No salt intrusion at all** | Dispersion disabled | Set `DISABLE_DISPERSION_FOR_TEST = 0` |
+| **Checkerboard oscillations** | Wrong flux convention sign | Use `flux = -vx * A * C` |
+
+### Verification Procedure
+
+After running a simulation, check salinity at the mouth:
+
+```powershell
+$csv = Import-Csv "OUTPUT/YourCase/CSV/Branch_salinity.csv"
+$last = $csv[-1]
+"2km: $($last.'2km')"   # Should be ~32-33 psu
+"10km: $($last.'10km')" # Should be 8-15 psu for dry season
+```
+
+Expected values for dry season (Q ~ 3000 m³/s):
+
+| Distance | Expected Salinity |
+|----------|-------------------|
+| 2 km     | 32-33 psu         |
+| 6 km     | 15-25 psu         |
+| 10 km    | 8-15 psu          |
+| 20 km    | < 2 psu           |
+| 40+ km   | < 0.5 psu         |
 
 ---
 

@@ -14,7 +14,7 @@
 #   3 = Connector (Vam Nao, internal transfer)
 #
 # VarType options:
-#   Stage 1 (Hydro):   CHEZY, LC_CONV, VDB_COEF, D0, STORAGE_RATIO, MANNING_N
+#   Stage 1 (Hydro):   CHEZY, LC_CONV, VDB_COEF, D0, MIXING_ALPHA, STORAGE_RATIO, MANNING_N
 #   Stage 2 (Sed):     WS, FLOC_SAL_SCALE, FLOC_FACTOR_MAX, TAU_ERO, TAU_DEP, MERO
 #   Stage 3 (Biogeo):  KOX, KNIT, KDENIT, PBMAX1, PBMAX2, KMORT1, KMORT2, WIND_COEFF, BENTHIC_RESP
 #
@@ -22,6 +22,7 @@
 #   - Chezy: 40-80 m^0.5/s (lower = more friction)
 #   - LC: 10-100 km (shorter = more convergent)
 #   - RS: 1.0-15.0 (higher = more storage/mangroves)
+#   - Mixing_Alpha: 0.1-0.5 (Fischer mixing efficiency for D0)
 #   - kox: 0.02-0.5 /day (higher = faster decay)
 # ============================================================================
 
@@ -32,9 +33,10 @@ Name,TargetType,TargetID,VarType,Min,Max,Initial
 # Target: Match tidal range at mouth (2-3m), salt intrusion (40-60 km for 4 PSU)
 
 # Chezy coefficient controls friction and tidal damping
-Chezy_River,GROUP,1,CHEZY,45.0,75.0,60.0
-Chezy_Estuary,GROUP,2,CHEZY,40.0,70.0,55.0
-Chezy_VamNao,BRANCH,Vam_Nao,CHEZY,50.0,80.0,65.0
+# Lower Chezy = Higher friction = Shorter salt intrusion (audit recommendation)
+Chezy_River,GROUP,1,CHEZY,45.0,65.0,55.0
+Chezy_Estuary,GROUP,2,CHEZY,40.0,55.0,47.0
+Chezy_VamNao,BRANCH,Vam_Nao,CHEZY,55.0,75.0,65.0
 
 # Convergence length controls salinity intrusion distance
 LC_HauRiver,BRANCH,Hau_River,LC_CONV,20000.0,80000.0,40000.0
@@ -43,7 +45,16 @@ LC_HamLuong,BRANCH,Ham_Luong,LC_CONV,15000.0,60000.0,35000.0
 LC_CoChien,BRANCH,Co_Chien,LC_CONV,20000.0,80000.0,50000.0
 
 # Van den Burgh coefficient controls tidal dispersion
-VDB_Estuary,GROUP,2,VDB_COEF,0.1,0.6,0.3
+# CRITICAL: Initial value should match topology.csv physical estimates (0.50-0.85)
+# to speed up calibration convergence. Range allows optimizer flexibility.
+VDB_Estuary,GROUP,2,VDB_COEF,0.3,0.95,0.65
+
+# Mixing Alpha (Fischer mixing efficiency) controls D0 = α * U_tidal * B
+# Reference: Fischer et al. (1979), typically 0.1-0.5 for well-mixed estuaries
+# Higher α = higher D0 = longer salt intrusion
+Alpha_Estuary,GROUP,2,MIXING_ALPHA,0.10,0.50,0.25
+Alpha_HauRiver,BRANCH,Hau_River,MIXING_ALPHA,0.20,0.60,0.35
+Alpha_HamLuong,BRANCH,Ham_Luong,MIXING_ALPHA,0.15,0.50,0.30
 
 # Storage ratio (mangrove zones have high RS)
 RS_Estuary,GROUP,2,STORAGE_RATIO,1.5,8.0,3.0

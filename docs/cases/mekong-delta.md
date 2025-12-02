@@ -229,6 +229,21 @@ Simulation complete: 525600 steps in 666.2 seconds (789.1 steps/s)
 
 ## Model Validation
 
+### Expected Salinity Profile
+
+For the dry season with Q ≈ 3000 m³/s, the model produces realistic salinity intrusion:
+
+| Distance from Mouth | Co_Chien (psu) | Hau_River (psu) |
+|---------------------|----------------|------------------|
+| 2 km                | 32-33          | 32-33            |
+| 6 km                | 18-22          | 8-12             |
+| 10 km               | 10-14          | 2-4              |
+| 20 km               | 0.5-2          | 0.1              |
+| 40 km               | 0.1            | 0.1              |
+
+!!! note "Branch Differences"
+    Hau_River shows steeper gradient (shorter intrusion length) than Co_Chien due to higher discharge allocation (40% vs split among multiple branches).
+
 ### Salinity Intrusion
 
 Comparison with Nguyen et al. (2008) field observations:
@@ -449,6 +464,35 @@ ax2.set_ylabel('Salinity (PSU)')
 plt.tight_layout()
 plt.savefig('mekong_seasonal_profiles.png', dpi=150)
 ```
+
+## Troubleshooting
+
+### Common Issues
+
+!!! danger "Salinity Problems"
+    If you see incorrect salinity patterns, check the following:
+    
+    | Symptom | Likely Cause | Solution |
+    |---------|--------------|----------|
+    | Plateau at 25-30 psu for 50+ km | Advection sign error | Verify upwind uses j+2 when vx > 0 |
+    | Near-zero salinity at mouth (2-8 psu) | Dispersion BC error | Dispersion must use Dirichlet BC always |
+    | Salt accumulating unrealistically | Advection BC error | Use Neumann for advection during ebb |
+    | No salt intrusion at all | Dispersion disabled | Check DISABLE_DISPERSION_FOR_TEST = 0 |
+
+### Verifying Correct Behavior
+
+After running, check the salinity output at the mouth:
+```powershell
+$csv = Import-Csv "OUTPUT/Mekong_Delta_Full/CSV/Co_Chien_salinity.csv"
+$last = $csv[-1]
+"2km: $($last.'2km')"  # Should be ~32-33 psu
+"10km: $($last.'10km')" # Should be ~10-14 psu for dry season
+```
+
+For dry season (Q ~ 3000 m³/s), expect:
+- **Mouth (2 km)**: 32-33 psu (near ocean)
+- **10 km**: 8-15 psu (mixing zone)
+- **20+ km**: < 1 psu (fresh)
 
 ## References
 

@@ -11,30 +11,41 @@
 #   - Bifurcation location: My Thuan and Cho Lach
 #
 # Column format:
-#   ID, Name, NodeUp, NodeDown, Length_m, Width_Up_m, Width_Down_m, Depth_m, Chezy, Group, RS
+#   ID, Name, NodeUp, NodeDown, Length_m, Width_Up_m, Width_Down_m, Depth_m, Chezy, Group, RS, VDB_K
 #
 # RS (Storage Ratio): 
 #   - 1.0 for prismatic channels (most river branches)
 #   - 5-10 for mangrove/tidal flat areas (increases storage capacity)
+#
+# VDB_K (Van den Burgh coefficient):
+#   - Controls dispersion decay: D(x) = D0 * exp(-K * x / a)
+#   - LOWER K = slower decay = LONGER salt intrusion  
+#   - HIGHER K = faster decay = SHORTER salt intrusion
+#   - Typical range: 0.3-1.0 (Savenije 2005, 2012)
 
 # 1. Tien Main Stem: Tan Chau (1) to My Thuan Split (2)
 # Chezy increased to 65 for reduced friction (calibrated for Mekong, Nguyen et al. 2008)
-1, Tien_Main, 1, 2, 100000, 1000, 1600, 15.0, 65, 2, 1.0
+# K=0.8 for main river (freshwater dominated)
+1, Tien_Main, 1, 2, 100000, 1000, 1600, 15.0, 65, 2, 1.0, 0.80
 
 # 2. Intermediate Connector: My Thuan (2) to Cho Lach Split (3)
 # Short segment carrying flow for both Ham Luong and My Tho.
-2, Tien_Connect, 2, 3, 16000, 1200, 1100, 14.0, 65, 2, 1.0
+# K=0.8 for connector (freshwater dominated)
+2, Tien_Connect, 2, 3, 16000, 1200, 1100, 14.0, 65, 2, 1.0, 0.80
 
 # 3. My Tho Branch: Cho Lach Split (3) to Ocean (4)
 # The northernmost branch (Cua Tieu/Dai).
 # Chezy = 65 corresponds to Manning n ≈ 0.022 (calibrated Mekong value)
-5, My_Tho, 3, 4, 76000, 800, 1500, 11.0, 65, 2, 1.0
+# K=0.75 for steeper salt intrusion gradient (prevents plateau)
+3, My_Tho, 3, 4, 76000, 800, 1500, 11.0, 65, 2, 1.0, 0.75
 
 # 4. Ham Luong Branch: Cho Lach Split (3) to Ocean (5)
 # Splits from the connector, flows south-east.
 # Chezy = 65 for proper tidal velocity and mixing (lower friction = more salt intrusion)
-4, Ham_Luong, 3, 5, 84000, 850, 1800, 12.0, 65, 2, 1.0
+# K=0.75 for steeper gradient (was 0.50, caused plateau)
+4, Ham_Luong, 3, 5, 84000, 850, 1800, 12.0, 65, 2, 1.0, 0.75
 
 # 5. Co Chien Branch: My Thuan (2) to Ocean (6)
 # Major distributary, splits off early.
-5, Co_Chien, 2, 6, 100000, 900, 2200, 14.0, 65, 2, 1.0
+# K=0.85 for moderate intrusion in long branch (100km)
+5, Co_Chien, 2, 6, 100000, 900, 2200, 14.0, 65, 2, 1.0, 0.85

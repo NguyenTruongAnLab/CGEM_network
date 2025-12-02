@@ -5,6 +5,23 @@ All notable changes to C-GEM Network will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2025-12-02
+
+### Fixed
+
+- **Critical: Salinity Transport Bug** - Two fundamental issues in `transport.c`:
+  1. **Advection sign convention**: Corrected upwind direction for staggered grid. With positive velocity meaning flow from upstream (M) to downstream (1), the upwind cell must be the higher index (j+2), not j.
+  2. **Dispersion boundary condition**: Ocean boundary now always uses Dirichlet BC for dispersion, allowing salt to enter via tidal mixing even during ebb-dominated flow. Previous Neumann BC during ebb blocked dispersive salt flux.
+
+- **Dispersion coefficient initialization**: Removed conflicting caps that limited D0 to unrealistically low values.
+
+### Changed
+
+- Ocean boundary treatment follows Savenije (2005) steady-state theory: dispersion constantly transports salt IN while advection exports during ebb.
+- Flux convention changed to `flux = -vx * A * C` for proper mass balance with the grid convention.
+
+---
+
 ## [1.0.0] - 2025-12-01
 
 ### Added
