@@ -14,7 +14,7 @@
  * - Odd indices (1, 3, 5, ...): Cell centers (area AA, concentrations)
  * - M must be even
  * 
- * Reference: Savenije (2012), Gisen et al. (2015)
+ * Reference: Savenije (2012)
  */
 
 #include "network.h"
@@ -61,7 +61,6 @@ double TotalDischarge(Branch *branch, int loc, double Q_river) {
 
 /**
  * Initialize branch geometry arrays (width, depth, reference area, Chezy)
- * Matches CGEM_initialisation.f90 -> initialise_CGEM_arrays
  */
 void InitializeBranchGeometry(Branch *branch, double target_dx) {
     if (!branch) return;
@@ -116,8 +115,7 @@ void InitializeBranchGeometry(Branch *branch, double target_dx) {
     branch->depth_m = fmax(branch->depth_m, CGEM_MIN_DEPTH);
 
     /* Compute convergence length: LC = -L / ln(W_up/W_down) 
-       Note: In Fortran, W decreases from mouth (W_lb) to head (W_ub)
-       Here: width_down_m = mouth (downstream), width_up_m = head (upstream) */
+       width_down_m = mouth (downstream), width_up_m = head (upstream) */
     double ratio = branch->width_up_m / branch->width_down_m;
     if (ratio <= 0.0 || fabs(log(ratio)) < 1e-6) {
         branch->lc_convergence = 1e9;  /* Prismatic channel */
@@ -213,14 +211,12 @@ void InitializeBranchGeometry(Branch *branch, double target_dx) {
  * Set boundary conditions for the current timestep
  * Set_new_boundary_conditions
  * 
- * SCIENTIFIC APPROACH: 
  * 1. Set water levels (Dirichlet BC) at ocean/junction boundaries
  * 2. Set discharge-derived velocity at river boundaries
  * 
  * Note: Boundary velocities for level BCs are computed in update_arrays()
  * using the momentum balance with the solved interior velocities.
  * 
- * Reference: Stelling (1984), Abbott & Minns (1998), Savenije (2012)
  */
 static void set_boundary_conditions(Branch *b, double H_down, double H_up, double Q_upstream) {
     if (!b) return;
@@ -332,7 +328,6 @@ static void assemble_matrix(Branch *b, double dt) {
         double friction = (fabs(U_i) / (C_i * C_i)) / H_i;
         
         /* Convective acceleration term: (U(i+2) - U(i-2)) / (4*g*dx)
-         * Matching Fortran Set_coefficient_matrix
          * This term improves momentum balance for high Froude number flows */
         double convective = 0.0;
         if (i >= 4 && i <= M - 4) {
@@ -393,12 +388,6 @@ static void assemble_matrix(Branch *b, double dt) {
         double convective = (b->velocity[4] - b->velocity[2]) / (4.0 * g * dx);
         
         /* Tidal boundary forcing: the freeArea gradient term
-         * 
-         * In the original staggered grid formulation, the boundary forcing
-         * enters through the continuity equation coupling. The term here
-         * represents the influence of the boundary water level on the 
-         * momentum balance at the first interior velocity point.
-         * 
          * The freeArea[1]/width[1] = waterLevel[1] (the boundary tidal level)
          */
         double tidal_term = inv_2dx * b->freeArea[1] / b->width[1];
@@ -471,11 +460,9 @@ static int check_convergence(Branch *b, double *old_freeArea, double *old_veloci
  * Update arrays after solving
  * Update_hydrodynamic_arrays
  * 
- * CRITICAL FIX: Boundary velocity is computed from momentum balance using
+ * Boundary velocity is computed from momentum balance using
  * the water level gradient between boundary and interior. This ensures
  * proper tidal velocity oscillation (positive during ebb, negative during flood).
- * 
- * Reference: Cunge et al. (1980), Abbott & Minns (1998), Stelling (1984)
  */
 static void update_arrays(Branch *b, double *solution) {
     int M = b->M;
@@ -534,8 +521,6 @@ static void update_arrays(Branch *b, double *solution) {
      * During EBB (H_boundary < H_interior):
      *   → The second term is positive → U_boundary > U_interior
      *   → U_boundary stays positive (outflow)
-     * 
-     * Reference: Abbott & Ionescu (1967), Stelling (1984), Casulli (1990)
      * ====================================================================== */
     
     /* 1. Downstream Boundary (Index 1/0) - Ocean tidal forcing */
@@ -570,14 +555,6 @@ static void update_arrays(Branch *b, double *solution) {
         
         /* Boundary velocity from characteristics */
         double U_boundary = U_int - characteristic_coef * dH;
-        
-        /* For Mekong dry season with Q~3300 m³/s, the river flow dominates
-         * and flood tide velocities should be weaker. But the characteristic
-         * method naturally handles this because U_int is already positive
-         * due to river flow, and flood tide only reduces this velocity. */
-        
-        /* Physical limits: tidal velocities in Mekong are typically 0.5-1.5 m/s 
-         * Reference: Nguyen et al. (2008), Wolanski et al. (1996) */
         double U_max = 2.0;  /* Maximum realistic velocity [m/s] */
         U_boundary = CGEM_CLAMP(U_boundary, -U_max, U_max);
         
@@ -697,6 +674,13 @@ int Hyd_Branch(Branch *branch, double H_down, double H_up, double Q_up, double d
                 (branch->refArea[i] / branch->width[i]);
         }
         /* Boundary water levels are preserved from set_boundary_conditions() */
+        
+        /* Track min/max water level for tidal range calculation */
+        if (branch->waterLevel_min && branch->waterLevel_max) {
+            double wl = branch->waterLevel[i];
+            if (wl < branch->waterLevel_min[i]) branch->waterLevel_min[i] = wl;
+            if (wl > branch->waterLevel_max[i]) branch->waterLevel_max[i] = wl;
+        }
     }
     
     return converged ? 0 : -2;

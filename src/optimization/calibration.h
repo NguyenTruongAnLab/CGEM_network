@@ -49,7 +49,7 @@
  * ============================================================================*/
 
 #define CALIB_MAX_PARAMS        64      /* Maximum tunable parameters */
-#define CALIB_MAX_OBJECTIVES    32      /* Maximum calibration targets */
+#define CALIB_MAX_OBJECTIVES    128     /* Maximum calibration targets (increased for seasonal) */
 #define CALIB_MAX_NAME_LEN      64      /* Parameter/branch name length */
 #define CALIB_MAX_OBS_POINTS    1000    /* Max observation time points */
 #define CALIB_SALINITY_THRESH   4.0     /* Default intrusion threshold [PSU] */

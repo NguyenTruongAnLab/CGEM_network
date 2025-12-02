@@ -192,24 +192,6 @@ void init_species_bc(Branch *b, int num_species, double Q_river) {
         b->conc_down[CGEM_SPECIES_CH4] = 3.0;   /* Near equilibrium ~2-5 nmol/L */
     }
 
-    /* =========================================================================
-     * REMOVED: Hardcoded branch name logic (Audit Issue #3)
-     * 
-     * The previous code had:
-     *   if (strcmp(b->name, "Branch1") == 0) { ... }
-     *   else if (strcmp(b->name, "Branch2") == 0) { ... }
-     * 
-     * This was REMOVED because:
-     * 1. It violates the "generic engine" principle - core code should not
-     *    contain case-specific branch names.
-     * 2. Test case boundary conditions should be set via CSV files
-     *    (species_river.csv, species_ocean.csv) not hardcoded.
-     * 3. Users applying this to Amazon/Scheldt/etc would get Mekong defaults.
-     * 
-     * If branch-specific initialization is needed, add an "InitSalinity"
-     * column to topology.csv and read it during loading.
-     * =========================================================================*/
-
     /* =================================================================
      * Initialize concentration profiles 
      * 
@@ -292,8 +274,6 @@ void init_species_bc(Branch *b, int num_species, double Q_river) {
              * 
              * Use network Q_river from config (RiverDischarge in case_config.txt)
              * Scale by cross-sectional area for branch-specific discharge.
-             * 
-             * Reference: Nguyen et al. (2008), Savenije (2005)
              * ========================================================= */
             
             /* Use config-driven Q_river instead of hardcoded value */
@@ -670,4 +650,118 @@ int initializeNetwork(Network *net, CaseConfig *config) {
     printf("==================================================\n\n");
 
     return 0;
+}
+
+/**
+ * @brief Reset network state for recalibration runs
+ * 
+ * Reinitializes hydrodynamic variables and species concentrations to their
+ * initial values. Called before each calibration iteration to ensure each
+ * run starts from the same baseline state.
+ * 
+ * @param net Network to reset
+ */
+void resetNetworkState(Network *net) {
+    if (!net) return;
+    
+    /* Reset each branch to initial conditions */
+    for (size_t b = 0; b < net->num_branches; ++b) {
+        Branch *branch = net->branches[b];
+        if (!branch) continue;
+        
+        int M = branch->M;
+        
+        /* Reset hydrodynamic state using reference depth */
+        double H_mean = branch->depth_m;  /* Use reference depth from topology */
+        
+        for (int i = 0; i <= M + 1; ++i) {
+            branch->depth[i] = H_mean;
+            branch->velocity[i] = 0.0;
+            branch->waterLevel[i] = 0.0;  /* Reference level */
+            
+            /* Reset min/max water level tracking for tidal range calculation */
+            if (branch->waterLevel_min) branch->waterLevel_min[i] = 1e30;
+            if (branch->waterLevel_max) branch->waterLevel_max[i] = -1e30;
+            
+            /* Recalculate areas/widths from exponential geometry */
+            double x = (double)i * branch->dx;
+            double width = branch->width_down_m * exp(-x / branch->lc_convergence);
+            if (width < 10.0) width = 10.0;
+            branch->width[i] = width;
+            branch->freeArea[i] = branch->depth[i] * width;
+            branch->totalArea[i] = branch->freeArea[i];
+            if (branch->totalArea_old) branch->totalArea_old[i] = branch->freeArea[i];
+            if (branch->totalArea_old2) branch->totalArea_old2[i] = branch->freeArea[i];
+        }
+        
+        /* Reset residual velocity filter */
+        if (branch->u_residual) {
+            for (int i = 0; i <= M + 1; ++i) {
+                branch->u_residual[i] = 0.0;
+            }
+        }
+        
+        /* Reset species concentrations to initial/boundary values */
+        /* For estuarine species like salinity, use linear gradient between boundaries */
+        for (int sp = 0; sp < net->num_species; ++sp) {
+            if (!branch->conc || !branch->conc[sp]) continue;
+            
+            double conc_up = branch->conc_up ? branch->conc_up[sp] : 0.0;
+            double conc_down = branch->conc_down ? branch->conc_down[sp] : 0.0;
+            
+            /* Salinity (species 0) needs special handling - use gradient */
+            /* For other species, uniform upstream value is appropriate */
+            if (sp == CGEM_SPECIES_SALINITY && fabs(conc_down - conc_up) > 0.1) {
+                /* Linear gradient from downstream (i=1) to upstream (i=M) */
+                for (int i = 0; i <= M + 1; ++i) {
+                    double frac = (double)i / (double)(M + 1);  /* 0 at downstream, 1 at upstream */
+                    branch->conc[sp][i] = conc_down + frac * (conc_up - conc_down);
+                }
+            } else {
+                /* For non-salinity species or uniform conditions, use upstream value */
+                for (int i = 0; i <= M + 1; ++i) {
+                    branch->conc[sp][i] = conc_up;
+                }
+            }
+        }
+        
+        /* Clear reaction rates */
+        for (int r = 0; r < branch->num_reactions; ++r) {
+            if (branch->reaction_rates && branch->reaction_rates[r]) {
+                for (int i = 0; i <= M + 1; ++i) {
+                    branch->reaction_rates[r][i] = 0.0;
+                }
+            }
+        }
+        
+        /* Reset sediment bed state */
+        if (branch->bed_mass) {
+            for (int i = 0; i <= M + 1; ++i) {
+                branch->bed_mass[i] = 0.0;
+            }
+        }
+        if (branch->bed_oc) {
+            for (int i = 0; i <= M + 1; ++i) {
+                branch->bed_oc[i] = 0.0;
+            }
+        }
+        if (branch->benthic_zf) {
+            for (int i = 0; i <= M + 1; ++i) {
+                branch->benthic_zf[i] = branch->zf_init;
+            }
+        }
+    }
+    
+    /* Reset node water levels */
+    for (size_t n = 0; n < net->num_nodes; ++n) {
+        Node *node = &net->nodes[n];
+        
+        /* Reset to initial forcing value if available, else 0 */
+        if (node->forcing_len > 0 && node->forcing_value) {
+            node->H = node->forcing_value[0];
+        } else {
+            node->H = 0.0;
+        }
+        node->H_new = node->H;
+    }
 }

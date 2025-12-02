@@ -1,98 +1,45 @@
 # ============================================================================
 # C-GEM Seasonal Calibration Targets: Mekong Delta
 # ============================================================================
-# Format: Branch, Variable, Location_km, Time_Day, Value [, Weight]
-#
-# This file defines time-series observations for seasonal calibration.
-# The optimizer will find parameters that satisfy BOTH dry and wet season.
-#
-# Time_Day: Days from simulation start (use StartDate in case_config.txt)
-#           Dry season: ~Days 0-90 (Jan-Mar) and 270-365 (Oct-Dec)
-#           Wet season: ~Days 120-270 (May-Sep)
-#
-# Reference observations:
-#   - Nguyen et al. (2008): Dry season salinity intrusion 40-60 km
-#   - MRC Water Quality Database: Seasonal patterns
-#   - SIWRR monitoring stations
-#
-# Weight: Higher = more important (default: 1.0)
+# SIMPLIFIED for Stage 1 debugging - focus on salinity profiles only
+# Format: Branch, Variable, Location_km, Time_Day, Value, Weight
 # ============================================================================
 
 Branch,Variable,Location_km,Time_Day,Value,Weight
-# =============================================================================
-# SALINITY INTRUSION - HAM LUONG BRANCH
-# =============================================================================
-# Dry season peak (Day 15 = mid-March, maximum intrusion)
-Ham_Luong,SALINITY,30.0,15.0,25.0,2.0
-Ham_Luong,SALINITY,40.0,15.0,15.0,2.0
-Ham_Luong,SALINITY,50.0,15.0,6.0,2.0
-Ham_Luong,SALINITY,60.0,15.0,1.0,1.0
-
-# Early wet season (Day 100 = late June, intrusion retreating)
-Ham_Luong,SALINITY,30.0,100.0,8.0,1.5
-Ham_Luong,SALINITY,40.0,100.0,2.0,1.5
-Ham_Luong,SALINITY,50.0,100.0,0.3,1.0
-
-# Peak wet season (Day 180 = August, minimal intrusion)
-Ham_Luong,SALINITY,20.0,180.0,0.5,1.0
-Ham_Luong,SALINITY,30.0,180.0,0.1,1.0
 
 # =============================================================================
-# SALINITY INTRUSION - CO CHIEN BRANCH
+# SALINITY PROFILES - Day 45 (peak dry season after warmup)
 # =============================================================================
-# Dry season
-Co_Chien,SALINITY,25.0,15.0,28.0,2.0
-Co_Chien,SALINITY,35.0,15.0,18.0,2.0
-Co_Chien,SALINITY,45.0,15.0,8.0,1.5
+# Target: Smooth exponential decay from ~32 PSU at mouth to 0.1 PSU upstream
 
-# Wet season
-Co_Chien,SALINITY,25.0,180.0,0.8,1.0
-Co_Chien,SALINITY,35.0,180.0,0.2,1.0
+# HAM LUONG (deepest channel, longest intrusion ~60 km)
+Ham_Luong,SALINITY,5.0,45.0,32.0,2.0
+Ham_Luong,SALINITY,10.0,45.0,28.0,2.0
+Ham_Luong,SALINITY,20.0,45.0,22.0,2.0
+Ham_Luong,SALINITY,30.0,45.0,15.0,2.0
+Ham_Luong,SALINITY,40.0,45.0,9.0,2.0
+Ham_Luong,SALINITY,50.0,45.0,4.0,2.0
+Ham_Luong,SALINITY,60.0,45.0,1.0,1.0
 
-# =============================================================================
-# SALINITY INTRUSION - MY THO BRANCH
-# =============================================================================
-# Dry season
-My_Tho,SALINITY,25.0,15.0,22.0,2.0
-My_Tho,SALINITY,40.0,15.0,10.0,2.0
-My_Tho,SALINITY,55.0,15.0,2.0,1.5
+# HAU RIVER (second longest intrusion ~55 km)
+Hau_River,SALINITY,5.0,45.0,31.0,2.0
+Hau_River,SALINITY,10.0,45.0,27.0,2.0
+Hau_River,SALINITY,20.0,45.0,20.0,2.0
+Hau_River,SALINITY,30.0,45.0,13.0,2.0
+Hau_River,SALINITY,40.0,45.0,7.0,2.0
+Hau_River,SALINITY,50.0,45.0,2.5,2.0
 
-# Wet season
-My_Tho,SALINITY,25.0,180.0,0.5,1.0
-My_Tho,SALINITY,40.0,180.0,0.1,1.0
+# MY THO (moderate intrusion ~50 km)
+My_Tho,SALINITY,5.0,45.0,30.0,2.0
+My_Tho,SALINITY,10.0,45.0,26.0,2.0
+My_Tho,SALINITY,20.0,45.0,18.0,2.0
+My_Tho,SALINITY,30.0,45.0,11.0,2.0
+My_Tho,SALINITY,40.0,45.0,5.0,2.0
+My_Tho,SALINITY,50.0,45.0,1.0,1.0
 
-# =============================================================================
-# SALINITY INTRUSION - HAU RIVER BRANCH
-# =============================================================================
-# Dry season
-Hau_River,SALINITY,30.0,15.0,20.0,2.0
-Hau_River,SALINITY,45.0,15.0,8.0,2.0
-Hau_River,SALINITY,60.0,15.0,1.5,1.5
-
-# Wet season
-Hau_River,SALINITY,30.0,180.0,0.3,1.0
-Hau_River,SALINITY,45.0,180.0,0.1,1.0
-
-# =============================================================================
-# DISSOLVED OXYGEN (if biogeochemistry enabled)
-# =============================================================================
-# Dry season (lower flow, higher residence time, potentially lower O2)
-# Ham_Luong,O2,30.0,15.0,180.0,1.0
-# Ham_Luong,O2,50.0,15.0,200.0,1.0
-
-# Wet season (higher flow, better oxygenation)
-# Ham_Luong,O2,30.0,180.0,220.0,1.0
-# Ham_Luong,O2,50.0,180.0,240.0,1.0
-
-# =============================================================================
-# SPM / TURBIDITY (if sediment module enabled)
-# =============================================================================
-# Dry season - ETM forms due to tidal trapping
-# Ham_Luong,SPM,25.0,15.0,150.0,1.0
-# Ham_Luong,SPM,35.0,15.0,250.0,1.0
-# Ham_Luong,SPM,50.0,15.0,80.0,1.0
-
-# Wet season - high upstream loads, ETM less pronounced
-# Ham_Luong,SPM,25.0,180.0,120.0,1.0
-# Ham_Luong,SPM,35.0,180.0,180.0,1.0
-# Ham_Luong,SPM,50.0,180.0,200.0,1.0
+# CO CHIEN (shortest intrusion ~45 km)
+Co_Chien,SALINITY,5.0,45.0,31.0,2.0
+Co_Chien,SALINITY,10.0,45.0,27.0,2.0
+Co_Chien,SALINITY,20.0,45.0,19.0,2.0
+Co_Chien,SALINITY,30.0,45.0,10.0,2.0
+Co_Chien,SALINITY,40.0,45.0,3.0,2.0

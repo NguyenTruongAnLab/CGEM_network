@@ -1,0 +1,264 @@
+  Parsed branch 1: Tien_Main (RS=1.0, K=0.50, α=0.08)
+  Parsed branch 2: Hau_Main (RS=1.0, K=0.50, α=0.08)
+  Parsed branch 3: Vam_Nao (RS=1.0, K=0.60, α=0.05)
+  Parsed branch 4: Tien_Lower (RS=1.0, K=0.45, α=0.10)
+  Parsed branch 5: Tien_Connector (RS=1.0, K=0.50, α=0.08)
+  Parsed branch 6: Co_Chien (RS=1.2, K=0.60, α=0.12)
+  Parsed branch 7: My_Tho (RS=1.2, K=0.35, α=0.12)
+  Parsed branch 8: Ham_Luong (RS=1.2, K=0.32, α=0.12)
+  Parsed branch 9: Hau_River (RS=1.3, K=0.28, α=0.15)
+Boundary path: 'INPUT/Cases/Mekong_Delta_Full/boundary_map.csv'
+Loaded 11161 forcing points for node 1 (DISCHARGE)
+Loaded 16 species with 466 time points from: INPUT/Cases/Mekong_Delta_Full/species_river.csv
+Loaded ALL species forcing for node 1 from: species_river.csv
+Loaded 11161 forcing points for node 2 (DISCHARGE)
+Loaded 16 species with 466 time points from: INPUT/Cases/Mekong_Delta_Full/species_river.csv
+Loaded ALL species forcing for node 2 from: species_river.csv
+Loaded 17521 forcing points for node 6 (LEVEL)
+Loaded 16 species with 466 time points from: INPUT/Cases/Mekong_Delta_Full/species_ocean.csv
+Loaded ALL species forcing for node 6 from: species_ocean.csv
+Loaded 17521 forcing points for node 7 (LEVEL)
+Loaded 16 species with 466 time points from: INPUT/Cases/Mekong_Delta_Full/species_ocean.csv
+Loaded ALL species forcing for node 7 from: species_ocean.csv
+Loaded 17521 forcing points for node 8 (LEVEL)
+Loaded 16 species with 466 time points from: INPUT/Cases/Mekong_Delta_Full/species_ocean.csv
+Loaded ALL species forcing for node 8 from: species_ocean.csv
+Loaded 17521 forcing points for node 9 (LEVEL)
+Loaded 16 species with 466 time points from: INPUT/Cases/Mekong_Delta_Full/species_ocean.csv
+Loaded ALL species forcing for node 9 from: species_ocean.csv
+==================================================
+  C-GEM Network Engine - Initialization
+==================================================
+Network defaults initialized.
+Initializing hydrodynamics for 9 branches...
+  > Configured Tien_Main: L=50000, M=50, dx=1000.00, RS=1.0
+  Branch 1 (Tien_Main): L=50000 m, W=1200-1000 m, H=15.0 m
+  > Configured Hau_Main: L=44000, M=44, dx=1000.00, RS=1.0
+  Branch 2 (Hau_Main): L=44000 m, W=1100-900 m, H=14.0 m
+  > Configured Vam_Nao: L=8000, M=8, dx=1000.00, RS=1.0
+  Branch 3 (Vam_Nao): L=8000 m, W=600-600 m, H=18.0 m
+  > Configured Tien_Lower: L=50000, M=50, dx=1000.00, RS=1.0
+  Branch 4 (Tien_Lower): L=50000 m, W=1400-1200 m, H=14.0 m
+  > Configured Tien_Connector: L=14000, M=14, dx=1000.00, RS=1.0
+  Branch 5 (Tien_Connector): L=14000 m, W=1200-1100 m, H=13.0 m
+  > Configured Co_Chien: L=84000, M=84, dx=1000.00, RS=1.2
+  Branch 6 (Co_Chien): L=84000 m, W=2800-1100 m, H=13.0 m
+  > Configured My_Tho: L=54000, M=54, dx=1000.00, RS=1.2
+  Branch 7 (My_Tho): L=54000 m, W=2200-900 m, H=11.0 m
+  > Configured Ham_Luong: L=60000, M=60, dx=1000.00, RS=1.2
+  Branch 8 (Ham_Luong): L=60000 m, W=2500-1000 m, H=12.0 m
+  > Configured Hau_River: L=90000, M=90, dx=1000.00, RS=1.3
+  Branch 9 (Hau_River): L=90000 m, W=3000-1200 m, H=14.0 m
+Hydrodynamics initialized for all branches.
+Initializing sediment transport for 9 branches...
+Sediment transport initialized for all branches.
+Initializing biogeochemistry for 9 branches...
+Loading biogeochemistry parameters from: INPUT/Cases/Mekong_Delta_Full/biogeo_params.txt
+Biogeochemistry parameters loaded.
+Biogeochemistry initialized for all branches.
+Initializing species boundary conditions...
+  Savenije Init Co_Chien: K=0.60, a=89906 m, Q=3000 m³/s, D0=150 m²/s
+    β=29.6393, x_max=3.0 km (branch L=84.0 km)
+  Savenije Init My_Tho: K=0.35, a=60415 m, Q=3000 m³/s, D0=150 m²/s
+    β=17.4754, x_max=3.4 km (branch L=54.0 km)
+  Savenije Init Ham_Luong: K=0.32, a=65481 m, Q=3000 m³/s, D0=150 m²/s
+    β=13.9694, x_max=4.5 km (branch L=60.0 km)
+  Savenije Init Hau_River: K=0.28, a=98222 m, Q=3000 m³/s, D0=150 m²/s
+    β=13.0963, x_max=7.2 km (branch L=90.0 km)
+Species boundary conditions initialized.
+Initializing 11 network nodes...
+  Node 0: Junction with 0 connections
+  Node 1: Discharge BC with 1 connections
+  Node 2: Discharge BC with 1 connections
+  Node 3: Junction with 3 connections
+  Node 4: Junction with 3 connections
+  Node 5: Junction with 3 connections
+  Node 6: Level BC with 1 connections
+  Node 7: Level BC with 1 connections
+  Node 8: Level BC with 1 connections
+  Node 9: Level BC with 1 connections
+  Node 10: Junction with 3 connections
+Network nodes initialized.
+Initialized CSV output for Tien_Main (36 variables)
+Initialized CSV output for Hau_Main (36 variables)
+Initialized CSV output for Vam_Nao (36 variables)
+Initialized CSV output for Tien_Lower (36 variables)
+Initialized CSV output for Tien_Connector (36 variables)
+Initialized CSV output for Co_Chien (36 variables)
+Initialized CSV output for My_Tho (36 variables)
+Initialized CSV output for Ham_Luong (36 variables)
+Initialized CSV output for Hau_River (36 variables)
+==================================================
+  Network initialization complete!
+==================================================
+
+Loading lateral sources from: INPUT/Cases/Mekong_Delta_Full/lateral_sources.csv
+  Loaded 466 segments for 9 branches
+  Total lateral Q: 0.921 m³/s (79556 m³/day)
+  Est. NH4 load: 4.1 mg/s (351.9 kg/day)
+Loading lateral seasonal factors from: INPUT/Cases/Mekong_Delta_Full/lateral_seasonal_factors.csv
+  Loaded 12 months of seasonal factors
+  Monthly Q factors: 1.0 1.0 1.0 2.2 7.3 10.6 11.8 12.7 13.9 11.0 5.3 1.8 
+  Loading daily factors from: INPUT/Cases/Mekong_Delta_Full/lateral_daily_factors.csv
+  Loaded 365 days of daily factors
+
+==============================================
+  C-GEM Network Engine
+==============================================
+  Case        : Mekong_Delta_Full
+  Topology    : INPUT/Cases/Mekong_Delta_Full/topology.csv
+  Branches    : 9
+  Nodes       : 11
+  Species     : 30
+  Time step   : 300.0 s
+  Duration    : 65 days
+  Warmup      : 30 days
+  Tidal amp   : 2.00 m
+  Q_river     : 3300.0 m³/s
+  Output dir  : .\OUTPUT\Mekong_Delta_Full
+==============================================
+
+Branches:
+  [1] Tien_Main            L=50000 m, W_down=1200 m, W_up=1000 m, H=15.0 m, LC=274241 m
+  [2] Hau_Main             L=44000 m, W_down=1100 m, W_up=900 m, H=14.0 m, LC=219265 m
+  [3] Vam_Nao              L=8000 m, W_down=600 m, W_up=600 m, H=18.0 m, LC=-1 m
+  [4] Tien_Lower           L=50000 m, W_down=1400 m, W_up=1200 m, H=14.0 m, LC=324358 m
+  [5] Tien_Connector       L=14000 m, W_down=1200 m, W_up=1100 m, H=13.0 m, LC=160898 m
+  [6] Co_Chien             L=84000 m, W_down=2800 m, W_up=1100 m, H=13.0 m, LC=89906 m
+  [7] My_Tho               L=54000 m, W_down=2200 m, W_up=900 m, H=11.0 m, LC=60415 m
+  [8] Ham_Luong            L=60000 m, W_down=2500 m, W_up=1000 m, H=12.0 m, LC=65481 m
+  [9] Hau_River            L=90000 m, W_down=3000 m, W_up=1200 m, H=14.0 m, LC=98222 m
+
+==============================================
+  CALIBRATION MODE
+==============================================
+
+Loaded 33 calibration parameters from INPUT/Cases/Mekong_Delta_Full/calibration_params.csv
+Loaded 9 calibration objectives from INPUT/Cases/Mekong_Delta_Full/calibration_targets.csv
+Loaded 24 seasonal observation groups from INPUT/Cases/Mekong_Delta_Full/seasonal_targets.csv
+Running Stage 1 calibration only...
+
+Optimizing 14 parameters for stage 1 using NLopt
+  Param 0: Chezy_River = 55.0000 [20.0000, 100.0000]
+  Param 1: Chezy_Estuary = 48.0000 [20.0000, 100.0000]
+  Param 2: Chezy_VamNao = 65.0000 [20.0000, 100.0000]
+  Param 3: LC_HauRiver = 96000.0000 [5000.0000, 500000.0000]
+  Param 4: LC_MyTho = 63000.0000 [5000.0000, 500000.0000]
+  Param 5: LC_HamLuong = 65000.0000 [5000.0000, 500000.0000]
+  Param 6: LC_CoChien = 90000.0000 [5000.0000, 500000.0000]
+  Param 7: VDB_Estuary = 0.2000 [0.0100, 2.0000]
+  Param 8: Alpha_Estuary = 0.3500 [0.0100, 1.0000]
+  Param 9: Alpha_HauRiver = 0.4000 [0.0100, 1.0000]
+  Param 10: Alpha_HamLuong = 0.3500 [0.0100, 1.0000]
+  Param 11: RS_Estuary = 2.0000 [1.0000, 20.0000]
+  Param 12: RS_River = 1.2000 [1.0000, 10.0000]
+  Param 13: D0_Estuary = 250.0000 [10.0000, 2000.0000]
+NLopt algorithm: BOBYQA bound-constrained optimization via quadratic models (local, no-derivative)
+Max evaluations: 2
+Tolerance: rel=1.00e-04, abs=1.00e-06
+
+  Junction 0: Initial H = 0.50 m
+  Junction 3: Initial H = 0.50 m
+  Junction 4: Initial H = 0.50 m
+  Junction 5: Initial H = 0.50 m
+  Junction 10: Initial H = 0.50 m
+  Dispersion Tien_Main: D0=50 m²/s, K=0.50, β=50.000, x_max=5.4 km (Q=660 m³/s)
+  Dispersion Hau_Main: D0=50 m²/s, K=0.50, β=50.000, x_max=4.3 km (Q=660 m³/s)
+  Dispersion Vam_Nao: D0=50 m²/s [PRISMATIC - uniform D]
+  Dispersion Tien_Lower: D0=50 m²/s, K=0.45, β=50.000, x_max=6.4 km (Q=660 m³/s)
+  Dispersion Tien_Connector: D0=50 m²/s, K=0.50, β=50.000, x_max=3.2 km (Q=660 m³/s)
+  Dispersion Co_Chien: D0=150 m²/s, K=0.20, β=2.200, x_max=33.7 km (Q=660 m³/s)
+  Dispersion My_Tho: D0=150 m²/s, K=0.20, β=2.329, x_max=22.5 km (Q=660 m³/s)
+  Dispersion Ham_Luong: D0=150 m²/s, K=0.20, β=1.936, x_max=27.1 km (Q=660 m³/s)
+  Dispersion Hau_River: D0=150 m²/s, K=0.20, β=2.032, x_max=38.4 km (Q=660 m³/s)
+  Eval   1: RMSE =  40.8579 [initial]
+
+NLopt result: MAXEVAL_REACHED (code 5)
+Optimization complete: best RMSE = 40.8579 after 2 evaluations
+
+========== CALIBRATION SUMMARY ==========
+
+OPTIMIZED PARAMETERS:
+Name                      Initial    Best       Min        Max       
+--------------------------------------------------------------
+Chezy_River                  55.0000    55.0000    20.0000   100.0000
+Chezy_Estuary                48.0000    48.0000    20.0000   100.0000
+Chezy_VamNao                 65.0000    65.0000    20.0000   100.0000
+LC_HauRiver               96000.0000 96000.0000  5000.0000 500000.0000
+LC_MyTho                  63000.0000 63000.0000  5000.0000 500000.0000
+LC_HamLuong               65000.0000 65000.0000  5000.0000 500000.0000
+LC_CoChien                90000.0000 90000.0000  5000.0000 500000.0000
+VDB_Estuary                   0.2000     0.2000     0.0100     2.0000
+Alpha_Estuary                 0.3500     0.3500     0.0100     1.0000
+Alpha_HauRiver                0.4000     0.4000     0.0100     1.0000
+Alpha_HamLuong                0.3500     0.3500     0.0100     1.0000
+RS_Estuary                    2.0000     2.0000     1.0000    20.0000
+RS_River                      1.2000     1.2000     1.0000    10.0000
+D0_Estuary                  250.0000   250.0000    10.0000  2000.0000
+WS_Global                     0.0005     0.0005     0.0000     0.0100
+Floc_SalScale                 3.0000     3.0000     0.5000    20.0000
+Floc_FactorMax                8.0000     8.0000     1.0000    50.0000
+TauEro_Estuary                0.2000     0.2000     0.0100     2.0000
+TauDep_Estuary                0.0600     0.0600     0.0010     0.5000
+Mero_Estuary                  0.0000     0.0000     0.0000     0.0001
+POC_SPM                       0.0200     0.0200     0.0010     0.1000
+Kox_Global                    0.0800     0.0800     0.0010     1.0000
+Knit_Global                   0.1000     0.1000     0.0010     1.0000
+Kdenit_Global                 0.0300     0.0300     0.0010     0.5000
+Pbmax1_Global                 2.5000     2.5000     0.5000    10.0000
+Pbmax2_Global                 2.0000     2.0000     0.3000     8.0000
+Kmort1_Global                 0.0800     0.0800     0.0100     0.5000
+Kmort2_Global                 0.0600     0.0600     0.0100     0.4000
+WindCoeff_Global              0.2500     0.2500     0.0500     1.0000
+CurrentK_Global               0.3000     0.3000     0.0100     1.0000
+BenthicResp_Global           80.0000    80.0000     1.0000   500.0000
+Kpads_Global                  0.0500     0.0500     0.0010     0.5000
+PAC_Global                    0.0050     0.0050     0.0001     0.0500
+
+OBJECTIVE PERFORMANCE:
+Target               Model        Target       Residual     Weight  
+--------------------------------------------------------------
+Hau_River_SALINITY         0.0000      55.0000     -55.0000   100.00
+My_Tho_SALINITY            0.0000      50.0000     -50.0000   100.00
+Ham_Luong_SALINITY         0.0000      60.0000     -60.0000   100.00
+Co_Chien_SALINITY          0.0000      45.0000     -45.0000   100.00
+Ham_Luong_SALINITY         0.1030      15.0000     -14.8970    50.00
+My_Tho_SALINITY            0.1030      12.0000     -11.8970    50.00
+Hau_River_SALINITY         0.1030      12.0000     -11.8970    50.00
+Co_Chien_SALINITY          0.1030      10.0000      -9.8970    50.00
+Vam_Nao_VELOCITY           0.1065       0.3500      -0.2435    50.00
+Ham_Luong_SALINITY         0.1030      32.0000     -31.8970     2.00
+Ham_Luong_SALINITY         0.1030      28.0000     -27.8970     2.00
+Ham_Luong_SALINITY         0.1030      22.0000     -21.8970     2.00
+Ham_Luong_SALINITY         0.1030      15.0000     -14.8970     2.00
+Ham_Luong_SALINITY         0.1030       9.0000      -8.8970     2.00
+Ham_Luong_SALINITY         0.1030       4.0000      -3.8970     2.00
+Ham_Luong_SALINITY         0.1030       1.0000      -0.8970     1.00
+Hau_River_SALINITY         0.1030      31.0000     -30.8970     2.00
+Hau_River_SALINITY         0.1030      27.0000     -26.8970     2.00
+Hau_River_SALINITY         0.1030      20.0000     -19.8970     2.00
+Warning: Adjusting Branch Hau_Main length from 45000.00 to 44000.00 to match grid dx=1000.00.
+Warning: Adjusting Branch Tien_Connector length from 15000.00 to 14000.00 to match grid dx=1000.00.
+Warning: Adjusting Branch Co_Chien length from 85000.00 to 84000.00 to match grid dx=1000.00.
+Warning: Adjusting Branch My_Tho length from 55000.00 to 54000.00 to match grid dx=1000.00.
+Hau_River_SALINITY         0.1030      13.0000     -12.8970     2.00
+Hau_River_SALINITY         0.1030       7.0000      -6.8970     2.00
+Hau_River_SALINITY         0.1030       2.5000      -2.3970     2.00
+My_Tho_SALINITY            0.1030      30.0000     -29.8970     2.00
+My_Tho_SALINITY            0.1030      26.0000     -25.8970     2.00
+My_Tho_SALINITY            0.1030      18.0000     -17.8970     2.00
+My_Tho_SALINITY            0.1030      11.0000     -10.8970     2.00
+My_Tho_SALINITY            0.1030       5.0000      -4.8970     2.00
+My_Tho_SALINITY            0.1030       1.0000      -0.8970     1.00
+Co_Chien_SALINITY          0.1030      31.0000     -30.8970     2.00
+Co_Chien_SALINITY          0.1030      27.0000     -26.8970     2.00
+Co_Chien_SALINITY          0.1030      19.0000     -18.8970     2.00
+Co_Chien_SALINITY          0.1030      10.0000      -9.8970     2.00
+Co_Chien_SALINITY          0.1030       3.0000      -2.8970     2.00
+
+Final RMSE: 40.8579
+Total evaluations: 2
+
+==========================================
+
+Results saved to: .\OUTPUT\Mekong_Delta_Full/calibration/calibration_results.csv

@@ -29,7 +29,7 @@ Warmup = 30
 
 # Numerical parameters
 TimeStep = 300.0
-DELXI = 2000.0
+DELXI = 1000.0
 
 # Reference discharge for dispersion calculation
 # Total Mekong discharge ~3300 m³/s in dry season (60% Tien + 40% Hau)

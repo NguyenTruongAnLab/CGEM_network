@@ -20,8 +20,16 @@ Branch *allocate_branch(int M, int num_species) {
     b->depth = (double *)calloc(field_len, sizeof(double));
     b->velocity = (double *)calloc(field_len, sizeof(double));
     b->waterLevel = (double *)calloc(field_len, sizeof(double));
+    b->waterLevel_min = (double *)calloc(field_len, sizeof(double));
+    b->waterLevel_max = (double *)calloc(field_len, sizeof(double));
     b->dispersion = (double *)calloc(field_len, sizeof(double));
     b->chezyArray = (double *)calloc(field_len, sizeof(double));
+    
+    /* Initialize min/max to extreme values for proper tracking */
+    for (size_t i = 0; i < field_len; ++i) {
+        b->waterLevel_min[i] = 1e30;
+        b->waterLevel_max[i] = -1e30;
+    }
     
     /* Previous timestep values */
     b->totalArea_old = (double *)calloc(field_len, sizeof(double));
@@ -137,6 +145,8 @@ void free_branch(Branch *branch, int num_species) {
     free(branch->depth);
     free(branch->velocity);
     free(branch->waterLevel);
+    free(branch->waterLevel_min);
+    free(branch->waterLevel_max);
     free(branch->dispersion);
     free(branch->chezyArray);
     free(branch->totalArea_old);

@@ -115,9 +115,11 @@ int network_run_simulation(Network *net, CaseConfig *config) {
     int total_steps = (int)(total_time / dt);
     int warmup_steps = (int)(warmup_time / dt);
     
-    printf("Starting simulation: %d steps (%.1f days), warmup: %d steps (%.1f days)\n",
-           total_steps, total_time / 86400.0,
-           warmup_steps, warmup_time / 86400.0);
+    if (!net->quiet_mode) {
+        printf("Starting simulation: %d steps (%.1f days), warmup: %d steps (%.1f days)\n",
+               total_steps, total_time / 86400.0,
+               warmup_steps, warmup_time / 86400.0);
+    }
 
     FILE *fp_hydro = NULL;
     FILE *fp_conc = NULL;
@@ -132,26 +134,39 @@ int network_run_simulation(Network *net, CaseConfig *config) {
         double current_time = step * dt;
         int is_warmup = (step < warmup_steps);
         
-        /* Progress output */
-        if (current_time - last_print_time >= PRINT_INTERVAL_S || step == 0) {
+        /* Progress output (skip if quiet_mode for calibration runs) */
+        if (!net->quiet_mode && (current_time - last_print_time >= PRINT_INTERVAL_S || step == 0)) {
             double elapsed_s = (double)(clock() - start_clock) / CLOCKS_PER_SEC;
             double day = current_time / 86400.0;
             double pct = 100.0 * step / total_steps;
             
             /* Get sample values from first branch */
             double sample_depth = 0.0, sample_vel = 0.0, sample_sal = 0.0;
-            if (net->num_branches > 0 && net->branches[0]) {
-                Branch *b = net->branches[0];
-                int mid = b->M / 2;
-                if (mid < 1) mid = 1;
-                if (mid % 2 == 0) {
-                    if (mid + 1 < b->M) mid += 1;
-                    else if (mid > 1) mid -= 1;
+            /* Find an ocean-connected branch for salinity monitoring 
+             * (upstream branches have 0.1 PSU, not informative) */
+            Branch *monitor_branch = NULL;
+            for (size_t b = 0; b < net->num_branches; ++b) {
+                Branch *br = net->branches[b];
+                if (br && br->down_node_type == NODE_LEVEL_BC) {
+                    monitor_branch = br;
+                    break;  /* Use first ocean-connected branch */
                 }
-                sample_depth = b->depth[mid];
-                sample_vel = b->velocity[mid];
+            }
+            if (!monitor_branch && net->num_branches > 0) {
+                monitor_branch = net->branches[0];  /* Fallback */
+            }
+            
+            if (monitor_branch) {
+                Branch *b = monitor_branch;
+                /* For ocean-connected branches, sample at MOUTH (index 3, ~6km)
+                 * not middle - salt intrusion typically < 50km, middle is ~40km */
+                int sample_idx = 3;  /* First interior cell near ocean */
+                if (sample_idx > b->M - 1) sample_idx = b->M / 2;
+                
+                sample_depth = b->depth[sample_idx];
+                sample_vel = b->velocity[sample_idx > 1 ? sample_idx - 1 : sample_idx];
                 if (b->num_species > 0 && b->conc && b->conc[0]) {
-                    sample_sal = b->conc[0][mid];
+                    sample_sal = b->conc[0][sample_idx];
                 }
             }
             
@@ -225,15 +240,17 @@ int network_run_simulation(Network *net, CaseConfig *config) {
     }
     
     double total_elapsed = (double)(clock() - start_clock) / CLOCKS_PER_SEC;
-    printf("\nSimulation complete: %d steps in %.1f seconds (%.1f steps/s)\n",
-           total_steps, total_elapsed, total_steps / total_elapsed);
-    if (config->write_csv) {
-        char csv_dir[CGEM_MAX_PATH + 16];
-        snprintf(csv_dir, sizeof(csv_dir), "%s/CSV", config->output_dir);
-        printf("CSV output written to: %s\n", csv_dir);
-    }
-    if (config->write_netcdf) {
-        printf("Binary/netcdf output written to: %s\n", config->output_dir);
+    if (!net->quiet_mode) {
+        printf("\nSimulation complete: %d steps in %.1f seconds (%.1f steps/s)\n",
+               total_steps, total_elapsed, total_steps / total_elapsed);
+        if (config->write_csv) {
+            char csv_dir[CGEM_MAX_PATH + 16];
+            snprintf(csv_dir, sizeof(csv_dir), "%s/CSV", config->output_dir);
+            printf("CSV output written to: %s\n", csv_dir);
+        }
+        if (config->write_netcdf) {
+            printf("Binary/netcdf output written to: %s\n", config->output_dir);
+        }
     }
     
     return 0;

@@ -5,11 +5,11 @@
  * Implements config-file-based calibration for C-GEM Network.
  * Reads parameters and objectives from CSV files, runs optimization.
  * 
- * UPGRADED: Uses NLopt library for optimization and supports seasonal
+ * Uses NLopt library for optimization and supports seasonal
  * time-series objectives for capturing dry/wet season dynamics.
  * 
  * @author Nguyen Truong An
- * @date December 2024
+ * @date December 2025
  */
 
 #include "calibration.h"
@@ -29,6 +29,7 @@
 extern int network_run_simulation(Network *net, CaseConfig *config);
 extern void initializeNetworkHydrodynamics(Network *net);
 extern void InitializeBiogeoParameters(Branch *branch);
+extern void resetNetworkState(Network *net);  /* Reset network for each calibration iteration */
 
 /* ============================================================================
  * STRING UTILITY FUNCTIONS
@@ -96,10 +97,14 @@ static const char* TARGET_TYPE_NAMES[] = {
     NULL
 };
 
-/* Species names for lookup */
+/* Species names for lookup - MUST MATCH CGEM_SPECIES_* indices in define.h */
 static const char* SPECIES_NAMES_CALIB[] = {
-    "SALINITY", "PHY1", "PHY2", "DSI", "NO3", "NH4", "PO4", "O2",
-    "TOC", "SPM", "DIC", "AT", "PCO2", "CO2", "PH", "HS", "ALKC",
+    "SALINITY", "PHY1", "PHY2", "DSI", "NO3", "NH4", "PO4", "O2",    /* 0-7 */
+    "TOC", "SPM", "DIC", "AT", "PCO2", "CO2", "PH", "HS", "ALKC",    /* 8-16 */
+    "HD1", "HD2", "HD3", "HP1", "HP2", "HP3",                        /* 17-22 (RIVE organic pools) */
+    "BAG", "BAP",                                                     /* 23-24 (RIVE bacteria) */
+    "PIP", "DSS",                                                     /* 25-26 (RIVE P/substrates) */
+    "NO2", "N2O", "CH4",                                              /* 27-29 (GHG species) */
     NULL
 };
 
@@ -310,6 +315,10 @@ int calib_load_params(CalibrationEngine *engine, const char *filepath) {
         char *trimmed = trim_whitespace(line);
         if (trimmed[0] == '\0' || trimmed[0] == '#') continue;
         
+        /* Skip header lines (case-insensitive check for column names) */
+        if (strncasecmp(trimmed, "Name,", 5) == 0 ||
+            strncasecmp(trimmed, "Name\t", 5) == 0) continue;
+        
         CalibParam *p = &engine->params[count];
         memset(p, 0, sizeof(CalibParam));
         
@@ -401,6 +410,10 @@ int calib_load_objectives(CalibrationEngine *engine, const char *filepath) {
         char *trimmed = trim_whitespace(line);
         if (trimmed[0] == '\0' || trimmed[0] == '#') continue;
         
+        /* Skip header lines (case-insensitive check for column names) */
+        if (strncasecmp(trimmed, "BranchName,", 11) == 0 ||
+            strncasecmp(trimmed, "Branch,", 7) == 0) continue;
+        
         CalibObjective *obj = &engine->objectives[count];
         memset(obj, 0, sizeof(CalibObjective));
         
@@ -426,6 +439,7 @@ int calib_load_objectives(CalibrationEngine *engine, const char *filepath) {
         obj->weight = weight;
         obj->threshold = threshold;
         obj->enabled = 1;
+        obj->branch_idx = -1;  /* Mark as unresolved - will be resolved at runtime */
         
         /* Determine stage from variable */
         if (obj->species_idx == -2 || obj->species_idx == -3 || obj->species_idx == -4) {
@@ -510,6 +524,10 @@ int calib_load_seasonal_targets(CalibrationEngine *engine, const char *filepath)
         char *trimmed = trim_whitespace(line);
         if (trimmed[0] == '\0' || trimmed[0] == '#') continue;
         
+        /* Skip header lines (case-insensitive check for column names) */
+        if (strncasecmp(trimmed, "Branch,", 7) == 0 ||
+            strncasecmp(trimmed, "BranchName,", 11) == 0) continue;
+        
         char branch_name[64], var_name[32];
         double location_km, time_day, value, weight = 1.0;
         
@@ -579,6 +597,7 @@ int calib_load_seasonal_targets(CalibrationEngine *engine, const char *filepath)
         
         CalibObjective *obj = &engine->objectives[engine->num_objectives];
         memset(obj, 0, sizeof(CalibObjective));
+        obj->branch_idx = -1;  /* Mark as unresolved - will be resolved at runtime */
         
         strncpy(obj->branch_name, g->branch_name, CALIB_MAX_NAME_LEN - 1);
         strncpy(obj->species_name, g->var_name, 31);
@@ -913,22 +932,59 @@ double calib_calc_intrusion_length(Branch *branch, double threshold) {
 }
 
 double calib_calc_tidal_range(Branch *branch, double km_location) {
-    if (!branch || !branch->waterLevel) return -1.0;
+    if (!branch) return -1.0;
     
     /* Find grid index closest to location */
     int idx = (int)(km_location * 1000.0 / branch->dx);
     if (idx < 1) idx = 1;
     if (idx > branch->M) idx = branch->M;
     
-    /* Note: This assumes water level has been recorded over time */
-    /* For now, return the depth variation as a proxy */
-    /* A proper implementation would track min/max water level over a tidal cycle */
+    /* Use proper min/max water level tracking if available */
+    if (branch->waterLevel_min && branch->waterLevel_max) {
+        double min_wl = branch->waterLevel_min[idx];
+        double max_wl = branch->waterLevel_max[idx];
+        
+        /* Check that values have been properly updated during simulation */
+        if (min_wl < 1e20 && max_wl > -1e20) {
+            double tidal_range = max_wl - min_wl;
+            if (tidal_range > 0.0) {
+                return tidal_range;
+            }
+        }
+    }
     
-    /* Simplified: assume current depth variation is proportional to tidal range */
-    double H = branch->depth[idx];
-    double H_ref = branch->depth_m;  /* Reference depth */
+    /* Fallback: use spatial variation as proxy */
+    if (branch->waterLevel) {
+        double min_wl = 1e30, max_wl = -1e30;
+        
+        /* Look at water levels over several cells near the target location */
+        int range = 5;  /* Look +/- 5 cells */
+        int start = idx - range;
+        int end = idx + range;
+        if (start < 1) start = 1;
+        if (end > branch->M) end = branch->M;
+        
+        for (int i = start; i <= end; ++i) {
+            double wl = branch->waterLevel[i];
+            if (wl < min_wl) min_wl = wl;
+            if (wl > max_wl) max_wl = wl;
+        }
+        
+        /* If we have meaningful variation, use it */
+        double tidal_range = max_wl - min_wl;
+        if (tidal_range > 0.01) {
+            return tidal_range;
+        }
+    }
     
-    return fabs(H - H_ref) * 2.0;  /* Approximate full range */
+    /* Final fallback: estimate from depth variation relative to reference */
+    if (branch->depth) {
+        double H = branch->depth[idx];
+        double H_ref = branch->depth_m;
+        return fabs(H - H_ref) * 2.0;
+    }
+    
+    return -1.0;
 }
 
 double calib_calc_etm_location(Branch *branch) {
@@ -1262,6 +1318,14 @@ static double nlopt_objective_func(unsigned n, const double *x, double *grad, vo
     
     CalibrationEngine *engine = ctx->engine;
     
+    /* CRITICAL: Reset network state to initial conditions before each evaluation
+     * Without this, each run starts from previous iteration's final state,
+     * causing depth to decrease and salinity to remain at initialization values */
+    resetNetworkState(ctx->network);
+    
+    /* Enable quiet mode to suppress daily progress output */
+    ctx->network->quiet_mode = 1;
+    
     /* Copy parameters from x[] to engine (with bounds enforcement) */
     int idx = 0;
     for (int i = 0; i < engine->num_params && idx < (int)n; ++i) {
@@ -1297,8 +1361,21 @@ static double nlopt_objective_func(unsigned n, const double *x, double *grad, vo
     
     engine->num_evaluations++;
     
-    if (engine->verbose >= 2) {
-        printf("  Eval %d: RMSE = %.4f\n", engine->num_evaluations, rmse);
+    /* Print concise progress: only show improvements or every N iterations */
+    if (engine->verbose >= 1) {
+        if (rmse < engine->best_rmse) {
+            if (engine->best_rmse > 1e20) {
+                /* First evaluation - don't show confusing "improved from 1e30" */
+                printf("  Eval %3d: RMSE = %8.4f [initial]\n", 
+                       engine->num_evaluations, rmse);
+            } else {
+                printf("  Eval %3d: RMSE = %8.4f [IMPROVED from %.4f]\n", 
+                       engine->num_evaluations, rmse, engine->best_rmse);
+            }
+        } else if (engine->num_evaluations % 10 == 0) {
+            printf("  Eval %3d: RMSE = %8.4f (best: %.4f)\n", 
+                   engine->num_evaluations, rmse, engine->best_rmse);
+        }
     }
     
     /* Update best if improved */
@@ -1541,6 +1618,8 @@ void calib_print_summary(CalibrationEngine *engine) {
     for (int i = 0; i < engine->num_params; ++i) {
         CalibParam *p = &engine->params[i];
         if (!p->enabled) continue;
+        /* Only show parameters for current stage if stage-specific calibration */
+        if (engine->current_stage > 0 && p->stage != engine->current_stage) continue;
         
         printf("%-25s %10.4f %10.4f %10.4f %10.4f\n",
                p->name, p->initial_val, p->best_val, p->min_val, p->max_val);
@@ -1554,6 +1633,8 @@ void calib_print_summary(CalibrationEngine *engine) {
     for (int i = 0; i < engine->num_objectives; ++i) {
         CalibObjective *obj = &engine->objectives[i];
         if (!obj->enabled) continue;
+        /* Only show objectives for current stage if stage-specific calibration */
+        if (engine->current_stage > 0 && obj->stage != engine->current_stage) continue;
         
         char target_name[64];
         snprintf(target_name, sizeof(target_name), "%s_%s",

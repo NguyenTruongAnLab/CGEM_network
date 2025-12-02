@@ -98,8 +98,6 @@ static void set_node_boundary_conc(Branch *b, int species, double value, int nod
  * For branches with outflow: BC = mixed concentration (what they "export")
  * For branches with inflow: BC = area-weighted concentration of OTHER branches
  *   (representing what dispersion brings from those branches)
- * 
- * Reference: Fischer et al. (1979), Savenije (2012) junction mixing theory
  */
 static void mix_junction_concentrations(Network *net) {
     if (!net) return;
@@ -115,13 +113,6 @@ static void mix_junction_concentrations(Network *net) {
             }
             
             /* 
-             * GRADIENT-PRESERVING JUNCTION MIXING
-             * 
-             * Physical principle (Savenije, 2012):
-             * At a junction, all branches must share a common concentration at the
-             * interface. The salinity profile in each branch follows the dispersion
-             * equation and should be CONTINUOUS across the junction.
-             * 
              * The junction concentration is determined by mass balance:
              *   Sum(Flux_in) = Sum(Flux_out)
              *   Flux = Q*C (advection) + D*A/dx * (C_neighbor - C_junction) (dispersion)
@@ -177,25 +168,6 @@ static void mix_junction_concentrations(Network *net) {
 
                 /* 3. Sample concentrations for advection/dispersion terms */
                 double C_interior = b->conc[sp][interior_cell];
-
-                /* 4. Build the mass balance using PURE ADVECTIVE mixing
-                 * 
-                 * Physical principle:
-                 * At a junction, only INFLOWS contribute mass to the node concentration.
-                 * Dispersion is handled within each branch's transport solver - the junction
-                 * simply routes the advected mass according to flow splits.
-                 * 
-                 * This prevents the unphysical "backward diffusion" where ocean salinity
-                 * from one branch diffuses through the junction into a fresh river branch.
-                 * 
-                 * CRITICAL FIX: For ocean-connected branches during tidal reverse flow,
-                 * EXCLUDE their contribution to junction mixing. Otherwise the high
-                 * salinity from the estuary gets pumped into the river network, causing
-                 * progressive salt accumulation (tidal pumping artifact).
-                 * 
-                 * Reference: Fischer et al. (1979), Savenije (2012) - junctions are control
-                 * volumes where mass conservation applies to advective fluxes only.
-                 */
                 
                 /* Check if this is an ocean-connected branch - if so, limit its
                  * contribution to junction mixing to prevent tidal salt pumping */
@@ -205,25 +177,11 @@ static void mix_junction_concentrations(Network *net) {
                 }
                 
                 if (is_flowing_in && Q_mag > 0.0) {
-                    /* Advective flux: branch is bringing water INTO junction
-                     * 
-                     * FIX (December 2025): Removed artificial salinity clamping that was
-                     * preventing salt intrusion. The previous code artificially limited
-                     * salt flux from ocean-connected branches, creating an invisible
-                     * barrier at junctions.
-                     * 
-                     * Physical principle: Junctions should allow full mass transport.
-                     * Tidal pumping is a REAL physical process (Savenije 2012) that
-                     * should not be artificially suppressed.
-                     */
-                    (void)is_ocean_connected;  /* Suppress unused warning */
+                    /* Advective flux: branch is bringing water INTO junction */
+                    (void)is_ocean_connected; 
                     numerator += Q_mag * C_interior;
                     denominator += Q_mag;
                 }
-                
-                /* Note: Dispersion is NOT added here. Each branch's transport solver
-                 * handles dispersion internally. The junction BC represents what the
-                 * branch "sees" from the river network perspective. */
             }
 
             /* 5. Calculate Junction Concentration */
@@ -238,7 +196,6 @@ static void mix_junction_concentrations(Network *net) {
             /* 6. Assign Boundary Conditions (Direction Dependent)
              * - OUTFLOWS (Flowing away from node): See the Mixed Node Concentration
              * - INFLOWS (Flowing into node): See the concentration of the *Opposite* branches
-             * (This allows salt diffusion upstream against the flow)
              */
             for (int c = 0; c < node->num_connections; ++c) {
                 int branch_idx = node->connected_branches[c];
@@ -288,8 +245,7 @@ static void mix_junction_concentrations(Network *net) {
 /**
  * Apply time-varying species boundary conditions from node forcing to connected branches.
  * 
- * CRITICAL FIX: Species forcing was being loaded from CSV files but never applied
- * during simulation. This function interpolates the time-varying species concentrations
+ * This function interpolates the time-varying species concentrations
  * and sets them on the connected branch's conc_down (for LEVEL_BC) or conc_up (for DISCHARGE_BC).
  * 
  * @param net Network
@@ -380,7 +336,7 @@ int solve_network_step(Network *net, double current_time_seconds) {
     }
     
     /* =================================================================
-     * Step 1b: CRITICAL - Apply time-varying species boundary conditions
+     * Step 1b: Apply time-varying species boundary conditions
      * This updates branch conc_down/conc_up from node species forcing CSV files
      * ================================================================= */
     apply_species_boundary_forcing(net, current_time_seconds);
@@ -446,7 +402,6 @@ int solve_network_step(Network *net, double current_time_seconds) {
          * 
          * Instead of just adjusting H, we directly adjust the boundary
          * velocities of connected branches to balance the Q residual.
-         * 
          * This is more direct and ensures mass balance converges.
          */
         for (size_t n = 0; n < net->num_nodes; ++n) {
@@ -541,8 +496,7 @@ int solve_network_step(Network *net, double current_time_seconds) {
         if (max_residual < TOLERANCE) break;
     }
     
-    /* Convergence diagnostics (similar to Fortran Update_otherhydrodynamic_arrays) */
-    /* Log warning if not converged - useful for debugging */
+    /* Convergence diagnostics */
     static int convergence_warning_count = 0;
     if (max_residual >= TOLERANCE && convergence_warning_count < 10) {
         fprintf(stderr, "Warning: Junction iteration did not fully converge. "
@@ -561,13 +515,6 @@ int solve_network_step(Network *net, double current_time_seconds) {
     for (size_t i = 0; i < net->num_branches; ++i) {
         Branch *b = net->branches[i];
         if (!b) continue;
-        
-        /* Update BCs for transport */
-        /* The branch-level boundary concentrations are set centrally by
-         * mix_junction_concentrations() for junction nodes. Do not override
-         * branch conc_up here. For discharge/level BCs, initialization/forcing
-         * is left unchanged.
-         */
         
         /* Use network-aware transport for junction dispersion continuity */
         Transport_Branch_Network(b, dt, (void *)net);

@@ -72,6 +72,8 @@ typedef struct {
     double *depth;          /* H: Water depth */
     double *velocity;       /* U: Current velocity */
     double *waterLevel;     /* Water surface elevation */
+    double *waterLevel_min; /* Minimum water level over simulation (for tidal range) */
+    double *waterLevel_max; /* Maximum water level over simulation (for tidal range) */
     double *dispersion;     /* K: Dispersion coefficient */
     double *chezyArray;     /* Chezy coefficient (spatially varying) */
 
@@ -283,6 +285,9 @@ typedef struct {
     
     /* Current simulation day (for seasonal factor lookup) */
     int current_day;        /* Day of year (0-364) */
+    
+    /* Simulation control flags */
+    int quiet_mode;         /* 1 = suppress progress output (for calibration) */
 } Network;
 
 typedef struct {
@@ -350,6 +355,7 @@ int calculate_carbonate_crive(Branch *branch, int idx, double dt);
 
 /* Initialization */
 int initializeNetwork(Network *net, CaseConfig *config);
+void resetNetworkState(Network *net);  /* Reset state for recalibration runs */
 
 /* Network solver */
 int solve_network_step(Network *net, double current_time_seconds);
