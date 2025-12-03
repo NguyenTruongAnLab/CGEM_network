@@ -185,16 +185,16 @@ int network_run_simulation(Network *net, CaseConfig *config) {
             return -1;
         }
         
-        /* Write output (after warmup) */
-        if (!is_warmup && (current_time - last_output_time >= OUTPUT_INTERVAL_S)) {
+        /* Write output (after warmup) - SKIP in quiet mode for calibration performance */
+        if (!net->quiet_mode && !is_warmup && (current_time - last_output_time >= OUTPUT_INTERVAL_S)) {
             write_output(net, config, current_time - warmup_time, fp_hydro, fp_conc);
             last_output_time = current_time;
         }
     }
 
-    /* Final output (per-variable CSVs) */
+    /* Final output (per-variable CSVs) - SKIP in quiet mode for calibration performance */
     double final_time = total_steps * dt;
-    if (warmup_steps < total_steps) {
+    if (!net->quiet_mode && warmup_steps < total_steps) {
         /* Call cgem_write_timestep again for final per-variable snapshot */
         if (config->write_netcdf || config->write_csv) {
             cgem_write_timestep(net, config, final_time - warmup_time);

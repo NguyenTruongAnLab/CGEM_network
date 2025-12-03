@@ -36,8 +36,9 @@ kpo41 = 0.3
 kn2 = 2.0
 kpo42 = 0.5
 
-# Decomposition
-kox = 0.15
+# Decomposition: 0.001-0.01/day for semi-refractory DOC (Middelburg 1989)
+# Very low value for Mekong where DOC persists for weeks to months
+kox = 0.005
 kdenit = 0.04
 knit = 0.12
 

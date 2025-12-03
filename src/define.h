@@ -209,7 +209,7 @@ static const int CGEM_SPECIES_TRANSPORT_FLAG[CGEM_NUM_SPECIES] = {
     1,  /* NH4 - transport */
     1,  /* PO4 - transport */
     1,  /* O2 - transport */
-    0,  /* TOC - diagnostic only (computed from OC pools) */
+    1,  /* TOC - transport (ENABLED for simplified mode) */
     1,  /* SPM - transport */
     1,  /* DIC - transport */
     1,  /* AT (alkalinity) - transport */

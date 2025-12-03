@@ -3,28 +3,30 @@
 # ============================================================================
 # 2 discharge inlets, 4 tidal outlets (N→S order)
 # Format: Node_ID, Type, FilePath [, SpeciesOption]
+# 
+# UPDATED December 2025: Using realistic boundary values from March 2025 field data
 # ============================================================================
 
 # UPSTREAM DISCHARGE (60/40 split)
 1, DISCHARGE, forcing_data/Tien_Inlet.csv
-1, SPECIES, species_river.csv, ALL
+1, SPECIES, species_river_realistic.csv, ALL
 
 2, DISCHARGE, forcing_data/Hau_Inlet.csv
-2, SPECIES, species_river.csv, ALL
+2, SPECIES, species_river_realistic.csv, ALL
 
 # DOWNSTREAM TIDAL (North to South)
 # My Tho - Northernmost
 6, LEVEL, forcing_data/MyTho_Tide.csv
-6, SPECIES, species_ocean.csv, ALL
+6, SPECIES, species_ocean_realistic.csv, ALL
 
 # Ham Luong - Central
 7, LEVEL, forcing_data/HamLuong_Tide.csv
-7, SPECIES, species_ocean.csv, ALL
+7, SPECIES, species_ocean_realistic.csv, ALL
 
 # Co Chien - South Tien
 8, LEVEL, forcing_data/CoChien_Tide.csv
-8, SPECIES, species_ocean.csv, ALL
+8, SPECIES, species_ocean_realistic.csv, ALL
 
 # Hau River - Far South (merged Dinh An + Tran De)
 9, LEVEL, forcing_data/Hau_Tide.csv
-9, SPECIES, species_ocean.csv, ALL
+9, SPECIES, species_ocean_realistic.csv, ALL

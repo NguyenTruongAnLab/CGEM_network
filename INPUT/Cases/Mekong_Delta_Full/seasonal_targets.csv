@@ -1,45 +1,142 @@
 # ============================================================================
 # C-GEM Seasonal Calibration Targets: Mekong Delta
 # ============================================================================
-# SIMPLIFIED for Stage 1 debugging - focus on salinity profiles only
+# Based on March 2025 field campaign data
 # Format: Branch, Variable, Location_km, Time_Day, Value, Weight
 # ============================================================================
 
 Branch,Variable,Location_km,Time_Day,Value,Weight
 
 # =============================================================================
-# SALINITY PROFILES - Day 45 (peak dry season after warmup)
+# SALINITY PROFILES - Day 45 (dry season)
 # =============================================================================
-# Target: Smooth exponential decay from ~32 PSU at mouth to 0.1 PSU upstream
+# From validation data: smooth decay from 30 PSU at mouth
 
-# HAM LUONG (deepest channel, longest intrusion ~60 km)
-Ham_Luong,SALINITY,5.0,45.0,32.0,2.0
-Ham_Luong,SALINITY,10.0,45.0,28.0,2.0
-Ham_Luong,SALINITY,20.0,45.0,22.0,2.0
-Ham_Luong,SALINITY,30.0,45.0,15.0,2.0
-Ham_Luong,SALINITY,40.0,45.0,9.0,2.0
-Ham_Luong,SALINITY,50.0,45.0,4.0,2.0
-Ham_Luong,SALINITY,60.0,45.0,1.0,1.0
+# HAU RIVER (longest branch, 106 km)
+Hau_River,SALINITY,0.0,45.0,30.5,3.0
+Hau_River,SALINITY,10.0,45.0,15.0,2.0
+Hau_River,SALINITY,20.0,45.0,8.0,2.0
+Hau_River,SALINITY,30.0,45.0,5.8,2.0
+Hau_River,SALINITY,40.0,45.0,2.3,2.0
+Hau_River,SALINITY,58.0,45.0,0.1,2.0
+Hau_River,SALINITY,90.0,45.0,0.1,1.0
 
-# HAU RIVER (second longest intrusion ~55 km)
-Hau_River,SALINITY,5.0,45.0,31.0,2.0
-Hau_River,SALINITY,10.0,45.0,27.0,2.0
-Hau_River,SALINITY,20.0,45.0,20.0,2.0
-Hau_River,SALINITY,30.0,45.0,13.0,2.0
-Hau_River,SALINITY,40.0,45.0,7.0,2.0
-Hau_River,SALINITY,50.0,45.0,2.5,2.0
+# HAM LUONG (74 km)
+Ham_Luong,SALINITY,0.0,45.0,30.5,3.0
+Ham_Luong,SALINITY,13.0,45.0,22.0,2.0
+Ham_Luong,SALINITY,24.0,45.0,11.0,2.0
+Ham_Luong,SALINITY,31.0,45.0,8.0,2.0
+Ham_Luong,SALINITY,39.0,45.0,6.3,2.0
+Ham_Luong,SALINITY,49.0,45.0,4.0,2.0
+Ham_Luong,SALINITY,66.0,45.0,0.1,1.0
 
-# MY THO (moderate intrusion ~50 km)
-My_Tho,SALINITY,5.0,45.0,30.0,2.0
-My_Tho,SALINITY,10.0,45.0,26.0,2.0
-My_Tho,SALINITY,20.0,45.0,18.0,2.0
-My_Tho,SALINITY,30.0,45.0,11.0,2.0
-My_Tho,SALINITY,40.0,45.0,5.0,2.0
-My_Tho,SALINITY,50.0,45.0,1.0,1.0
+# CO CHIEN (82 km)
+Co_Chien,SALINITY,0.0,45.0,30.7,3.0
+Co_Chien,SALINITY,7.0,45.0,18.7,2.0
+Co_Chien,SALINITY,19.0,45.0,3.6,2.0
+Co_Chien,SALINITY,29.0,45.0,2.5,2.0
+Co_Chien,SALINITY,39.0,45.0,2.1,2.0
+Co_Chien,SALINITY,48.0,45.0,1.6,2.0
+Co_Chien,SALINITY,70.0,45.0,0.1,1.0
 
-# CO CHIEN (shortest intrusion ~45 km)
-Co_Chien,SALINITY,5.0,45.0,31.0,2.0
-Co_Chien,SALINITY,10.0,45.0,27.0,2.0
-Co_Chien,SALINITY,20.0,45.0,19.0,2.0
-Co_Chien,SALINITY,30.0,45.0,10.0,2.0
-Co_Chien,SALINITY,40.0,45.0,3.0,2.0
+# MY THO (73 km)
+My_Tho,SALINITY,0.0,45.0,18.3,3.0
+My_Tho,SALINITY,5.0,45.0,11.2,2.0
+My_Tho,SALINITY,15.0,45.0,9.1,2.0
+My_Tho,SALINITY,28.0,45.0,3.8,2.0
+My_Tho,SALINITY,36.0,45.0,2.3,2.0
+My_Tho,SALINITY,45.0,45.0,0.9,2.0
+My_Tho,SALINITY,60.0,45.0,0.1,1.0
+
+# =============================================================================
+# OXYGEN PROFILES - Day 45 (mg/L -> umol/L: x31.25)
+# =============================================================================
+# Pattern: 250 umol/L at mouth, drops to 170-185 umol/L upstream
+
+# HAU RIVER
+Hau_River,O2,0.0,45.0,250.0,2.0
+Hau_River,O2,20.0,45.0,245.0,1.5
+Hau_River,O2,40.0,45.0,205.0,1.5
+Hau_River,O2,60.0,45.0,183.0,2.0
+Hau_River,O2,90.0,45.0,175.0,2.0
+
+# HAM LUONG
+Ham_Luong,O2,0.0,45.0,268.0,2.0
+Ham_Luong,O2,24.0,45.0,236.0,1.5
+Ham_Luong,O2,39.0,45.0,210.0,1.5
+Ham_Luong,O2,66.0,45.0,188.0,2.0
+
+# CO CHIEN
+Co_Chien,O2,0.0,45.0,262.0,2.0
+Co_Chien,O2,29.0,45.0,230.0,1.5
+Co_Chien,O2,48.0,45.0,198.0,1.5
+Co_Chien,O2,70.0,45.0,148.0,2.0
+
+# MY THO
+My_Tho,O2,0.0,45.0,257.0,2.0
+My_Tho,O2,28.0,45.0,230.0,1.5
+My_Tho,O2,45.0,45.0,200.0,1.5
+My_Tho,O2,66.0,45.0,193.0,2.0
+
+# =============================================================================
+# pCO2 PROFILES - Day 45 (ppm)
+# =============================================================================
+# Pattern: ~500 ppm at mouth, increases to 3500-4700 ppm upstream
+
+# HAU RIVER
+Hau_River,PCO2,0.0,45.0,500.0,2.0
+Hau_River,PCO2,20.0,45.0,700.0,1.5
+Hau_River,PCO2,40.0,45.0,2000.0,1.5
+Hau_River,PCO2,60.0,45.0,3200.0,2.0
+Hau_River,PCO2,90.0,45.0,4000.0,2.0
+
+# HAM LUONG
+Ham_Luong,PCO2,0.0,45.0,520.0,2.0
+Ham_Luong,PCO2,24.0,45.0,1200.0,1.5
+Ham_Luong,PCO2,39.0,45.0,2500.0,1.5
+Ham_Luong,PCO2,66.0,45.0,3700.0,2.0
+
+# CO CHIEN
+Co_Chien,PCO2,0.0,45.0,470.0,2.0
+Co_Chien,PCO2,29.0,45.0,1400.0,1.5
+Co_Chien,PCO2,48.0,45.0,2900.0,1.5
+Co_Chien,PCO2,70.0,45.0,4700.0,2.0
+
+# MY THO
+My_Tho,PCO2,0.0,45.0,590.0,2.0
+My_Tho,PCO2,28.0,45.0,1340.0,1.5
+My_Tho,PCO2,45.0,45.0,2600.0,1.5
+My_Tho,PCO2,66.0,45.0,4000.0,2.0
+
+# =============================================================================
+# SPM PROFILES - Day 45 (mg/L)
+# =============================================================================
+# Pattern: 10-35 mg/L at mouth, variable mid-estuary, 10-20 mg/L upstream
+
+# HAU RIVER
+Hau_River,SPM,0.0,45.0,35.0,1.5
+Hau_River,SPM,20.0,45.0,8.0,1.0
+Hau_River,SPM,40.0,45.0,11.0,1.0
+Hau_River,SPM,60.0,45.0,22.0,1.5
+Hau_River,SPM,90.0,45.0,10.0,1.5
+
+# HAM LUONG
+Ham_Luong,SPM,0.0,45.0,29.0,1.5
+Ham_Luong,SPM,24.0,45.0,11.0,1.0
+Ham_Luong,SPM,39.0,45.0,15.0,1.0
+Ham_Luong,SPM,66.0,45.0,38.0,1.5
+
+# =============================================================================
+# pH PROFILES - Day 45
+# =============================================================================
+
+# HAU RIVER
+Hau_River,PH,0.0,45.0,8.16,2.0
+Hau_River,PH,30.0,45.0,7.90,1.5
+Hau_River,PH,60.0,45.0,7.50,1.5
+Hau_River,PH,90.0,45.0,7.43,2.0
+
+# HAM LUONG
+Ham_Luong,PH,0.0,45.0,8.12,2.0
+Ham_Luong,PH,30.0,45.0,7.67,1.5
+Ham_Luong,PH,60.0,45.0,7.53,1.5

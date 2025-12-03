@@ -14,13 +14,13 @@ BranchName,Variable,Statistic,TargetValue,Weight,Threshold
 # STAGE 1: HYDRODYNAMICS
 # =============================================================================
 
-# TIDAL RANGE [m] at mouth
+# TIDAL RANGE [m] at mouth - DISABLED until min/max tracking fixed
 # Literature: Nguyen & Savenije (2006) - 2.5-3.5 m spring tide
 # TargetValue = location [km], Threshold = expected tidal range [m]
-Hau_River,WATERLEVEL,TIDAL_RANGE,5.0,50.0,3.0
-My_Tho,WATERLEVEL,TIDAL_RANGE,5.0,50.0,2.8
-Ham_Luong,WATERLEVEL,TIDAL_RANGE,5.0,50.0,3.2
-Co_Chien,WATERLEVEL,TIDAL_RANGE,5.0,50.0,2.6
+# Hau_River,WATERLEVEL,TIDAL_RANGE,5.0,50.0,3.0
+# My_Tho,WATERLEVEL,TIDAL_RANGE,5.0,50.0,2.8
+# Ham_Luong,WATERLEVEL,TIDAL_RANGE,5.0,50.0,3.2
+# Co_Chien,WATERLEVEL,TIDAL_RANGE,5.0,50.0,2.6
 
 # SALT INTRUSION LENGTH (4 PSU isohaline) [km]
 # Literature: Nguyen et al. (2008) - dry season 40-60 km

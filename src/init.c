@@ -65,60 +65,64 @@ void init_species_bc(Branch *b, int num_species, double Q_river) {
         b->conc_down[CGEM_SPECIES_ALKC] = 1800.0;
         
         /* Only set ocean values if downstream is actually an ocean BC */
+        /* Values based on March 2025 Mekong Delta field data (mouth stations) */
         if (b->down_node_type == NODE_LEVEL_BC) {
-            b->conc_down[CGEM_SPECIES_SALINITY] = 35.0;     /* Salinity [PSU] */
-            b->conc_down[CGEM_SPECIES_PHY1] = 0.5;          /* Diatoms [µM C] */
-            b->conc_down[CGEM_SPECIES_PHY2] = 1.0;          /* Non-siliceous [µM C] */
-            b->conc_down[CGEM_SPECIES_DSI] = 5.0;           /* Dissolved Si [µM] */
-            b->conc_down[CGEM_SPECIES_NO3] = 2.0;           /* Nitrate [µM] */
-            b->conc_down[CGEM_SPECIES_NH4] = 0.5;           /* Ammonium [µM] */
-            b->conc_down[CGEM_SPECIES_PO4] = 0.2;           /* Phosphate [µM] */
-            b->conc_down[CGEM_SPECIES_O2] = 250.0;          /* Oxygen [µM] */
-            b->conc_down[CGEM_SPECIES_TOC] = 50.0;          /* TOC [µM C] */
-            b->conc_down[CGEM_SPECIES_SPM] = 5.0;           /* SPM [mg/L] */
-            b->conc_down[CGEM_SPECIES_DIC] = 2000.0;        /* DIC [µM] */
-            b->conc_down[CGEM_SPECIES_AT] = 2300.0;         /* Total alkalinity [µM] */
-            b->conc_down[CGEM_SPECIES_PCO2] = 400.0;        /* pCO2 [µatm] */
-            b->conc_down[CGEM_SPECIES_CO2] = 10.0;          /* CO2 [µM] */
-            b->conc_down[CGEM_SPECIES_PH] = 8.1;            /* pH */
+            b->conc_down[CGEM_SPECIES_SALINITY] = 30.5;     /* Salinity [PSU] - validation data */
+            b->conc_down[CGEM_SPECIES_PHY1] = 4.0;          /* Diatoms [µM C] - ~3 ug/L Chl-a */
+            b->conc_down[CGEM_SPECIES_PHY2] = 3.0;          /* Non-siliceous [µM C] */
+            b->conc_down[CGEM_SPECIES_DSI] = 5.0;           /* Dissolved Si [µM] - low at ocean */
+            b->conc_down[CGEM_SPECIES_NO3] = 55.0;          /* Nitrate [µM] - 0.72-0.93 mgN/L */
+            b->conc_down[CGEM_SPECIES_NH4] = 0.7;           /* Ammonium [µM] - very low 0.01 mgN/L */
+            b->conc_down[CGEM_SPECIES_PO4] = 0.5;           /* Phosphate [µM] - low */
+            b->conc_down[CGEM_SPECIES_O2] = 260.0;          /* Oxygen [µM] - 8+ mg/L saturated */
+            b->conc_down[CGEM_SPECIES_TOC] = 100.0;         /* TOC [µM C] - 1.3-2.3 mgC/L */
+            b->conc_down[CGEM_SPECIES_SPM] = 10.0;          /* SPM [mg/L] - 8-35 at mouth */
+            b->conc_down[CGEM_SPECIES_DIC] = 2050.0;        /* DIC [µM] */
+            b->conc_down[CGEM_SPECIES_AT] = 2200.0;         /* Total alkalinity [µM] - ~2.2 mmol/L */
+            b->conc_down[CGEM_SPECIES_PCO2] = 500.0;        /* pCO2 [µatm] - near equilibrium */
+            b->conc_down[CGEM_SPECIES_CO2] = 12.0;          /* CO2 [µM] */
+            b->conc_down[CGEM_SPECIES_PH] = 8.10;           /* pH - 8.05-8.16 */
             b->conc_down[CGEM_SPECIES_HS] = 0.0;            /* Hydrogen sulfide [µM] */
-            b->conc_down[CGEM_SPECIES_ALKC] = 2300.0;       /* Carbonate alkalinity [µM] */
+            b->conc_down[CGEM_SPECIES_ALKC] = 2200.0;       /* Carbonate alkalinity [µM] */
         }
     }
 
     /* =================================================================
      * River boundary conditions (upstream - typical freshwater values)
      * ================================================================= */
+    /* Values based on March 2025 Mekong Delta field data (upstream stations) */
     if (b->conc_up) {
         b->conc_up[CGEM_SPECIES_SALINITY] = 0.1;        /* Low salinity [PSU] */
 
-        /* Phytoplankton */
-        b->conc_up[CGEM_SPECIES_PHY1] = 0.1;            /* Low diatoms [µM C] */
-        b->conc_up[CGEM_SPECIES_PHY2] = 0.2;            /* Low non-siliceous [µM C] */
+        /* Phytoplankton - low in turbid freshwater */
+        b->conc_up[CGEM_SPECIES_PHY1] = 3.0;            /* Diatoms [µM C] - ~2 ug/L Chl-a */
+        b->conc_up[CGEM_SPECIES_PHY2] = 2.0;            /* Non-siliceous [µM C] */
 
-        /* Nutrients (enriched from land use) */
-        b->conc_up[CGEM_SPECIES_DSI] = 50.0;            /* High dissolved Si [µM] */
-        b->conc_up[CGEM_SPECIES_NO3] = 20.0;            /* High nitrate [µM] */
-        b->conc_up[CGEM_SPECIES_NH4] = 5.0;             /* High ammonium [µM] */
-        b->conc_up[CGEM_SPECIES_PO4] = 2.0;             /* High phosphate [µM] */
+        /* Nutrients - LOW based on validation! */
+        b->conc_up[CGEM_SPECIES_DSI] = 50.0;            /* Dissolved Si [µM] - 0.5-1.8 mgSi/L */
+        b->conc_up[CGEM_SPECIES_NO3] = 10.0;            /* Nitrate [µM] - 0.11-0.18 mgN/L = 8-13 µM */
+        b->conc_up[CGEM_SPECIES_NH4] = 2.0;             /* Ammonium [µM] - 0.02-0.07 mgN/L = 1-5 µM */
+        b->conc_up[CGEM_SPECIES_PO4] = 1.0;             /* Phosphate [µM] - 0.02-0.03 mgP/L */
 
-        /* Dissolved gases */
-        b->conc_up[CGEM_SPECIES_O2] = 200.0;            /* Moderate oxygen [µM] */
+        /* Dissolved gases - undersaturated O2 in freshwater */
+        b->conc_up[CGEM_SPECIES_O2] = 175.0;            /* Oxygen [µM] - 5.3-6.2 mg/L = 166-194 µM */
 
         /* Organic matter */
-        b->conc_up[CGEM_SPECIES_TOC] = 100.0;           /* High TOC [µM C] */
+        b->conc_up[CGEM_SPECIES_TOC] = 150.0;           /* TOC [µM C] - 1.45-2.0 mgC/L = 121-167 µM */
 
         /* Suspended matter */
-        b->conc_up[CGEM_SPECIES_SPM] = 20.0;            /* High SPM [mg/L] */
+        b->conc_up[CGEM_SPECIES_SPM] = 15.0;            /* SPM [mg/L] - 9-18 mg/L upstream */
 
-        /* Carbon chemistry */
-        b->conc_up[CGEM_SPECIES_DIC] = 1500.0;          /* Moderate DIC [µM] */
-        b->conc_up[CGEM_SPECIES_AT] = 1200.0;           /* Moderate alkalinity [µM] */
-        b->conc_up[CGEM_SPECIES_PCO2] = 600.0;          /* Higher pCO2 [µatm] */
-        b->conc_up[CGEM_SPECIES_CO2] = 15.0;            /* Higher CO2 [µM] */
-        b->conc_up[CGEM_SPECIES_PH] = 7.8;              /* Lower pH */
+        /* Carbon chemistry - HIGH pCO2 from respiration */
+        /* CRITICAL: DIC/AT ratio determines pCO2! */
+        /* To get pCO2 ~4000 ppm with AT=1350, need DIC ~1450 */
+        b->conc_up[CGEM_SPECIES_DIC] = 1450.0;          /* DIC [µM] - lower than AT for high pCO2 */
+        b->conc_up[CGEM_SPECIES_AT] = 1350.0;           /* Alkalinity [µM] - 1.28-1.36 mmol/L */
+        b->conc_up[CGEM_SPECIES_PCO2] = 4000.0;         /* pCO2 [µatm] - 3800-4700 ppm! */
+        b->conc_up[CGEM_SPECIES_CO2] = 60.0;            /* CO2 [µM] - high */
+        b->conc_up[CGEM_SPECIES_PH] = 7.45;             /* pH - 7.35-7.60 */
         b->conc_up[CGEM_SPECIES_HS] = 0.0;              /* No hydrogen sulfide [µM] */
-        b->conc_up[CGEM_SPECIES_ALKC] = 1200.0;         /* Moderate carbonate alk [µM] */
+        b->conc_up[CGEM_SPECIES_ALKC] = 1350.0;         /* Carbonate alk [µM] */
         
         /* ===============================================================
          * RIVE Multi-Pool Organic Matter (HD1-3, HP1-3)
@@ -155,13 +159,14 @@ void init_species_bc(Branch *b, int num_species, double Q_river) {
         
         /* ===============================================================
          * Greenhouse Gas Species
-         * Reference: Borges et al. (2015), Hu et al. (2016) - Tropical rivers
+         * Reference: March 2025 Mekong Delta field data
          * 
-         * Rivers are typically supersaturated in CO2, CH4, N2O
+         * CH4: 0.5-2.9 ugC/L = 40-240 nmol/L
+         * N2O: 0.2-5.3 ugN/L = 7-190 nmol/L (higher near cities!)
          * =============================================================== */
         b->conc_up[CGEM_SPECIES_NO2] = 0.5;    /* Nitrite [µM N] - nitrification intermediate */
-        b->conc_up[CGEM_SPECIES_N2O] = 20.0;   /* N2O [nmol/L] - Mekong: 10-50 nmol/L */
-        b->conc_up[CGEM_SPECIES_CH4] = 200.0;  /* CH4 [nmol/L] - Mekong: 100-500 nmol/L */
+        b->conc_up[CGEM_SPECIES_N2O] = 50.0;   /* N2O [nmol/L] - Mekong upstream: 20-100 nmol/L */
+        b->conc_up[CGEM_SPECIES_CH4] = 120.0;  /* CH4 [nmol/L] - Mekong upstream: 50-200 nmol/L */
     }
     
     /* ===================================================================
@@ -186,10 +191,12 @@ void init_species_bc(Branch *b, int num_species, double Q_river) {
         b->conc_down[CGEM_SPECIES_PIP] = 0.1;   /* Less adsorbed P in clear water */
         b->conc_down[CGEM_SPECIES_DSS] = 0.05;  /* Low substrates */
         
-        /* GHG species - ocean is undersaturated relative to atmosphere */
+        /* GHG species - based on March 2025 field data at mouth */
+        /* CH4: 0.5-0.6 ugC/L = 40-50 nmol/L at mouth */
+        /* N2O: 0.18-0.24 ugN/L = 6-9 nmol/L at mouth */
         b->conc_down[CGEM_SPECIES_NO2] = 0.1;   /* Low nitrite in oxic ocean */
-        b->conc_down[CGEM_SPECIES_N2O] = 8.0;   /* Near equilibrium ~7-10 nmol/L */
-        b->conc_down[CGEM_SPECIES_CH4] = 3.0;   /* Near equilibrium ~2-5 nmol/L */
+        b->conc_down[CGEM_SPECIES_N2O] = 8.0;   /* N2O [nmol/L] - near equilibrium */
+        b->conc_down[CGEM_SPECIES_CH4] = 40.0;  /* CH4 [nmol/L] - at estuary mouth */
     }
 
     /* =================================================================
@@ -530,6 +537,75 @@ void initializeNetworkSpeciesBC(Network *net) {
 
         /* Initialize species boundary conditions with smart defaults */
         init_species_bc(branch, branch->num_species, net->Q_river);
+    }
+
+    /* IMPORTANT: Copy species forcing values from boundary nodes to connected branches
+     * This must happen AFTER init_species_bc sets defaults, so that loaded forcing
+     * values override the defaults for proper interior initialization */
+    printf("Applying species forcing from boundary nodes...\n");
+    for (size_t n = 0; n < net->num_nodes; ++n) {
+        Node *node = &net->nodes[n];
+        
+        /* Only process boundary nodes with species forcing data */
+        if (node->type != NODE_LEVEL_BC && node->type != NODE_DISCHARGE_BC) continue;
+        if (!node->species_forcing_time || !node->species_forcing_value) continue;
+        
+        /* Apply initial forcing values (t=0) to connected branches */
+        for (int sp = 0; sp < CGEM_NUM_SPECIES; ++sp) {
+            if (!node->species_forcing_time[sp] || !node->species_forcing_value[sp]) continue;
+            if (node->species_forcing_len[sp] == 0) continue;
+            
+            /* Use first value from forcing file as initial condition */
+            double conc = node->species_forcing_value[sp][0];
+            
+            /* Apply to all branches connected to this boundary node */
+            for (int c = 0; c < node->num_connections; ++c) {
+                int branch_idx = node->connected_branches[c];
+                if (branch_idx < 0 || (size_t)branch_idx >= net->num_branches) continue;
+                
+                Branch *b = net->branches[branch_idx];
+                if (!b || !b->conc_down || !b->conc_up) continue;
+                
+                int dir = node->connection_dir[c];
+                
+                if (node->type == NODE_LEVEL_BC) {
+                    /* Ocean boundary: typically downstream */
+                    if (dir == 1 && b->conc_down) {
+                        b->conc_down[sp] = conc;
+                    } else if (dir == -1 && b->conc_up) {
+                        b->conc_up[sp] = conc;
+                    }
+                } else if (node->type == NODE_DISCHARGE_BC) {
+                    /* River boundary: typically upstream */
+                    if (dir == -1 && b->conc_up) {
+                        b->conc_up[sp] = conc;
+                    } else if (dir == 1 && b->conc_down) {
+                        b->conc_down[sp] = conc;
+                    }
+                }
+            }
+        }
+    }
+
+    /* Re-initialize interior concentrations using the updated boundary values */
+    printf("Re-initializing interior profiles with forcing values...\n");
+    for (size_t i = 0; i < net->num_branches; ++i) {
+        Branch *b = net->branches[i];
+        if (!b || !b->conc) continue;
+        
+        /* For each species, create linear profile from downstream to upstream */
+        for (int sp = 0; sp < b->num_species; ++sp) {
+            if (!b->conc[sp]) continue;
+            
+            double c_down = b->conc_down ? b->conc_down[sp] : 0.0;
+            double c_up = b->conc_up ? b->conc_up[sp] : 0.0;
+            
+            /* Linear profile for all species (salinity gets special treatment later) */
+            for (int j = 0; j <= b->M + 1; ++j) {
+                double s = (b->M > 0) ? (double)j / (double)b->M : 0.0;
+                b->conc[sp][j] = c_down + (c_up - c_down) * s;
+            }
+        }
     }
 
     printf("Species boundary conditions initialized.\n");
