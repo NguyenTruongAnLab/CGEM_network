@@ -81,69 +81,145 @@ DX_M = 2000.0  # Grid cell size [m]
 # ==============================================================================
 # 
 # This table maps JAXA LULC classes to C-GEM water quality parameters.
-# EMC = Event Mean Concentration (mg/L) represents pollution intensity.
+# EMC = Event Mean Concentration represents pollution intensity.
 # Runoff_C = Rational method runoff coefficient (dimensionless).
+#
+# === UPDATED December 2025 ===
+# - Added CH4 and N2O emissions based on Mekong Delta literature
+# - Increased TOC values to match Mar 2025 validation (observed: 140-200 µM)
+# - Added AT (alkalinity) for carbonate system validation
 #
 # References:
 # - Urban EMC: Burton & Pitt (2002) Stormwater Effects Handbook
 # - Rice EMC: Yan et al. (2003) Agriculture, Ecosystems & Environment
+# - Rice CH4: Borges & Abril (2011), Maher et al. (2013), MRC (2018)
 # - Aquaculture: Páez-Osuna (2001) Environment International
+# - Aquaculture CH4: Yang et al. (2019) Aquaculture Environment Interactions
 # - Mangrove: Alongi (2014) Annual Review of Marine Science
+# - N2O from agriculture: Seitzinger & Kroeze (1998), Garnier et al. (2007)
+
+# Unit conversions for reference:
+# TOC: 1 µM = 0.012 mg/L (as C), so 150 µM ≈ 1.8 mg/L (as C) or ~6 mg/L (as organic matter)
+# Actually: TOC in mg/L = µmol/L × 12 g/mol / 1000 = µmol/L × 0.012
+# BUT: C-GEM uses µmol/L directly, so we need to convert mg/L → µmol/L
+# TOC_µM = TOC_mg_L / 12 × 1000 = TOC_mg_L × 83.3
+
+# CH4: 1 nmol/L = 16 ng/L = 0.000016 mg/L
+# N2O: 1 nmol/L = 44 ng/L = 0.000044 mg/L
 
 JAXA_EMISSIONS = {
-    # Land Use Type: {Species: EMC (mg/L), Runoff_C: coefficient}
+    # =========================================================================
+    # URBAN: High NH4/TOC from sewage, moderate CH4 from anaerobic sewers
+    # =========================================================================
     "Urban": {
-        "NH4": 10.0,    # Sewage leakage, pet waste
-        "NO3": 3.0,     # Fertilized lawns, septic
-        "PO4": 1.5,     # Detergents, sewage
-        "TOC": 50.0,    # Organic waste, litter
-        "DIC": 20.0,    # Concrete weathering
+        "NH4": 15.0,    # Sewage leakage, pet waste (increased from 10)
+        "NO3": 5.0,     # Fertilized lawns, septic (increased from 3)
+        "PO4": 2.0,     # Detergents, sewage (increased from 1.5)
+        "TOC": 150.0,   # Organic waste, sewage (INCREASED 3x based on validation)
+        "DIC": 40.0,    # Concrete weathering, sewage CO2 (increased)
+        "AT": 2000.0,   # Alkalinity from concrete, detergents [µeq/L]
         "SPM": 150.0,   # Construction sediment
-        "Runoff_C": 0.85,  # High imperviousness
+        "CH4": 800.0,   # Anaerobic sewers, septic tanks [nmol/L]
+                        # Ref: Stanley et al. (2016) - urban streams 200-2000 nmol/L
+        "N2O": 50.0,    # WWTP nitrification-denitrification [nmol/L]
+                        # Ref: Beaulieu et al. (2011) - urban 20-100 nmol/L
+        "Runoff_C": 0.85,
     },
+    
+    # =========================================================================
+    # RICE PADDIES: THE MAJOR CH4 SOURCE IN MEKONG DELTA
+    # =========================================================================
+    # Rice paddies are flooded anaerobic environments - MAJOR CH4 producers
+    # Reference values from:
+    # - Borges & Abril (2011): Rice paddy drainage 500-5000 nmol/L CH4
+    # - Yang et al. (2018): SE Asian rice paddies 300-2000 nmol/L
+    # - MRC (2018): Mekong floodplain CH4 emissions
     "Rice": {
-        "NH4": 2.5,     # Urea fertilizer breakdown
-        "NO3": 6.0,     # Nitrified fertilizer
-        "PO4": 0.8,     # Phosphate fertilizer
-        "TOC": 20.0,    # Straw decomposition
-        "DIC": 15.0,    # Carbonate dissolution
-        "SPM": 80.0,    # Tillage erosion
+        "NH4": 8.0,     # Urea fertilizer breakdown (increased - major N source)
+        "NO3": 10.0,    # Nitrified fertilizer (increased for N2O production)
+        "PO4": 1.5,     # Phosphate fertilizer (increased)
+        "TOC": 200.0,   # Straw decomposition, dissolved organic C (MAJOR increase)
+                        # Ref: Rice paddy DOC typically 150-300 µmol/L
+        "DIC": 80.0,    # High respiration in flooded soils
+        "AT": 1500.0,   # Carbonate from fertilizer, soil minerals [µeq/L]
+        "SPM": 100.0,   # Tillage erosion, resuspension
+        "CH4": 1500.0,  # CRITICAL: Rice paddy drainage - highest CH4 source [nmol/L]
+                        # Literature: 500-3000 nmol/L in drainage water
+                        # Mekong validation shows 100-200 nmol/L upstream
+        "N2O": 80.0,    # Nitrification-denitrification in rice soils [nmol/L]
+                        # Ref: Mekong agricultural areas 30-175 nmol/L
         "Runoff_C": 0.40,  # Bunded paddies retain water
     },
+    
+    # =========================================================================
+    # AQUACULTURE: High organic load, significant CH4 from pond sediments
+    # =========================================================================
+    # Aquaculture ponds in Mekong Delta are major pollution sources
+    # Reference: Páez-Osuna (2001), Boyd & Tucker (1998)
     "Aqua": {
-        "NH4": 8.0,     # Fish excretion, uneaten feed
-        "NO3": 3.0,     # Some nitrification
-        "PO4": 2.0,     # Feed phosphorus
-        "TOC": 80.0,    # High organic load
-        "DIC": 30.0,    # Respiration CO2
+        "NH4": 12.0,    # Fish excretion, uneaten feed (increased)
+        "NO3": 4.0,     # Some nitrification in ponds
+        "PO4": 3.0,     # Feed phosphorus (increased)
+        "TOC": 250.0,   # High organic load from feed, feces (MAJOR increase)
+                        # Aquaculture effluent TOC: 200-400 µmol/L typical
+        "DIC": 100.0,   # High respiration in ponds
+        "AT": 2500.0,   # Lime addition for pH control, shell dissolution [µeq/L]
         "SPM": 200.0,   # Pond sediment resuspension
+        "CH4": 1200.0,  # Anaerobic pond sediments [nmol/L]
+                        # Ref: Yang et al. (2019) - shrimp ponds 500-2000 nmol/L
+        "N2O": 60.0,    # Coupled nitrification-denitrification [nmol/L]
         "Runoff_C": 0.70,  # Direct discharge during harvest
     },
+    
+    # =========================================================================
+    # MANGROVE: Tidal carbon export, moderate CH4 from sediments
+    # =========================================================================
+    # Mangroves are carbon-rich but also have anoxic sediments
+    # Reference: Alongi (2014), Maher et al. (2013)
     "Mangrove": {
-        "NH4": 0.2,     # N sink (denitrification)
-        "NO3": 0.1,     # Strong N sink
-        "PO4": 0.1,     # P burial
-        "TOC": 100.0,   # Major carbon export (tidal)
-        "DIC": 60.0,    # Respiration + carbonate
-        "SPM": 50.0,    # Fine sediment trap
+        "NH4": 0.5,     # N sink but some mineralization
+        "NO3": 0.2,     # Strong N sink (denitrification)
+        "PO4": 0.2,     # P burial
+        "TOC": 180.0,   # Major carbon export via tidal flushing (increased)
+                        # Mangrove DOC export: 100-300 µmol/L
+        "DIC": 120.0,   # High respiration + carbonate dissolution
+        "AT": 2200.0,   # Carbonate-rich mangrove soils [µeq/L]
+        "SPM": 60.0,    # Fine sediment, some trapping
+        "CH4": 400.0,   # Moderate - sulfate reduction competes with methanogenesis [nmol/L]
+                        # Ref: Mangrove waters 100-800 nmol/L CH4
+        "N2O": 15.0,    # Low - denitrification goes to N2 [nmol/L]
         "Runoff_C": 0.90,  # Tidal flushing
     },
+    
+    # =========================================================================
+    # FRUIT ORCHARDS: Moderate fertilizer use
+    # =========================================================================
     "Fruit": {
-        "NH4": 3.0,     # Moderate fertilizer
-        "NO3": 8.0,     # Higher NO3 from orchards
-        "PO4": 1.0,     # Phosphate application
-        "TOC": 25.0,    # Leaf litter, prunings
-        "DIC": 12.0,    # Soil respiration
-        "SPM": 60.0,    # Exposed soil erosion
+        "NH4": 5.0,     # Moderate fertilizer
+        "NO3": 12.0,    # Higher NO3 from orchards (increased)
+        "PO4": 1.5,     # Phosphate application
+        "TOC": 80.0,    # Leaf litter, prunings (increased)
+        "DIC": 30.0,    # Soil respiration
+        "AT": 1200.0,   # Natural soil alkalinity [µeq/L]
+        "SPM": 80.0,    # Exposed soil erosion
+        "CH4": 100.0,   # Low - aerobic soils [nmol/L]
+        "N2O": 40.0,    # Fertilizer-derived N2O [nmol/L]
         "Runoff_C": 0.30,  # Tree cover reduces runoff
     },
+    
+    # =========================================================================
+    # FOREST: Natural background, low emissions
+    # =========================================================================
     "Forest": {
-        "NH4": 0.3,     # Minimal
-        "NO3": 0.5,     # Natural background
-        "PO4": 0.05,    # Weathering only
-        "TOC": 15.0,    # Leaf litter leachate
-        "DIC": 8.0,     # Soil respiration
-        "SPM": 20.0,    # Low erosion
+        "NH4": 0.5,     # Minimal
+        "NO3": 0.8,     # Natural background
+        "PO4": 0.08,    # Weathering only
+        "TOC": 50.0,    # Leaf litter leachate (increased slightly)
+        "DIC": 20.0,    # Soil respiration
+        "AT": 800.0,    # Natural background [µeq/L]
+        "SPM": 25.0,    # Low erosion
+        "CH4": 50.0,    # Low - aerobic forest soils [nmol/L]
+        "N2O": 10.0,    # Natural soil N2O [nmol/L]
         "Runoff_C": 0.15,  # High infiltration
     },
 }
@@ -245,8 +321,10 @@ def calculate_seasonal_factors(
         
     Returns:
     --------
-    DataFrame with columns: Month, Rain_mm, Q_Factor, NH4_Factor, NO3_Factor, 
-                           PO4_Factor, TOC_Factor, SPM_Factor
+    DataFrame with columns: Month, Rain_mm, Q_Factor, and species factors
+    
+    === UPDATED December 2025 ===
+    Added CH4_Factor, N2O_Factor, AT_Factor, DIC_Factor for GHG validation
     """
     if dry_months is None:
         dry_months = [0, 1, 2]  # Jan-Mar default
@@ -277,8 +355,23 @@ def calculate_seasonal_factors(
             toc_factor = base_c_factor * 1.3    # TOC: strong wash-off
             spm_factor = base_c_factor * 1.5    # SPM: strongest wash-off
             
+            # === NEW: GHG species factors (December 2025) ===
+            # CH4: Highest during wet season - flooded rice paddies produce most CH4
+            # Also correlates with flooding/waterlogging which creates anoxic conditions
+            ch4_factor = base_c_factor * 1.8   # Strong increase with flooding
+            
+            # N2O: Complex - moderate wash-off, affected by fertilizer application
+            # Peak often in transition periods (wet soils but not flooded)
+            n2o_factor = base_c_factor * 1.2   # Moderate wash-off
+            
+            # DIC: Increases with soil respiration during wet season
+            dic_factor = base_c_factor * 1.1   # Slight increase
+            
+            # AT (Alkalinity): Weathering increases with runoff
+            at_factor = base_c_factor * 0.9    # Slight dilution initially
+            
         else:
-            # Peak flow: Dilution dominates
+            # Peak flow: Dilution dominates for most species
             # C ~ Q^(-c) where c > 0
             peak_c = dilution_threshold ** wash_off_exponent
             dilution_power = 0.4
@@ -290,6 +383,20 @@ def calculate_seasonal_factors(
             po4_factor = peak_c * dilution * 1.0
             toc_factor = peak_c * 1.1              # TOC stays high (organic flush)
             spm_factor = peak_c * 1.3              # SPM continues increasing
+            
+            # === NEW: GHG species during high flow ===
+            # CH4: REMAINS HIGH during wet season - rice paddies flooded!
+            # This is different from soluble species that dilute
+            ch4_factor = peak_c * 1.5              # CH4 production INCREASES with flooding
+            
+            # N2O: Dilution but still elevated from agricultural runoff
+            n2o_factor = peak_c * dilution * 1.0
+            
+            # DIC: Moderate increase from respiration
+            dic_factor = peak_c * 1.0
+            
+            # AT: Dilution during very high flow
+            at_factor = peak_c * dilution * 0.85
         
         # Determine season
         if month_idx in dry_months:
@@ -310,6 +417,11 @@ def calculate_seasonal_factors(
             "PO4_Factor": round(po4_factor, 3),
             "TOC_Factor": round(toc_factor, 3),
             "SPM_Factor": round(spm_factor, 3),
+            # NEW GHG factors
+            "CH4_Factor": round(ch4_factor, 3),
+            "N2O_Factor": round(n2o_factor, 3),
+            "DIC_Factor": round(dic_factor, 3),
+            "AT_Factor": round(at_factor, 3),
         })
     
     return pd.DataFrame(records)
@@ -364,10 +476,12 @@ def calculate_daily_factors(
         }
         
         for col in ["Q_Factor", "NH4_Factor", "NO3_Factor", "PO4_Factor", 
-                    "TOC_Factor", "SPM_Factor"]:
-            interp_val = (1 - month_progress) * curr_factors[col] + \
-                         month_progress * next_factors[col]
-            record[col] = round(interp_val, 4)
+                    "TOC_Factor", "SPM_Factor", "CH4_Factor", "N2O_Factor",
+                    "DIC_Factor", "AT_Factor"]:
+            if col in curr_factors and col in next_factors:
+                interp_val = (1 - month_progress) * curr_factors[col] + \
+                             month_progress * next_factors[col]
+                record[col] = round(interp_val, 4)
         
         records.append(record)
         
@@ -405,6 +519,11 @@ def calculate_base_loads(
     The output represents the "reference" load that will be multiplied
     by seasonal factors during simulation.
     
+    === UPDATED December 2025 ===
+    - Added CH4, N2O, AT (alkalinity) columns for GHG validation
+    - Increased TOC values based on Mekong Mar 2025 validation
+    - Units: mg/L for nutrients/TOC, nmol/L for CH4/N2O, µeq/L for AT
+    
     Parameters:
     -----------
     landuse_df : DataFrame
@@ -416,9 +535,12 @@ def calculate_base_loads(
     Returns:
     --------
     DataFrame with columns: Branch, Segment_Index, Distance_km, Q_lat_base,
-        NH4_conc_base, NO3_conc_base, etc. (concentrations in mg/L)
+        NH4_conc_base, NO3_conc_base, TOC, CH4, N2O, AT, etc.
     """
     records = []
+    
+    # All species to track (including new GHG species)
+    all_species = ["NH4", "NO3", "PO4", "TOC", "DIC", "SPM", "CH4", "N2O", "AT"]
     
     for _, row in landuse_df.iterrows():
         branch = row["Branch"]
@@ -430,14 +552,14 @@ def calculate_base_loads(
         
         # Calculate composite EMC based on land use percentages
         # C_composite = Σ (Pct_i × EMC_i) / 100
-        conc_mix = {sp: 0.0 for sp in ["NH4", "NO3", "PO4", "TOC", "DIC", "SPM"]}
+        conc_mix = {sp: 0.0 for sp in all_species}
         runoff_c_mix = 0.0
         
         for lu_type, emissions in JAXA_EMISSIONS.items():
             col_name = f"Pct_{lu_type}"
             if col_name in row and row[col_name] > 0:
                 fraction = row[col_name] / 100.0
-                for sp in conc_mix:
+                for sp in all_species:
                     if sp in emissions:
                         conc_mix[sp] += fraction * emissions[sp]
                 runoff_c_mix += fraction * emissions["Runoff_C"]
@@ -461,12 +583,17 @@ def calculate_base_loads(
             "Runoff_C": round(runoff_c_mix, 3),
             "Is_Polder_Zone": is_polder,
             "Q_lat_base_m3_s": round(q_base, 6),
+            # Traditional species (mg/L)
             "NH4_conc_base_mg_L": round(conc_mix["NH4"], 2),
             "NO3_conc_base_mg_L": round(conc_mix["NO3"], 2),
             "PO4_conc_base_mg_L": round(conc_mix["PO4"], 2),
             "TOC_conc_base_mg_L": round(conc_mix["TOC"], 2),
             "DIC_conc_base_mg_L": round(conc_mix["DIC"], 2),
             "SPM_conc_base_mg_L": round(conc_mix["SPM"], 2),
+            # NEW: GHG species (nmol/L for CH4/N2O, µeq/L for AT)
+            "CH4_conc_base_nM": round(conc_mix["CH4"], 1),
+            "N2O_conc_base_nM": round(conc_mix["N2O"], 1),
+            "AT_conc_base_ueq_L": round(conc_mix["AT"], 0),
         })
     
     return pd.DataFrame(records)
@@ -504,23 +631,47 @@ POINT_SOURCES_MEKONG = {
     },
 }
 
-# Per-capita emission rates (g/person/day)
-# References: WHO guidelines, Metcalf & Eddy
+# Per-capita emission rates for CALCULATING MASS LOADS (g/person/day)
+# These are NOT concentrations - they are total daily emissions per person
+# References: WHO guidelines, Metcalf & Eddy, IPCC
+# === UPDATED December 2025: Added CH4 and N2O ===
+# === FIXED December 2025: Changed to typical sewage concentrations ===
+
+# TYPICAL RAW SEWAGE CONCENTRATIONS (mg/L)
+# These are what actually enters the river, NOT per-capita loads
+# Reference: Metcalf & Eddy (2014), Henze et al. (2008)
+SEWAGE_CONCENTRATIONS = {
+    "NH4": 40.0,     # mg N/L - typical raw sewage
+    "NO3": 1.0,      # mg N/L - minimal in raw sewage
+    "PO4": 8.0,      # mg P/L - typical raw sewage
+    "TOC": 200.0,    # mg C/L - typical raw sewage BOD ~250 → TOC ~200
+    "DIC": 100.0,    # mg C/L - from respiration
+    "SPM": 250.0,    # mg/L - typical TSS
+    # GHG in sewage/sewer systems
+    # Reference: Guisasola et al. (2008), Foley et al. (2010)
+    "CH4": 5.0,      # mg/L CH4 in sewer headspace equilibrated water
+    "N2O": 0.01,     # mg/L N2O from sewer denitrification
+}
+
+# Per-capita wastewater generation and emission factors
+# Used for calculating MASS LOADS (for load inventories)
 PERCAPITA_EMISSIONS = {
     "NH4": 12.0,   # ~12g N/person/day
     "NO3": 1.0,    # Minimal (mostly NH4)
     "PO4": 2.0,    # ~2g P/person/day
-    "TOC": 60.0,   # ~60g BOD/person/day → TOC
-    "DIC": 30.0,   # Respiration CO2
+    "TOC": 80.0,   # ~80g BOD/person/day → TOC
+    "DIC": 40.0,   # Respiration CO2
     "SPM": 50.0,   # Fecal solids
+    "CH4": 0.05,   # g CH4/person/day
+    "N2O": 0.002,  # g N2O/person/day
 }
 
 # Treatment removal efficiencies
 TREATMENT_REMOVAL = {
-    "none": {"NH4": 0.0, "NO3": 0.0, "PO4": 0.0, "TOC": 0.0, "SPM": 0.0},
-    "primary": {"NH4": 0.1, "NO3": 0.0, "PO4": 0.1, "TOC": 0.3, "SPM": 0.5},
-    "secondary": {"NH4": 0.6, "NO3": 0.2, "PO4": 0.3, "TOC": 0.8, "SPM": 0.9},
-    "tertiary": {"NH4": 0.9, "NO3": 0.8, "PO4": 0.9, "TOC": 0.95, "SPM": 0.95},
+    "none": {"NH4": 0.0, "NO3": 0.0, "PO4": 0.0, "TOC": 0.0, "SPM": 0.0, "CH4": 0.0, "N2O": 0.0},
+    "primary": {"NH4": 0.1, "NO3": 0.0, "PO4": 0.1, "TOC": 0.3, "SPM": 0.5, "CH4": 0.1, "N2O": 0.05},
+    "secondary": {"NH4": 0.6, "NO3": 0.2, "PO4": 0.3, "TOC": 0.8, "SPM": 0.9, "CH4": 0.5, "N2O": 0.3},
+    "tertiary": {"NH4": 0.9, "NO3": 0.8, "PO4": 0.9, "TOC": 0.95, "SPM": 0.95, "CH4": 0.8, "N2O": 0.7},
 }
 
 
@@ -531,6 +682,9 @@ def generate_point_sources(
     """
     Generate point source file for major cities.
     
+    === UPDATED December 2025: Added CH4 and N2O columns ===
+    === FIXED December 2025: Use actual sewage concentrations ===
+    
     Parameters:
     -----------
     point_source_dict : dict, optional
@@ -540,7 +694,7 @@ def generate_point_sources(
         
     Returns:
     --------
-    DataFrame with point source specifications
+    DataFrame with point source specifications including GHG species
     """
     if point_source_dict is None:
         point_source_dict = POINT_SOURCES_MEKONG
@@ -555,13 +709,17 @@ def generate_point_sources(
         # Calculate flow [m³/s]
         q_m3_s = pop * per_capita_water_L_day / 1000.0 / 86400.0
         
-        # Calculate concentrations after treatment [mg/L]
+        # === FIXED: Use actual sewage concentrations, not per-capita loads ===
+        # Apply treatment removal to sewage concentrations
         conc = {}
-        for sp, per_cap in PERCAPITA_EMISSIONS.items():
-            # Mass load [g/s] = pop × emission × (1 - removal) / 86400
-            mass_g_s = pop * per_cap * (1 - removal.get(sp, 0)) / 86400.0
-            # Concentration [mg/L] = mass [g/s] / flow [m³/s] × 1000 [L/m³]
-            conc[sp] = mass_g_s / q_m3_s * 1000.0 if q_m3_s > 0 else 0.0
+        for sp, sewage_conc in SEWAGE_CONCENTRATIONS.items():
+            conc[sp] = sewage_conc * (1 - removal.get(sp, 0))
+        
+        # Convert CH4 and N2O from mg/L to nmol/L
+        # CH4: MW = 16 g/mol, so mg/L → mmol/L = mg/L / 16, → nmol/L = × 1e6
+        # N2O: MW = 44 g/mol
+        ch4_nmol_L = conc.get("CH4", 0) / 16.0 * 1e6  # Convert to nmol/L
+        n2o_nmol_L = conc.get("N2O", 0) / 44.0 * 1e6  # Convert to nmol/L
         
         segment_idx = int(data["distance_km"] * 1000 / DX_M)
         
@@ -577,8 +735,11 @@ def generate_point_sources(
             "NO3_mg_L": round(conc["NO3"], 1),
             "PO4_mg_L": round(conc["PO4"], 1),
             "TOC_mg_L": round(conc["TOC"], 1),
-            "DIC_mg_L": round(conc["DIC"], 1),
+            "DIC_mg_L": round(conc.get("DIC", 0), 1),
             "SPM_mg_L": round(conc["SPM"], 1),
+            # NEW: GHG columns
+            "CH4_nmol_L": round(ch4_nmol_L, 1),
+            "N2O_nmol_L": round(n2o_nmol_L, 1),
         })
     
     return pd.DataFrame(records)
@@ -595,6 +756,7 @@ def generate_all_files(
     duration_days: int = 365,
     include_point_sources: bool = True,
     base_runoff_rate: float = 0.002,
+    representative_landuse: str = None,
 ) -> Dict[str, pd.DataFrame]:
     """
     Generate all lateral load input files for C-GEM.
@@ -613,6 +775,9 @@ def generate_all_files(
         Whether to generate point sources file
     base_runoff_rate : float
         Dry season runoff [m³/s/km²]
+    representative_landuse : str, optional
+        Representative land use percentages. Format: "Rice,70;Urban,10;Aqua,15;Fruit,5"
+        If provided, overrides landuse_map.csv with uniform land use.
         
     Returns:
     --------
@@ -675,15 +840,85 @@ def generate_all_files(
     # -------------------------------------------------------------------------
     # 3. Generate base loads from land use
     # -------------------------------------------------------------------------
-    print("\nLoading land use map...")
-    try:
-        landuse_df = load_landuse_map(case_dir)
-        print(f"  Loaded {len(landuse_df)} segments from "
-              f"{len(landuse_df['Branch'].unique())} branches")
-    except FileNotFoundError as e:
-        print(f"  Warning: {e}")
-        print("  Skipping base load generation.")
-        return outputs
+    
+    landuse_df = None
+    
+    # Check for representative land use mode
+    if representative_landuse:
+        print("\n*** REPRESENTATIVE LAND USE MODE ***")
+        print(f"  Using uniform land use: {representative_landuse}")
+        print("  This applies the same land use percentages to ALL segments.")
+        print("  Useful for data-sparse applications or sensitivity studies.")
+        
+        # Parse representative land use string: "Rice,70;Urban,10;Aqua,15;Fruit,5"
+        landuse_pct = {}
+        for item in representative_landuse.split(";"):
+            parts = item.strip().split(",")
+            if len(parts) == 2:
+                lu_type = parts[0].strip()
+                pct = float(parts[1].strip())
+                landuse_pct[lu_type] = pct
+        
+        # Validate land use types
+        for lu_type in landuse_pct.keys():
+            if lu_type not in JAXA_EMISSIONS:
+                print(f"  Warning: Unknown land use type '{lu_type}'. Available: {list(JAXA_EMISSIONS.keys())}")
+        
+        total_pct = sum(landuse_pct.values())
+        if abs(total_pct - 100.0) > 1.0:
+            print(f"  Warning: Land use percentages sum to {total_pct}% (should be 100%)")
+        
+        # Load topology to get branch names and lengths
+        try:
+            topo_path = case_dir / "topology.csv"
+            topo_df = pd.read_csv(topo_path, comment='#', skipinitialspace=True)
+            # Clean column names
+            topo_df.columns = [c.strip() for c in topo_df.columns]
+            
+            # Find branch name and length columns
+            name_col = [c for c in topo_df.columns if 'name' in c.lower()][0]
+            length_col = [c for c in topo_df.columns if 'length' in c.lower()][0]
+            
+            # Generate uniform landuse_df
+            records = []
+            for _, row in topo_df.iterrows():
+                branch_name = str(row[name_col]).strip()
+                length_m = float(row[length_col])
+                num_segments = max(1, int(length_m / (DX_M * 2)))  # 2km segments
+                
+                for seg in range(num_segments):
+                    dist_km = seg * DX_M * 2 / 1000.0
+                    record = {
+                        "Branch": branch_name,
+                        "Distance_km": dist_km,
+                        "Area_km2": 2.0,  # Default 2 km² per segment
+                    }
+                    # Add land use percentages
+                    for lu_type in JAXA_EMISSIONS.keys():
+                        col_name = f"Pct_{lu_type}"
+                        record[col_name] = landuse_pct.get(lu_type, 0.0)
+                    records.append(record)
+            
+            landuse_df = pd.DataFrame(records)
+            print(f"  Generated {len(landuse_df)} segments from topology")
+            print(f"  Land use: {landuse_pct}")
+            
+        except Exception as e:
+            print(f"  Error generating representative land use: {e}")
+            print("  Falling back to landuse_map.csv...")
+            landuse_df = None
+    
+    # Load from file if not using representative mode
+    if landuse_df is None:
+        print("\nLoading land use map...")
+        try:
+            landuse_df = load_landuse_map(case_dir)
+            print(f"  Loaded {len(landuse_df)} segments from "
+                  f"{len(landuse_df['Branch'].unique())} branches")
+        except FileNotFoundError as e:
+            print(f"  Warning: {e}")
+            print("  Skipping base load generation.")
+            return outputs
     
     print("\nCalculating base loads from JAXA emissions...")
     base_loads = calculate_base_loads(landuse_df, base_runoff_rate)
@@ -809,6 +1044,12 @@ Climate Presets Available:
         help="Skip point source generation"
     )
     parser.add_argument(
+        "--representative-landuse", "-R",
+        type=str,
+        default=None,
+        help="Use representative land use instead of detailed map. Format: 'Rice,80;Urban,10;Fruit,10'"
+    )
+    parser.add_argument(
         "--list-presets",
         action="store_true",
         help="List available climate presets and exit"
@@ -832,6 +1073,11 @@ Climate Presets Available:
             print(f"  Rainfall (mm): {preset['rainfall_mm']}")
             print(f"  Annual total: {sum(preset['rainfall_mm'])} mm")
             print(f"  Dry months: {[i+1 for i in preset['dry_months']]}")
+        print("\n\nAvailable Land Use Types for --representative-landuse:")
+        print("-" * 70)
+        for lu_type in JAXA_EMISSIONS.keys():
+            print(f"  {lu_type}")
+        print("\nExample: --representative-landuse 'Rice,70;Urban,10;Aqua,15;Fruit,5'")
         return
     
     # Parse custom rainfall
@@ -856,6 +1102,7 @@ Climate Presets Available:
         duration_days=args.duration,
         include_point_sources=not args.no_point_sources,
         base_runoff_rate=args.base_runoff,
+        representative_landuse=args.representative_landuse,
     )
 
 

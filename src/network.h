@@ -243,6 +243,11 @@ typedef struct {
     double PO4_factor[CGEM_LATERAL_MAX_MONTHS];      /* PO4 concentration multiplier */
     double TOC_factor[CGEM_LATERAL_MAX_MONTHS];      /* TOC concentration multiplier */
     double SPM_factor[CGEM_LATERAL_MAX_MONTHS];      /* SPM concentration multiplier */
+    /* NEW: GHG species factors (December 2025) */
+    double CH4_factor[CGEM_LATERAL_MAX_MONTHS];      /* CH4 concentration multiplier */
+    double N2O_factor[CGEM_LATERAL_MAX_MONTHS];      /* N2O concentration multiplier */
+    double DIC_factor[CGEM_LATERAL_MAX_MONTHS];      /* DIC concentration multiplier */
+    double AT_factor[CGEM_LATERAL_MAX_MONTHS];       /* Alkalinity concentration multiplier */
     
     /* Daily interpolated factors (optional, for daily resolution) */
     double *daily_Q_factor;     /* [num_days] */
@@ -251,6 +256,11 @@ typedef struct {
     double *daily_PO4_factor;
     double *daily_TOC_factor;
     double *daily_SPM_factor;
+    /* NEW: GHG daily factors */
+    double *daily_CH4_factor;
+    double *daily_N2O_factor;
+    double *daily_DIC_factor;
+    double *daily_AT_factor;
     int num_days;               /* Number of days in daily arrays */
     int use_daily;              /* Flag: 1 = use daily, 0 = use monthly */
     
@@ -311,6 +321,11 @@ typedef struct {
     double dx_meters;       /* Grid spacing [m] specified in case config (DELXI) */
     double tidal_amplitude; /* [m] */
     double Q_river;         /* [m³/s] */
+    
+    /* Regional defaults and simplified modes (December 2025) */
+    char regional_preset[64];         /* Regional parameter preset (Mekong, Ganges, etc.) */
+    int landuse_mode;                 /* 0 = detailed (landuse_map.csv), 1 = representative */
+    char representative_landuse[256]; /* Format: "Rice,80;Urban,10;Fruit,10" */
 } CaseConfig;
 
 /* Memory management */
@@ -347,6 +362,7 @@ int Biogeo_Branch(Branch *branch, double dt, void *network_ptr);
 /* Lateral Loads (Land-Use Coupling) */
 int LoadLateralSources(Network *net, const char *case_dir);
 int LoadLateralSeasonalFactors(Network *net, const char *case_dir);
+int LoadPointSources(Network *net, const char *case_dir);  /* NEW: Point source loading */
 void ApplyLateralLoads(Branch *branch, double dt, int day_of_year, LateralSeasonalFactors *factors);
 void FreeLateralSeasonalFactors(LateralSeasonalFactors *factors);
 

@@ -1,5 +1,5 @@
-Name,Branch,Segment_Index,Distance_km,Population,Treatment,Q_m3_s,NH4_mg_L,NO3_mg_L,PO4_mg_L,TOC_mg_L,DIC_mg_L,SPM_mg_L
-Can_Tho,Hau_River,40,80.0,1500000,primary,2.6042,72000.0,6666.7,12000.0,280000.0,200000.0,166666.7
-My_Tho,My_Tho,20,40.0,500000,none,0.8681,80000.0,6666.7,13333.3,400000.0,200000.0,333333.3
-Ben_Tre,Ham_Luong,22,45.0,200000,none,0.3472,80000.0,6666.7,13333.3,400000.0,200000.0,333333.3
-Vinh_Long,Co_Chien,30,60.0,150000,none,0.2604,80000.0,6666.7,13333.3,400000.0,200000.0,333333.3
+Name,Branch,Segment_Index,Distance_km,Population,Treatment,Q_m3_s,NH4_mg_L,NO3_mg_L,PO4_mg_L,TOC_mg_L,DIC_mg_L,SPM_mg_L,CH4_nmol_L,N2O_nmol_L
+Can_Tho,Hau_River,40,80.0,1500000,primary,2.6042,36.0,1.0,7.2,140.0,100.0,125.0,281250.0,215.9
+My_Tho,My_Tho,20,40.0,500000,none,0.8681,40.0,1.0,8.0,200.0,100.0,250.0,312500.0,227.3
+Ben_Tre,Ham_Luong,22,45.0,200000,none,0.3472,40.0,1.0,8.0,200.0,100.0,250.0,312500.0,227.3
+Vinh_Long,Co_Chien,30,60.0,150000,none,0.2604,40.0,1.0,8.0,200.0,100.0,250.0,312500.0,227.3

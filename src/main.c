@@ -211,6 +211,12 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Warning: Failed to load lateral seasonal factors\n");
         /* Continue anyway - defaults to constant factors (1.0) */
     }
+    
+    /* Load point sources (cities, WWTP) - AFTER lateral loads to handle overlap */
+    if (LoadPointSources(&network, case_config.base_dir) < 0) {
+        fprintf(stderr, "Warning: Failed to load point sources\n");
+        /* Continue anyway - point sources are optional */
+    }
 
     /* Transfer config to network */
     network.dt = case_config.dt;

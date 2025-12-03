@@ -165,6 +165,10 @@ BiogeoParams* rive_get_params(void);
 /* Load parameters from file */
 int LoadBiogeoParams(const char *path);
 
+/* Regional default parameter sets (December 2025) */
+int SetRegionalDefaults(const char *region_name);
+void ListRegionalPresets(void);
+
 /* Initialize branch parameters from global */
 void InitializeBiogeoParameters(Branch *branch);
 

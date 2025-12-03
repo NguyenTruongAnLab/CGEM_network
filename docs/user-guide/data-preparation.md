@@ -1,5 +1,12 @@
 # Data Preparation
 
+!!! tip "Quick Start"
+    **Not sure what data you need?** See [Data Requirements](data-requirements.md) for a tiered approach:
+    
+    - **Tier 1 (Minimal)**: Geometry + discharge + tides = salinity modeling
+    - **Tier 2 (Standard)**: + land use + rainfall = full biogeochemistry
+    - **Tier 3 (Advanced)**: + calibration data = publication quality
+
 ## Input Directory Structure
 
 Each simulation case requires a directory under `INPUT/Cases/`:

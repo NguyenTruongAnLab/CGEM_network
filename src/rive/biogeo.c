@@ -482,6 +482,9 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
          * - First flush: Initial wet season spike in concentrations
          * 
          * Reference: Garnier et al. (2005), Billen et al. (2007), MRC (2018)
+         * 
+         * === UPDATED December 2025 ===
+         * Added CH4, N2O, and AT lateral inputs for GHG validation
          * =======================================================================*/
         if (branch->has_lateral_loads && branch->lateral_flow && branch->lateral_conc) {
             double Q_lat_base = branch->lateral_flow[i];  /* m³/s (base/dry) */
@@ -491,6 +494,8 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
                 double Q_factor = 1.0;
                 double NH4_factor = 1.0, NO3_factor = 1.0, PO4_factor = 1.0;
                 double TOC_factor = 1.0, DIC_factor = 1.0;
+                /* NEW: GHG factors (December 2025) */
+                double CH4_factor = 1.0, N2O_factor = 1.0, AT_factor = 1.0;
                 
                 if (factors && factors->loaded) {
                     Q_factor = GetLateralFactor(factors, day_of_year, -1);  /* -1 = Q */
@@ -498,7 +503,11 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
                     NO3_factor = GetLateralFactor(factors, day_of_year, CGEM_SPECIES_NO3);
                     PO4_factor = GetLateralFactor(factors, day_of_year, CGEM_SPECIES_PO4);
                     TOC_factor = GetLateralFactor(factors, day_of_year, CGEM_SPECIES_TOC);
-                    DIC_factor = TOC_factor;  /* DIC follows TOC */
+                    DIC_factor = GetLateralFactor(factors, day_of_year, CGEM_SPECIES_DIC);
+                    /* NEW: GHG factors */
+                    CH4_factor = GetLateralFactor(factors, day_of_year, CGEM_SPECIES_CH4);
+                    N2O_factor = GetLateralFactor(factors, day_of_year, CGEM_SPECIES_N2O);
+                    AT_factor = GetLateralFactor(factors, day_of_year, CGEM_SPECIES_AT);
                 }
                 
                 double Q_lat = Q_lat_base * Q_factor;
@@ -519,6 +528,10 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
                     double C_lat_po4 = branch->lateral_conc[CGEM_SPECIES_PO4][i] * PO4_factor;
                     double C_lat_toc = branch->lateral_conc[CGEM_SPECIES_TOC][i] * TOC_factor;
                     double C_lat_dic = branch->lateral_conc[CGEM_SPECIES_DIC][i] * DIC_factor;
+                    /* NEW: GHG lateral concentrations (December 2025) */
+                    double C_lat_ch4 = branch->lateral_conc[CGEM_SPECIES_CH4][i] * CH4_factor;
+                    double C_lat_n2o = branch->lateral_conc[CGEM_SPECIES_N2O][i] * N2O_factor;
+                    double C_lat_at = branch->lateral_conc[CGEM_SPECIES_AT][i] * AT_factor;
                     
                     /* Mix with current concentrations */
                     nh4[i] = CGEM_MAX(0.0, nh4[i] + mix_factor * (C_lat_nh4 - nh4[i]));
@@ -533,6 +546,25 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
                     
                     if (dic) {
                         dic[i] = CGEM_MAX(0.0, dic[i] + mix_factor * (C_lat_dic - dic[i]));
+                    }
+                    
+                    /* === NEW: Mix GHG species (December 2025) === */
+                    /* CH4: Mix from rice paddies/aquaculture drainage */
+                    if (branch->conc[CGEM_SPECIES_CH4] && C_lat_ch4 > 0) {
+                        branch->conc[CGEM_SPECIES_CH4][i] = CGEM_MAX(0.0,
+                            branch->conc[CGEM_SPECIES_CH4][i] + mix_factor * (C_lat_ch4 - branch->conc[CGEM_SPECIES_CH4][i]));
+                    }
+                    
+                    /* N2O: Mix from agricultural nitrification/denitrification */
+                    if (branch->conc[CGEM_SPECIES_N2O] && C_lat_n2o > 0) {
+                        branch->conc[CGEM_SPECIES_N2O][i] = CGEM_MAX(0.0,
+                            branch->conc[CGEM_SPECIES_N2O][i] + mix_factor * (C_lat_n2o - branch->conc[CGEM_SPECIES_N2O][i]));
+                    }
+                    
+                    /* AT (Total Alkalinity): Mix from weathering and fertilizer inputs */
+                    if (branch->conc[CGEM_SPECIES_AT] && C_lat_at > 0) {
+                        branch->conc[CGEM_SPECIES_AT][i] = CGEM_MAX(0.0,
+                            branch->conc[CGEM_SPECIES_AT][i] + mix_factor * (C_lat_at - branch->conc[CGEM_SPECIES_AT][i]));
                     }
                 }
             }

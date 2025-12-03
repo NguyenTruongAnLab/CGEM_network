@@ -24,7 +24,7 @@ OutputDir = OUTPUT/Mekong_Delta_Full
 
 # Time parameters - FULL YEAR SIMULATION
 StartDate = 2024-01-01
-Duration = 65
+Duration = 100
 Warmup = 30
 
 # Numerical parameters

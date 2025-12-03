@@ -850,23 +850,34 @@ int LoadLateralSources(Network *net, const char *case_dir) {
         int segment_idx;
         double dist_km, area_km2, Q_lat;
         double nh4_conc = 0, no3_conc = 0, po4_conc = 0, toc_conc = 0, dic_conc = 0, spm_conc = 0;
+        double ch4_conc = 0, n2o_conc = 0, at_conc = 0;  /* NEW: GHG species (December 2025) */
         
         int parsed = 0;
         
         if (is_new_format) {
             /* NEW FORMAT (v2): Branch,Segment_Index,Distance_km,Area_km2,Runoff_C,Is_Polder_Zone,
              * Q_lat_base_m3_s,NH4_conc_base_mg_L,NO3_conc_base_mg_L,PO4_conc_base_mg_L,
-             * TOC_conc_base_mg_L,DIC_conc_base_mg_L,SPM_conc_base_mg_L */
+             * TOC_conc_base_mg_L,DIC_conc_base_mg_L,SPM_conc_base_mg_L,
+             * CH4_conc_base_nM,N2O_conc_base_nM,AT_conc_base_ueq_L (December 2025 extension) */
             double runoff_c;
             char is_polder[16];
             
-            parsed = sscanf(line, "%63[^,],%d,%lf,%lf,%lf,%15[^,],%lf,%lf,%lf,%lf,%lf,%lf,%lf",
+            /* Try extended format first (with GHG columns) */
+            parsed = sscanf(line, "%63[^,],%d,%lf,%lf,%lf,%15[^,],%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf",
                            branch_name, &segment_idx, &dist_km, &area_km2, &runoff_c, is_polder,
-                           &Q_lat, &nh4_conc, &no3_conc, &po4_conc, &toc_conc, &dic_conc, &spm_conc);
+                           &Q_lat, &nh4_conc, &no3_conc, &po4_conc, &toc_conc, &dic_conc, &spm_conc,
+                           &ch4_conc, &n2o_conc, &at_conc);
             
             if (parsed < 7) {
                 fprintf(stderr, "Warning: Failed to parse lateral_sources.csv line %d (new format)\n", line_num);
                 continue;
+            }
+            
+            /* If we only parsed 13 fields, GHG columns are missing - that's OK */
+            if (parsed < 16) {
+                ch4_conc = 0;
+                n2o_conc = 0;
+                at_conc = 0;
             }
         } else {
             /* OLD FORMAT: Branch,Segment_Index,Distance_km,Area_km2,Q_lat_m3_s,
@@ -929,6 +940,22 @@ int LoadLateralSources(Network *net, const char *case_dir) {
             
             /* DIC: mg C/L → µmol C/L */
             b->lateral_conc[CGEM_SPECIES_DIC][grid_idx] = dic_conc * 83.3;
+            
+            /* === NEW: GHG species (December 2025) === */
+            /* CH4: Already in nmol/L in CSV - store directly */
+            if (ch4_conc > 0) {
+                b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] = ch4_conc;  /* nmol/L */
+            }
+            
+            /* N2O: Already in nmol/L in CSV - store directly */
+            if (n2o_conc > 0) {
+                b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] = n2o_conc;  /* nmol/L */
+            }
+            
+            /* AT (Total Alkalinity): Already in µeq/L in CSV - store directly */
+            if (at_conc > 0) {
+                b->lateral_conc[CGEM_SPECIES_AT][grid_idx] = at_conc;  /* µeq/L */
+            }
         }
         
         total_loaded++;
@@ -989,6 +1016,11 @@ void FreeLateralSeasonalFactors(LateralSeasonalFactors *factors) {
     if (factors->daily_PO4_factor) { free(factors->daily_PO4_factor); factors->daily_PO4_factor = NULL; }
     if (factors->daily_TOC_factor) { free(factors->daily_TOC_factor); factors->daily_TOC_factor = NULL; }
     if (factors->daily_SPM_factor) { free(factors->daily_SPM_factor); factors->daily_SPM_factor = NULL; }
+    /* NEW: Free GHG factor arrays */
+    if (factors->daily_CH4_factor) { free(factors->daily_CH4_factor); factors->daily_CH4_factor = NULL; }
+    if (factors->daily_N2O_factor) { free(factors->daily_N2O_factor); factors->daily_N2O_factor = NULL; }
+    if (factors->daily_DIC_factor) { free(factors->daily_DIC_factor); factors->daily_DIC_factor = NULL; }
+    if (factors->daily_AT_factor) { free(factors->daily_AT_factor); factors->daily_AT_factor = NULL; }
     
     factors->num_days = 0;
     factors->use_daily = 0;
@@ -1015,10 +1047,20 @@ int LoadLateralSeasonalFactors(Network *net, const char *case_dir) {
         factors->PO4_factor[m] = 1.0;
         factors->TOC_factor[m] = 1.0;
         factors->SPM_factor[m] = 1.0;
+        /* NEW: Initialize GHG factors */
+        factors->CH4_factor[m] = 1.0;
+        factors->N2O_factor[m] = 1.0;
+        factors->DIC_factor[m] = 1.0;
+        factors->AT_factor[m] = 1.0;
     }
     factors->use_daily = 0;
     factors->num_days = 0;
     factors->loaded = 0;
+    /* Initialize daily pointers to NULL */
+    factors->daily_CH4_factor = NULL;
+    factors->daily_N2O_factor = NULL;
+    factors->daily_DIC_factor = NULL;
+    factors->daily_AT_factor = NULL;
     strncpy(factors->climate_preset, "default", sizeof(factors->climate_preset));
     
     /* Try to load monthly factors file */
@@ -1051,12 +1093,27 @@ int LoadLateralSeasonalFactors(Network *net, const char *case_dir) {
         int month;
         char month_name[16], season[16];
         double rain_mm, q_factor, nh4_factor, no3_factor, po4_factor, toc_factor, spm_factor;
+        double ch4_factor = 1.0, n2o_factor = 1.0, dic_factor = 1.0, at_factor = 1.0;  /* NEW: GHG factors */
         
-        /* Parse CSV line */
-        int parsed = sscanf(line, "%d,%15[^,],%15[^,],%lf,%lf,%lf,%lf,%lf,%lf,%lf",
+        /* Parse CSV line - try extended format first (with GHG columns) */
+        int parsed = sscanf(line, "%d,%15[^,],%15[^,],%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf",
+                           &month, month_name, season, &rain_mm,
+                           &q_factor, &nh4_factor, &no3_factor, &po4_factor,
+                           &toc_factor, &spm_factor,
+                           &ch4_factor, &n2o_factor, &dic_factor, &at_factor);
+        
+        if (parsed < 10) {
+            /* Try basic format without GHG */
+            parsed = sscanf(line, "%d,%15[^,],%15[^,],%lf,%lf,%lf,%lf,%lf,%lf,%lf",
                            &month, month_name, season, &rain_mm,
                            &q_factor, &nh4_factor, &no3_factor, &po4_factor,
                            &toc_factor, &spm_factor);
+            /* Use defaults for GHG factors */
+            ch4_factor = 1.0;
+            n2o_factor = 1.0;
+            dic_factor = 1.0;
+            at_factor = 1.0;
+        }
         
         if (parsed < 6) {
             /* Try simpler format without SPM */
@@ -1085,6 +1142,11 @@ int LoadLateralSeasonalFactors(Network *net, const char *case_dir) {
         factors->PO4_factor[m] = po4_factor;
         factors->TOC_factor[m] = toc_factor;
         factors->SPM_factor[m] = spm_factor;
+        /* NEW: Store GHG factors */
+        factors->CH4_factor[m] = ch4_factor;
+        factors->N2O_factor[m] = n2o_factor;
+        factors->DIC_factor[m] = dic_factor;
+        factors->AT_factor[m] = at_factor;
         
         months_loaded++;
     }
@@ -1179,6 +1241,11 @@ double GetLateralFactor(LateralSeasonalFactors *factors, int day_of_year, int sp
             case CGEM_SPECIES_PO4: return factors->daily_PO4_factor[day_of_year];
             case CGEM_SPECIES_TOC: return factors->daily_TOC_factor[day_of_year];
             case CGEM_SPECIES_SPM: return factors->daily_SPM_factor[day_of_year];
+            /* NEW: GHG species (December 2025) */
+            case CGEM_SPECIES_CH4: return factors->daily_CH4_factor ? factors->daily_CH4_factor[day_of_year] : 1.0;
+            case CGEM_SPECIES_N2O: return factors->daily_N2O_factor ? factors->daily_N2O_factor[day_of_year] : 1.0;
+            case CGEM_SPECIES_DIC: return factors->daily_DIC_factor ? factors->daily_DIC_factor[day_of_year] : 1.0;
+            case CGEM_SPECIES_AT:  return factors->daily_AT_factor ? factors->daily_AT_factor[day_of_year] : 1.0;
             case -1: return factors->daily_Q_factor[day_of_year];  /* -1 = Q factor */
             default: return 1.0;
         }
@@ -1195,8 +1262,201 @@ double GetLateralFactor(LateralSeasonalFactors *factors, int day_of_year, int sp
         case CGEM_SPECIES_PO4: return factors->PO4_factor[month];
         case CGEM_SPECIES_TOC: return factors->TOC_factor[month];
         case CGEM_SPECIES_SPM: return factors->SPM_factor[month];
+        /* NEW: GHG species (December 2025) */
+        case CGEM_SPECIES_CH4: return factors->CH4_factor[month];
+        case CGEM_SPECIES_N2O: return factors->N2O_factor[month];
+        case CGEM_SPECIES_DIC: return factors->DIC_factor[month];
+        case CGEM_SPECIES_AT:  return factors->AT_factor[month];
         case -1: return factors->Q_factor[month];  /* -1 = Q factor */
         default: return 1.0;
     }
 }
+
+
+/* ===========================================================================
+ * POINT SOURCE LOADER
+ * Loads major urban discharge points (cities, WWTP) from CSV
+ * 
+ * IMPORTANT: Point sources are ADDITIVE to lateral loads, but we need to 
+ * avoid double-counting urban areas. When point_sources.csv is loaded:
+ * 1. The point source flow and concentrations are added at specific cells
+ * 2. Lateral loads from Urban land use within exclusion_radius_km are reduced
+ * 
+ * CSV Format (point_sources.csv):
+ * Name,Branch,Segment_Index,Distance_km,Population,Treatment,Q_m3_s,NH4_mg_L,...
+ * Can_Tho,Hau_River,40,80.0,1500000,primary,2.6,36.0,...
+ * ===========================================================================*/
+
+/**
+ * Load point sources from CSV file
+ * 
+ * Point sources represent concentrated urban discharge (cities, WWTP) that are
+ * separate from diffuse lateral loads. To avoid double-counting:
+ * - Lateral loads within 5km of point sources are reduced by 50%
+ * - This accounts for urban runoff already captured by sewage system
+ * 
+ * @param net Network structure
+ * @param case_dir Path to case directory
+ * @return Number of point sources loaded (0 if file not found, -1 on error)
+ */
+int LoadPointSources(Network *net, const char *case_dir) {
+    if (!net || !case_dir) return -1;
+    
+    char path[CGEM_MAX_PATH];
+    snprintf(path, sizeof(path), "%s/point_sources.csv", case_dir);
+    
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        printf("No point sources file found: %s (continuing without point sources)\n", path);
+        return 0;  /* Not an error - point sources are optional */
+    }
+    
+    printf("Loading point sources from: %s\n", path);
+    
+    char line[1024];
+    int line_num = 0;
+    int total_loaded = 0;
+    double total_Q = 0.0;
+    
+    /* Exclusion radius for reducing urban lateral loads near point sources */
+    const double EXCLUSION_RADIUS_KM = 5.0;
+    
+    /* Read header line */
+    if (!fgets(line, sizeof(line), fp)) {
+        fclose(fp);
+        return -1;
+    }
+    
+    while (fgets(line, sizeof(line), fp)) {
+        line_num++;
+        
+        /* Parse CSV line */
+        char name[64], branch_name[64], treatment[32];
+        int segment_idx;
+        double dist_km;
+        int population;
+        double Q_m3_s;
+        double nh4_mg_L = 0, no3_mg_L = 0, po4_mg_L = 0, toc_mg_L = 0, dic_mg_L = 0, spm_mg_L = 0;
+        double ch4_nmol_L = 0, n2o_nmol_L = 0;
+        
+        /* Parse: Name,Branch,Segment_Index,Distance_km,Population,Treatment,Q_m3_s,NH4,NO3,PO4,TOC,DIC,SPM,CH4,N2O */
+        int parsed = sscanf(line, "%63[^,],%63[^,],%d,%lf,%d,%31[^,],%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf",
+                           name, branch_name, &segment_idx, &dist_km, &population, treatment,
+                           &Q_m3_s, &nh4_mg_L, &no3_mg_L, &po4_mg_L, &toc_mg_L, &dic_mg_L, &spm_mg_L,
+                           &ch4_nmol_L, &n2o_nmol_L);
+        
+        if (parsed < 7) {
+            fprintf(stderr, "Warning: Failed to parse point_sources.csv line %d\n", line_num);
+            continue;
+        }
+        
+        /* Find the branch */
+        trim_in_place(branch_name);
+        Branch *b = find_branch_by_name(net, branch_name);
+        if (!b) {
+            fprintf(stderr, "Warning: Point source '%s' branch '%s' not found\n", name, branch_name);
+            continue;
+        }
+        
+        /* Map distance to grid index (same logic as lateral loads) */
+        int grid_idx = b->M - (int)(dist_km * 1000.0 / b->dx);
+        if (grid_idx < 1) grid_idx = 1;
+        if (grid_idx > b->M) grid_idx = b->M;
+        
+        /* Add point source flow to lateral flow array */
+        if (b->lateral_flow) {
+            b->lateral_flow[grid_idx] += Q_m3_s;
+        }
+        
+        /* Add point source concentrations (weighted by flow if combined with lateral) */
+        if (b->lateral_conc && Q_m3_s > 1e-10) {
+            /* Get existing lateral flow at this cell */
+            double existing_Q = b->lateral_flow[grid_idx] - Q_m3_s;  /* Subtract point source Q we just added */
+            double total_Q_cell = b->lateral_flow[grid_idx];
+            
+            if (existing_Q > 1e-10) {
+                /* Mix point source with existing lateral load (flow-weighted average) */
+                double w_point = Q_m3_s / total_Q_cell;
+                double w_lateral = existing_Q / total_Q_cell;
+                
+                /* NH4: mg N/L -> umol N/L (x71.4) */
+                b->lateral_conc[CGEM_SPECIES_NH4][grid_idx] = 
+                    w_lateral * b->lateral_conc[CGEM_SPECIES_NH4][grid_idx] + 
+                    w_point * (nh4_mg_L * 71.4);
+                
+                /* NO3 */
+                b->lateral_conc[CGEM_SPECIES_NO3][grid_idx] = 
+                    w_lateral * b->lateral_conc[CGEM_SPECIES_NO3][grid_idx] + 
+                    w_point * (no3_mg_L * 71.4);
+                
+                /* PO4: mg P/L -> umol P/L (x32.3) */
+                b->lateral_conc[CGEM_SPECIES_PO4][grid_idx] = 
+                    w_lateral * b->lateral_conc[CGEM_SPECIES_PO4][grid_idx] + 
+                    w_point * (po4_mg_L * 32.3);
+                
+                /* TOC: mg C/L -> umol C/L (x83.3) */
+                b->lateral_conc[CGEM_SPECIES_TOC][grid_idx] = 
+                    w_lateral * b->lateral_conc[CGEM_SPECIES_TOC][grid_idx] + 
+                    w_point * (toc_mg_L * 83.3);
+                
+                /* DIC */
+                b->lateral_conc[CGEM_SPECIES_DIC][grid_idx] = 
+                    w_lateral * b->lateral_conc[CGEM_SPECIES_DIC][grid_idx] + 
+                    w_point * (dic_mg_L * 83.3);
+                
+                /* CH4: already in nmol/L */
+                if (ch4_nmol_L > 0) {
+                    b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] = 
+                        w_lateral * b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] + 
+                        w_point * ch4_nmol_L;
+                }
+                
+                /* N2O: already in nmol/L */
+                if (n2o_nmol_L > 0) {
+                    b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] = 
+                        w_lateral * b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] + 
+                        w_point * n2o_nmol_L;
+                }
+            } else {
+                /* No existing lateral load - set directly */
+                b->lateral_conc[CGEM_SPECIES_NH4][grid_idx] = nh4_mg_L * 71.4;
+                b->lateral_conc[CGEM_SPECIES_NO3][grid_idx] = no3_mg_L * 71.4;
+                b->lateral_conc[CGEM_SPECIES_PO4][grid_idx] = po4_mg_L * 32.3;
+                b->lateral_conc[CGEM_SPECIES_TOC][grid_idx] = toc_mg_L * 83.3;
+                b->lateral_conc[CGEM_SPECIES_DIC][grid_idx] = dic_mg_L * 83.3;
+                if (ch4_nmol_L > 0) b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] = ch4_nmol_L;
+                if (n2o_nmol_L > 0) b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] = n2o_nmol_L;
+            }
+        }
+        
+        /* Reduce urban lateral loads near this point source to avoid double-counting
+         * This reduces Q_lat by 50% within EXCLUSION_RADIUS_KM of the point source
+         * Rationale: Urban runoff near cities is partly collected by sewage systems
+         */
+        int exclusion_cells = (int)(EXCLUSION_RADIUS_KM * 1000.0 / b->dx);
+        for (int i = grid_idx - exclusion_cells; i <= grid_idx + exclusion_cells; ++i) {
+            if (i >= 1 && i <= b->M && i != grid_idx && b->lateral_flow) {
+                /* Reduce lateral flow by 50% in exclusion zone */
+                b->lateral_flow[i] *= 0.5;
+            }
+        }
+        
+        b->has_lateral_loads = 1;
+        total_loaded++;
+        total_Q += Q_m3_s;
+        
+        printf("  + %s (pop %d): Q=%.3f m3/s at %s km %.1f (cell %d)\n", 
+               name, population, Q_m3_s, branch_name, dist_km, grid_idx);
+    }
+    
+    fclose(fp);
+    
+    printf("  Loaded %d point sources (total Q: %.3f m3/s)\n", total_loaded, total_Q);
+    if (total_loaded > 0) {
+        printf("  Urban lateral loads reduced by 50%% within %.0f km of point sources\n", EXCLUSION_RADIUS_KM);
+    }
+    
+    return total_loaded;
+}
+
 
