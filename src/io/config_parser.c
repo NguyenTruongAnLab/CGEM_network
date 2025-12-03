@@ -178,23 +178,6 @@ int LoadCaseConfig(const char *path, CaseConfig *config) {
                 fprintf(stderr, "Warning: Unknown ReactionMode '%s', defaulting to ON\n", value);
                 config->reaction_mode = 1;
             }
-        } else if (strcmp(key, "RegionalPreset") == 0) {
-            /* RegionalPreset = Mekong|Ganges|Niger|etc - apply regional parameter defaults
-             * Available: Mekong, RedRiver, Ganges, Niger, Irrawaddy, SaigonDongNai, Mediterranean */
-            snprintf(config->regional_preset, sizeof(config->regional_preset), "%s", value);
-        } else if (strcmp(key, "LandUseMode") == 0 || strcmp(key, "LateralLoadMode") == 0) {
-            /* LandUseMode = detailed|representative 
-             * detailed: Uses landuse_map.csv for spatial variation (default)
-             * representative: Uses single representative land use for whole estuary */
-            if (strcasecmp(value, "representative") == 0 || strcasecmp(value, "simple") == 0) {
-                config->landuse_mode = 1;  /* Representative mode */
-            } else {
-                config->landuse_mode = 0;  /* Detailed mode (default) */
-            }
-        } else if (strcmp(key, "RepresentativeLandUse") == 0) {
-            /* RepresentativeLandUse = Rice,80;Urban,10;Fruit,10
-             * Format: LandUseType,Percent;LandUseType,Percent;... */
-            snprintf(config->representative_landuse, sizeof(config->representative_landuse), "%s", value);
         } else if (strcmp(key, "OutputDir") == 0) {
             /* Allow explicit output directory override */
             if (value[0] == '/' || value[0] == '\\' || (strlen(value) > 1 && value[1] == ':')) {

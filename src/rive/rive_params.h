@@ -145,6 +145,7 @@ typedef struct {
     int skip_multipool_oc;        /* 1 = Use single TOC instead of HD1-3, HP1-3 */
     int skip_ghg_dynamics;        /* 1 = Only calculate GHG as post-processing */
     int skip_p_adsorption;        /* 1 = Skip dynamic PO4-PIP equilibrium */
+    int skip_carbonate_reactions; /* 1 = Skip DIC/TA/pCO2 reactions (transport only) - Dec 2025 */
     
     /* ===========================================================================
      * SIMPLIFIED MODE KINETICS (BOD/COD-based for data-sparse regions)
@@ -164,10 +165,6 @@ BiogeoParams* rive_get_params(void);
 
 /* Load parameters from file */
 int LoadBiogeoParams(const char *path);
-
-/* Regional default parameter sets (December 2025) */
-int SetRegionalDefaults(const char *region_name);
-void ListRegionalPresets(void);
 
 /* Initialize branch parameters from global */
 void InitializeBiogeoParameters(Branch *branch);

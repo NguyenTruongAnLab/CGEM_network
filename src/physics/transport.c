@@ -20,6 +20,7 @@
 
 #include "network.h"
 #include "define.h"
+#include "../rive/rive_params.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -339,14 +340,13 @@ static void ComputeDispersionCoefficient_Internal(Branch *branch, double Q_total
          * 
          * Literature values for tidally-averaged dispersion (Savenije 2005):
          * - D0 ~ 50-150 m²/s for well-mixed tropical estuaries
-         * - D0 ~ 100 m²/s typical for Mekong (Nguyen 2008)
+         * - D0 ~ 100-200 m²/s typical for Mekong (Nguyen 2008)
          * - D0 ~ 30-80 m²/s for partially mixed estuaries
          * 
-         * The cap should be 150 m²/s (not 10 m²/s which was diagnostic).
-         * Too low D0 → salt can't penetrate during flood → unrealistic
-         * Too high D0 → salt spreads too far → plateau profile
+         * RECALIBRATED December 2025: Increased cap to allow 40-60km intrusion
+         * in dry season. Previous 150 m²/s with high K gave only ~20km intrusion.
          * =====================================================================*/
-        if (D0 > 150.0) D0 = 150.0;  /* Upper bound: avoid over-dispersion */
+        if (D0 > 250.0) D0 = 250.0;  /* Upper bound: avoid over-dispersion */
     }
     
     /*
@@ -358,8 +358,9 @@ static void ComputeDispersionCoefficient_Internal(Branch *branch, double Q_total
 
     /* Realistic bounds for tropical estuaries */
     if (D0 < 0.0) D0 = 0.0;
-    if (has_ocean_boundary && D0 < 30.0) D0 = 30.0;   /* Minimum tidal mixing at mouth */
-    /* Note: D0 already capped at 150 m²/s above */
+    /* INCREASED minimum for ocean branches to ensure adequate tidal mixing */
+    if (has_ocean_boundary && D0 < 80.0) D0 = 80.0;   /* Minimum tidal mixing at mouth */
+    /* Note: D0 already capped at 250 m²/s above */
 
     branch->D0 = D0;
     branch->dispersion[0] = D0;
@@ -901,15 +902,6 @@ static void calculate_advection(Branch *b, int species, double dt) {
  * Crank-Nicolson Dispersion Scheme
  * -------------------------------------------------------------------------- */
 
-/* DIAGNOSTIC FLAG: Set to 1 to completely disable dispersion for testing 
- * 
- * AUDIT FIX (December 2025): Re-enabled dispersion. The salinity plateau
- * was caused by advection boundary handling, not dispersion. With proper
- * flow-dependent BC (Dirichlet on inflow, Neumann on outflow), dispersion
- * is necessary for realistic tidal mixing.
- */
-#define DISABLE_DISPERSION_FOR_TEST 0
-
 /**
  * Calculate dispersive transport using Crank-Nicolson implicit scheme
  * Calculate_Dispersion
@@ -930,20 +922,6 @@ static void calculate_dispersion(Branch *b, int species, double dt,
     int M = b->M;
     double dx = b->dx;
     double *conc = b->conc[species];
-    
-#if DISABLE_DISPERSION_FOR_TEST
-    /* DIAGNOSTIC: Dispersion completely disabled - testing pure advection */
-    (void)dt; (void)c_down; (void)c_up; (void)dx;
-    /* Only set boundary ghost cells, no dispersion calculation */
-    if (b->down_node_type == NODE_LEVEL_BC) {
-        conc[0] = c_down;
-    }
-    if (b->up_node_type == NODE_DISCHARGE_BC) {
-        conc[M] = c_up;
-        conc[M+1] = c_up;
-    }
-    return;
-#endif
     
     /* Store old concentrations for flux calculation (all indices) */
     double cold[CGEM_MAX_BRANCH_CELLS + 4];
@@ -1209,6 +1187,10 @@ int Transport_Branch_Network(Branch *branch, double dt, void *network_ptr) {
     /* Pass Q_dispersion AND net_Q_river for proper warmup handling */
     ComputeDispersionCoefficient_Internal(branch, Q_dispersion, D0_override, net_Q_river);
     
+    /* Get simplified_mode flag to skip RIVE multi-pool species */
+    BiogeoParams *biogeo_p = rive_get_params();
+    int simplified_mode = (biogeo_p && biogeo_p->simplified_mode) ? 1 : 0;
+    
     /* Process each species - ONLY those with transport flag (env=1) */
     for (int sp = 0; sp < branch->num_species; ++sp) {
         if (!branch->conc || !branch->conc[sp]) continue;
@@ -1217,6 +1199,15 @@ int Transport_Branch_Network(Branch *branch, double dt, void *network_ptr) {
         /* These are computed by biogeochemistry, not transported */
         if (!species_is_transported(sp)) {
             continue;
+        }
+        
+        /* These species (HD1-3, HP1-3, BAG, BAP, PIP, DSS) are not used
+         * when simplified_mode=1, so we skip their transport.
+         * This reduces transport from 28 species to 18 species (~35% speedup) */
+        if (simplified_mode) {
+            if (sp >= CGEM_SPECIES_HD1 && sp <= CGEM_SPECIES_DSS) {
+                continue;  /* Skip HD1, HD2, HD3, HP1, HP2, HP3, BAG, BAP, PIP, DSS */
+            }
         }
         
         /* Get boundary concentrations */

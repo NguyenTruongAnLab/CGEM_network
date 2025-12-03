@@ -321,11 +321,6 @@ typedef struct {
     double dx_meters;       /* Grid spacing [m] specified in case config (DELXI) */
     double tidal_amplitude; /* [m] */
     double Q_river;         /* [m³/s] */
-    
-    /* Regional defaults and simplified modes (December 2025) */
-    char regional_preset[64];         /* Regional parameter preset (Mekong, Ganges, etc.) */
-    int landuse_mode;                 /* 0 = detailed (landuse_map.csv), 1 = representative */
-    char representative_landuse[256]; /* Format: "Rice,80;Urban,10;Fruit,10" */
 } CaseConfig;
 
 /* Memory management */

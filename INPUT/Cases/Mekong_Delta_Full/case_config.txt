@@ -24,7 +24,7 @@ OutputDir = OUTPUT/Mekong_Delta_Full
 
 # Time parameters - FULL YEAR SIMULATION
 StartDate = 2024-01-01
-Duration = 100
+Duration = 80
 Warmup = 30
 
 # Numerical parameters
@@ -45,6 +45,9 @@ WriteReactionRates = 0
 # OFF mode: transport only - useful for testing boundary conditions,
 #           lateral sources, and advection-dispersion without reactions
 # ON mode:  full biogeochemistry including nutrient cycling, respiration, etc.
+# 
+# NOTE: With skip_carbonate_reactions=1 in biogeo_params.txt, DIC/TA/pCO2/pH
+# are transported conservatively while O2/nutrient reactions are still active.
 ReactionMode = ON
 
 # simplified_mode = 1 enables the 80/20 parsimonious biogeochemistry

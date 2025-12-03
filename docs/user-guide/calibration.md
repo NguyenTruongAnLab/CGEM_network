@@ -16,8 +16,7 @@ C-GEM includes a built-in calibration module powered by **NLopt**, supporting:
 .\bin\Debug\CGEM_Network.exe INPUT/Cases/Mekong_Delta_Full/case_config.txt --calibrate
 
 # Single stage with options
-.\bin\Debug\CGEM_Network.exe INPUT/Cases/Mekong_Delta_Full/case_config.txt \
-    --calibrate --stage 1 --max-iter 100 --verbose 2
+.\bin\Debug\CGEM_Network.exe INPUT/Cases/Mekong_Delta_Full/case_config.txt --calibrate --stage 1 --max-iter 100 --verbose 2
 ```
 
 ## Command-Line Options

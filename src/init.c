@@ -16,7 +16,6 @@
 /* Forward declarations for functions defined in other modules */
 void InitializeSedimentParameters(Branch *branch);
 int LoadBiogeoParams(const char *path);
-int SetRegionalDefaults(const char *region_name);  /* Regional parameter presets */
 
 /**
  * @brief Initialize species boundary conditions for a branch
@@ -473,9 +472,8 @@ void initializeNetworkSediment(Network *net) {
  *
  * @param net Pointer to network structure
  * @param case_dir Case directory path (for finding biogeo_params.txt)
- * @param regional_preset Optional regional preset name (NULL to skip)
  */
-void initializeNetworkBiogeochemistry(Network *net, const char *case_dir, const char *regional_preset) {
+void initializeNetworkBiogeochemistry(Network *net, const char *case_dir) {
     if (!net || !net->branches) return;
 
     printf("Initializing biogeochemistry for %zu branches...\n", net->num_branches);
@@ -487,14 +485,6 @@ void initializeNetworkBiogeochemistry(Network *net, const char *case_dir, const 
         LoadBiogeoParams(biogeo_path);
     } else {
         LoadBiogeoParams(NULL);  /* Use defaults */
-    }
-    
-    /* Apply regional defaults if specified (AFTER loading biogeo_params.txt) */
-    if (regional_preset && regional_preset[0] != '\0') {
-        printf("Applying regional parameter preset: %s\n", regional_preset);
-        if (SetRegionalDefaults(regional_preset) != 0) {
-            fprintf(stderr, "Warning: Regional preset '%s' not found, using defaults\n", regional_preset);
-        }
     }
 
     for (size_t i = 0; i < net->num_branches; ++i) {
@@ -717,9 +707,7 @@ int initializeNetwork(Network *net, CaseConfig *config) {
         else case_dir[0] = '\0';
     }
     
-    /* Pass regional preset from config (may be empty string if not set) */
-    const char *preset = config->regional_preset[0] ? config->regional_preset : NULL;
-    initializeNetworkBiogeochemistry(net, case_dir[0] ? case_dir : NULL, preset);
+    initializeNetworkBiogeochemistry(net, case_dir[0] ? case_dir : NULL);
 
     /* Step 5: Initialize species boundary conditions */
     /* NOTE: Requires branch node types to be set first! */

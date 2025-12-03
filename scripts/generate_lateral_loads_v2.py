@@ -640,6 +640,7 @@ POINT_SOURCES_MEKONG = {
 # TYPICAL RAW SEWAGE CONCENTRATIONS (mg/L)
 # These are what actually enters the river, NOT per-capita loads
 # Reference: Metcalf & Eddy (2014), Henze et al. (2008)
+# FIXED December 2025: Corrected CH4 concentration (was 5.0, way too high)
 SEWAGE_CONCENTRATIONS = {
     "NH4": 40.0,     # mg N/L - typical raw sewage
     "NO3": 1.0,      # mg N/L - minimal in raw sewage
@@ -647,10 +648,12 @@ SEWAGE_CONCENTRATIONS = {
     "TOC": 200.0,    # mg C/L - typical raw sewage BOD ~250 → TOC ~200
     "DIC": 100.0,    # mg C/L - from respiration
     "SPM": 250.0,    # mg/L - typical TSS
-    # GHG in sewage/sewer systems
-    # Reference: Guisasola et al. (2008), Foley et al. (2010)
-    "CH4": 5.0,      # mg/L CH4 in sewer headspace equilibrated water
-    "N2O": 0.01,     # mg/L N2O from sewer denitrification
+    # GHG in sewage/sewer systems - CORRECTED VALUES
+    # Reference: Wang et al. (2011), Daelman et al. (2012)
+    # Dissolved CH4 in raw sewage: 0.01-0.1 mg/L (not headspace-equilibrated)
+    # N2O from sewer denitrification: 0.001-0.01 mg/L
+    "CH4": 0.05,     # mg/L CH4 - dissolved in sewage (not headspace)
+    "N2O": 0.005,    # mg/L N2O from partial denitrification
 }
 
 # Per-capita wastewater generation and emission factors
@@ -756,7 +759,6 @@ def generate_all_files(
     duration_days: int = 365,
     include_point_sources: bool = True,
     base_runoff_rate: float = 0.002,
-    representative_landuse: str = None,
 ) -> Dict[str, pd.DataFrame]:
     """
     Generate all lateral load input files for C-GEM.
@@ -775,9 +777,6 @@ def generate_all_files(
         Whether to generate point sources file
     base_runoff_rate : float
         Dry season runoff [m³/s/km²]
-    representative_landuse : str, optional
-        Representative land use percentages. Format: "Rice,70;Urban,10;Aqua,15;Fruit,5"
-        If provided, overrides landuse_map.csv with uniform land use.
         
     Returns:
     --------
@@ -843,82 +842,16 @@ def generate_all_files(
     
     landuse_df = None
     
-    # Check for representative land use mode
-    if representative_landuse:
-        print("\n*** REPRESENTATIVE LAND USE MODE ***")
-        print(f"  Using uniform land use: {representative_landuse}")
-        print("  This applies the same land use percentages to ALL segments.")
-        print("  Useful for data-sparse applications or sensitivity studies.")
-        
-        # Parse representative land use string: "Rice,70;Urban,10;Aqua,15;Fruit,5"
-        landuse_pct = {}
-        for item in representative_landuse.split(";"):
-            parts = item.strip().split(",")
-            if len(parts) == 2:
-                lu_type = parts[0].strip()
-                pct = float(parts[1].strip())
-                landuse_pct[lu_type] = pct
-        
-        # Validate land use types
-        for lu_type in landuse_pct.keys():
-            if lu_type not in JAXA_EMISSIONS:
-                print(f"  Warning: Unknown land use type '{lu_type}'. Available: {list(JAXA_EMISSIONS.keys())}")
-        
-        total_pct = sum(landuse_pct.values())
-        if abs(total_pct - 100.0) > 1.0:
-            print(f"  Warning: Land use percentages sum to {total_pct}% (should be 100%)")
-        
-        # Load topology to get branch names and lengths
-        try:
-            topo_path = case_dir / "topology.csv"
-            topo_df = pd.read_csv(topo_path, comment='#', skipinitialspace=True)
-            # Clean column names
-            topo_df.columns = [c.strip() for c in topo_df.columns]
-            
-            # Find branch name and length columns
-            name_col = [c for c in topo_df.columns if 'name' in c.lower()][0]
-            length_col = [c for c in topo_df.columns if 'length' in c.lower()][0]
-            
-            # Generate uniform landuse_df
-            records = []
-            for _, row in topo_df.iterrows():
-                branch_name = str(row[name_col]).strip()
-                length_m = float(row[length_col])
-                num_segments = max(1, int(length_m / (DX_M * 2)))  # 2km segments
-                
-                for seg in range(num_segments):
-                    dist_km = seg * DX_M * 2 / 1000.0
-                    record = {
-                        "Branch": branch_name,
-                        "Distance_km": dist_km,
-                        "Area_km2": 2.0,  # Default 2 km² per segment
-                    }
-                    # Add land use percentages
-                    for lu_type in JAXA_EMISSIONS.keys():
-                        col_name = f"Pct_{lu_type}"
-                        record[col_name] = landuse_pct.get(lu_type, 0.0)
-                    records.append(record)
-            
-            landuse_df = pd.DataFrame(records)
-            print(f"  Generated {len(landuse_df)} segments from topology")
-            print(f"  Land use: {landuse_pct}")
-            
-        except Exception as e:
-            print(f"  Error generating representative land use: {e}")
-            print("  Falling back to landuse_map.csv...")
-            landuse_df = None
-    
-    # Load from file if not using representative mode
-    if landuse_df is None:
-        print("\nLoading land use map...")
-        try:
-            landuse_df = load_landuse_map(case_dir)
-            print(f"  Loaded {len(landuse_df)} segments from "
-                  f"{len(landuse_df['Branch'].unique())} branches")
-        except FileNotFoundError as e:
-            print(f"  Warning: {e}")
-            print("  Skipping base load generation.")
-            return outputs
+    # Load land use map from file
+    print("\nLoading land use map...")
+    try:
+        landuse_df = load_landuse_map(case_dir)
+        print(f"  Loaded {len(landuse_df)} segments from "
+              f"{len(landuse_df['Branch'].unique())} branches")
+    except FileNotFoundError as e:
+        print(f"  Warning: {e}")
+        print("  Skipping base load generation.")
+        return outputs
     
     print("\nCalculating base loads from JAXA emissions...")
     base_loads = calculate_base_loads(landuse_df, base_runoff_rate)
@@ -1044,12 +977,6 @@ Climate Presets Available:
         help="Skip point source generation"
     )
     parser.add_argument(
-        "--representative-landuse", "-R",
-        type=str,
-        default=None,
-        help="Use representative land use instead of detailed map. Format: 'Rice,80;Urban,10;Fruit,10'"
-    )
-    parser.add_argument(
         "--list-presets",
         action="store_true",
         help="List available climate presets and exit"
@@ -1073,11 +1000,10 @@ Climate Presets Available:
             print(f"  Rainfall (mm): {preset['rainfall_mm']}")
             print(f"  Annual total: {sum(preset['rainfall_mm'])} mm")
             print(f"  Dry months: {[i+1 for i in preset['dry_months']]}")
-        print("\n\nAvailable Land Use Types for --representative-landuse:")
+        print("\n\nAvailable Land Use Types (for landuse_map.csv):")
         print("-" * 70)
         for lu_type in JAXA_EMISSIONS.keys():
             print(f"  {lu_type}")
-        print("\nExample: --representative-landuse 'Rice,70;Urban,10;Aqua,15;Fruit,5'")
         return
     
     # Parse custom rainfall
@@ -1102,7 +1028,6 @@ Climate Presets Available:
         duration_days=args.duration,
         include_point_sources=not args.no_point_sources,
         base_runoff_rate=args.base_runoff,
-        representative_landuse=args.representative_landuse,
     )
 
 
