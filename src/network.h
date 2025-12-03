@@ -288,6 +288,7 @@ typedef struct {
     
     /* Simulation control flags */
     int quiet_mode;         /* 1 = suppress progress output (for calibration) */
+    int reaction_mode;      /* 1 = ON (default), 0 = OFF (transport only) */
 } Network;
 
 typedef struct {
@@ -305,6 +306,7 @@ typedef struct {
     int write_csv;
     int write_netcdf;
     int write_reaction_rates;  /* Output reaction rates to CSV (for debugging pCO2) */
+    int reaction_mode;         /* 1 = ON (default), 0 = OFF (transport only, for testing) */
     double dt;              /* Time step [s] */
     double dx_meters;       /* Grid spacing [m] specified in case config (DELXI) */
     double tidal_amplitude; /* [m] */

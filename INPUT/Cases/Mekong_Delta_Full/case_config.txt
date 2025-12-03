@@ -41,6 +41,12 @@ WriteCSV = 1
 WriteReactionRates = 0
 
 # Biogeochemistry mode
+# ReactionMode = ON (default) or OFF
+# OFF mode: transport only - useful for testing boundary conditions,
+#           lateral sources, and advection-dispersion without reactions
+# ON mode:  full biogeochemistry including nutrient cycling, respiration, etc.
+ReactionMode = ON
+
 # simplified_mode = 1 enables the 80/20 parsimonious biogeochemistry
 # suitable for data-sparse tropical systems
 SimplifiedMode = 1

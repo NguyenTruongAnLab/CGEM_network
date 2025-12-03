@@ -82,6 +82,7 @@ int LoadCaseConfig(const char *path, CaseConfig *config) {
     config->write_csv = 0;
     config->write_netcdf = 0;
     config->write_reaction_rates = 0;
+    config->reaction_mode = 1;  /* Default: reactions ON */
     config->dx_meters = CGEM_DEFAULT_DX_METERS;
     snprintf(config->start_date, sizeof(config->start_date), "1970-01-01");
 
@@ -166,6 +167,17 @@ int LoadCaseConfig(const char *path, CaseConfig *config) {
             config->write_netcdf = (int)strtol(value, NULL, 10);
         } else if (strcmp(key, "WriteReactionRates") == 0) {
             config->write_reaction_rates = (int)strtol(value, NULL, 10);
+        } else if (strcmp(key, "ReactionMode") == 0) {
+            /* ReactionMode = ON (1) or OFF (0) - allows disabling biogeochemistry
+             * for testing transport, lateral sources, and boundary conditions */
+            if (strcasecmp(value, "ON") == 0 || strcmp(value, "1") == 0) {
+                config->reaction_mode = 1;
+            } else if (strcasecmp(value, "OFF") == 0 || strcmp(value, "0") == 0) {
+                config->reaction_mode = 0;
+            } else {
+                fprintf(stderr, "Warning: Unknown ReactionMode '%s', defaulting to ON\n", value);
+                config->reaction_mode = 1;
+            }
         } else if (strcmp(key, "OutputDir") == 0) {
             /* Allow explicit output directory override */
             if (value[0] == '/' || value[0] == '\\' || (strlen(value) > 1 && value[1] == ':')) {

@@ -196,6 +196,9 @@ static void mix_junction_concentrations(Network *net) {
             /* 6. Assign Boundary Conditions (Direction Dependent)
              * - OUTFLOWS (Flowing away from node): See the Mixed Node Concentration
              * - INFLOWS (Flowing into node): See the concentration of the *Opposite* branches
+             * 
+             * IMPORTANT: Do NOT override ocean boundary concentrations!
+             * If a branch has an ocean BC at one end, keep the forcing value there.
              */
             for (int c = 0; c < node->num_connections; ++c) {
                 int branch_idx = node->connected_branches[c];
@@ -229,13 +232,21 @@ static void mix_junction_concentrations(Network *net) {
                     bc_conc = nodeC;
                 }
 
-                /* Apply to boundary */
+                /* Apply to boundary - but SKIP if that boundary has an ocean forcing!
+                 * Ocean forcing takes precedence over junction mixing.
+                 */
                 if (dir == -1) {
                     /* Junction at upstream (index M) of this branch */
-                    set_node_boundary_conc(b, sp, bc_conc, 1);
+                    /* Only set conc_up if upstream is NOT an ocean boundary */
+                    if (b->up_node_type != NODE_LEVEL_BC) {
+                        set_node_boundary_conc(b, sp, bc_conc, 1);
+                    }
                 } else if (dir == 1) {
                     /* Junction at downstream (index 1) of this branch */
-                    set_node_boundary_conc(b, sp, bc_conc, 0);
+                    /* Only set conc_down if downstream is NOT an ocean boundary */
+                    if (b->down_node_type != NODE_LEVEL_BC) {
+                        set_node_boundary_conc(b, sp, bc_conc, 0);
+                    }
                 }
             }
         }
@@ -520,7 +531,9 @@ int solve_network_step(Network *net, double current_time_seconds) {
         Transport_Branch_Network(b, dt, (void *)net);
         Sediment_Branch(b, dt);
         
-        if (current_time_seconds >= net->warmup_time) {
+        /* Biogeochemistry: only run if reaction_mode=ON and after warmup
+         * ReactionMode=OFF allows testing transport and lateral sources in isolation */
+        if (net->reaction_mode && current_time_seconds >= net->warmup_time) {
             Biogeo_Branch(b, dt, (void *)net);
         }
     }

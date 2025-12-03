@@ -218,6 +218,7 @@ int main(int argc, char **argv) {
     network.Q_river = case_config.Q_river;
     network.warmup_time = case_config.warmup_days * 86400.0;
     network.total_time = case_config.duration_days * 86400.0;
+    network.reaction_mode = case_config.reaction_mode;  /* Transfer reaction mode */
 
     /* =================================================================
      * Print configuration
@@ -236,6 +237,7 @@ int main(int argc, char **argv) {
     printf("  Warmup      : %d days\n", case_config.warmup_days);
     printf("  Tidal amp   : %.2f m\n", network.tidal_amplitude);
     printf("  Q_river     : %.1f m³/s\n", network.Q_river);
+    printf("  Reactions   : %s\n", network.reaction_mode ? "ON" : "OFF (transport only)");
     printf("  Output dir  : %s\n", case_config.output_dir);
     printf("==============================================\n\n");
 

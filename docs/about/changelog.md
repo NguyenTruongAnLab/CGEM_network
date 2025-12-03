@@ -5,6 +5,71 @@ All notable changes to C-GEM Network will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2025-12-03
+
+### Added
+
+- **ReactionMode Configuration** - Toggle biogeochemistry ON/OFF in `case_config.txt`:
+  - `ReactionMode = ON` (default): Full biogeochemistry with nutrient cycling, respiration, GHG emissions
+  - `ReactionMode = OFF`: Transport-only mode for testing boundary conditions and advection-dispersion
+  - Useful for debugging, isolating transport vs reaction effects, and performance optimization
+
+### Fixed
+
+- **Critical: Ocean Boundary Concentration Bug** - All species (not just salinity) now correctly maintain ocean boundary values:
+  
+  **Root Cause**: Junction mixing algorithm (`mix_junction_concentrations()`) was inadvertently zeroing `conc_down[]` for species when no flow entered junctions during ebb tide. This affected CH4, N2O, O2, TOC, and all other transported species.
+  
+  **Symptoms Fixed**:
+  - CH4/N2O showing 0 at estuary mouth instead of ocean values (40/8 nmol/L)
+  - O2 dropping to unrealistic values at downstream boundary
+  - TOC not matching ocean boundary during flood tide
+  - All species showing incorrect boundary behavior at ocean nodes
+  
+  **Solution** (three-part fix):
+  1. Modified `mix_junction_concentrations()` to skip ocean-connected boundaries (`NODE_LEVEL_BC`)
+  2. Added fallback ocean defaults in transport.c for critical species when `c_down` becomes zero
+  3. Added strong boundary relaxation (α=0.5) at ocean boundaries to ensure cell 1 reflects forcing
+
+- **Species Boundary Forcing Application** - Ensured `apply_species_boundary_forcing()` correctly sets all species from CSV files every timestep, not just during initialization
+
+### Changed
+
+- Ocean boundary treatment now robust for all species (was previously only tested for salinity)
+- Transport solver applies stronger relaxation at open boundaries for scalar stability
+- Ghost cell values now properly maintained for all species throughout simulation
+
+### Technical Details
+
+The ocean boundary fix addresses a fundamental issue with the junction-transport interaction:
+
+```
+Problem: During ebb tide (net outflow), junction mixing computed nodeC = 0 for GHG species
+         (no inflow → denominator = 0 → nodeC = 0), then propagated zero to all connected branches.
+
+Solution: Check branch endpoint type before applying junction-derived BC:
+```
+
+```c
+// In mix_junction_concentrations():
+if (dir == 1) {
+    // Only set conc_down if downstream is NOT an ocean boundary
+    if (b->down_node_type != NODE_LEVEL_BC) {
+        set_node_boundary_conc(b, sp, bc_conc, 0);
+    }
+}
+```
+
+**Validation Results** (Mekong Delta, Reactions OFF):
+| Species | Before Fix (1km) | After Fix (1km) | Expected |
+|---------|-----------------|-----------------|----------|
+| CH4 | 0 nmol/L | 40 nmol/L | ~40 nmol/L |
+| N2O | 0 nmol/L | 8 nmol/L | ~8 nmol/L |
+| O2 | ~220 µM | 260 µM | 260 µM |
+| Salinity | 30.5 PSU | 30.5 PSU | 30.5 PSU |
+
+---
+
 ## [1.1.0] - 2025-12-02
 
 ### Added

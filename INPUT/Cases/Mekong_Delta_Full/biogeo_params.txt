@@ -76,11 +76,33 @@ benthic_Q10 = 2.0
 benthic_NH4_flux = 2.5
 benthic_PO4_flux = 0.15
 
-# GHG
-N2O_yield_nit = 0.005
-N2O_yield_denit = 0.015
-benthic_CH4_flux = 150.0
-benthic_N2O_flux = 8.0
+# GHG Parameters
+# =============================================================================
+# N2O from Nitrification and Denitrification
+# Reference: Garnier et al. (2007), Marescaux et al. (2019)
+# - N2O_yield_nit: 0.1-1% of N oxidized (typically 0.3-0.5% for estuaries)
+# - N2O_yield_denit: 0.5-5% of N reduced (typically 1-2%)
+N2O_yield_nit = 0.003
+N2O_yield_denit = 0.01
+
+# CH4 from Benthic Sources
+# =============================================================================
+# In well-oxygenated systems like Mekong (O2 > 30% saturation), CH4 is 
+# NOT produced in the water column but comes from:
+# 1. Benthic sediment flux (anaerobic decomposition in underlying mud)
+# 2. Rice paddy drainage (major source in delta)
+# 3. Aquaculture pond discharge
+# 4. Groundwater seepage
+#
+# Reference: Borges & Abril (2011), Maher et al. (2013)
+# Tropical estuary benthic flux: 100-1000 µmol/m²/day
+# Mekong-specific: Higher due to organic-rich sediments and rice paddies
+benthic_CH4_flux = 300.0
+
+# N2O benthic flux (from sediment nitrification-denitrification coupling)
+# Reference: Seitzinger & Kroeze (1998)
+# Estuarine sediments: 1-50 nmol/m²/day
+benthic_N2O_flux = 15.0
 
 # Safety flags
 simplified_mode = 1

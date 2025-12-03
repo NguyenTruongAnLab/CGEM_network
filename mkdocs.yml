@@ -135,7 +135,9 @@ nav:
     - Introduction: physics/introduction.md
     - Hydrodynamics: physics/hydrodynamics.md
     - Transport: physics/transport.md
+    - Boundary Conditions: physics/boundary-conditions.md
     - Biogeochemistry: physics/biogeochemistry.md
+    - GHG Module: physics/ghg-module.md
     - Sediment: physics/sediment.md
   - API Reference:
     - Core Structures: api/structures.md
@@ -152,6 +154,7 @@ nav:
     - Testing: development/testing.md
   - About:
     - Changelog: about/changelog.md
+    - Validation & Known Issues: about/validation-issues.md
     - License: about/license.md
     - Citation: about/citation.md
 

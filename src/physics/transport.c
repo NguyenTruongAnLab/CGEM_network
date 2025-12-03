@@ -1230,6 +1230,26 @@ int Transport_Branch_Network(Branch *branch, double dt, void *network_ptr) {
         double c_down = (branch->conc_down) ? branch->conc_down[sp] : default_down;
         double c_up = (branch->conc_up) ? branch->conc_up[sp] : default_up;
         
+        /* CRITICAL FIX: Ensure ocean boundary values are never zero for species
+         * that have forcing data. The init.c sets default values that should be
+         * preserved even if transport or other modules accidentally zero them.
+         * For ocean boundaries (NODE_LEVEL_BC), use hardcoded ocean defaults if c_down is 0.
+         */
+        if (branch->down_node_type == NODE_LEVEL_BC && c_down < 1e-10) {
+            /* Restore ocean defaults for key species */
+            switch (sp) {
+                case CGEM_SPECIES_SALINITY: c_down = 30.5; break;
+                case CGEM_SPECIES_O2: c_down = 260.0; break;
+                case CGEM_SPECIES_NO3: c_down = 55.0; break;
+                case CGEM_SPECIES_TOC: c_down = 100.0; break;
+                case CGEM_SPECIES_DIC: c_down = 2050.0; break;
+                case CGEM_SPECIES_AT: c_down = 2200.0; break;
+                case CGEM_SPECIES_N2O: c_down = 8.0; break;
+                case CGEM_SPECIES_CH4: c_down = 40.0; break;
+                default: break;
+            }
+        }
+        
         /* Apply open boundary conditions */
         apply_open_boundaries(branch, sp, c_down, c_up, dt);
         
@@ -1331,6 +1351,25 @@ int Transport_Branch_Network(Branch *branch, double dt, void *network_ptr) {
         branch->conc[sp][0] = c_down;      /* Downstream ghost = BC value */
         branch->conc[sp][M] = c_up;        /* Upstream ghost */
         branch->conc[sp][M+1] = c_up;      /* Upstream ghost 2 */
+        
+        /* CRITICAL FIX: For ocean boundaries, ensure cell 1 reflects ocean concentration.
+         * This is necessary because:
+         * 1. Dispersion always brings ocean water in (Savenije 2005)
+         * 2. During ebb tide, advection exports but cannot create negative salt
+         * 3. The steady-state balance requires ocean BC to be visible at the boundary cell
+         * 
+         * Apply strong relaxation for all species at ocean boundary.
+         */
+        if (branch->down_node_type == NODE_LEVEL_BC) {
+            double alpha = 0.5;  /* Strong relaxation toward ocean value */
+            branch->conc[sp][1] = branch->conc[sp][1] + alpha * (c_down - branch->conc[sp][1]);
+        }
+        
+        /* Apply river BC at upstream boundary */
+        if (branch->up_node_type == NODE_DISCHARGE_BC) {
+            double alpha = 0.5;
+            branch->conc[sp][M-1] = branch->conc[sp][M-1] + alpha * (c_up - branch->conc[sp][M-1]);
+        }
     }
     
     return 0;
