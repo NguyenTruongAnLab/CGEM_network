@@ -21,6 +21,7 @@
 int Hyd_Branch(Branch *branch, double H_down, double H_up, double Q_up, double dt);
 int Sediment_Branch(Branch *branch, double dt);
 int Biogeo_Branch(Branch *branch, double dt, void *network_ptr);
+int Biogeo_GHG_Branch(Branch *branch, double dt);  /* GHG module */
 
 static double interpolate_forcing(double time, double *times, double *values, size_t len) {
     if (!times || !values || len == 0) return 0.0;
@@ -535,6 +536,7 @@ int solve_network_step(Network *net, double current_time_seconds) {
          * ReactionMode=OFF allows testing transport and lateral sources in isolation */
         if (net->reaction_mode && current_time_seconds >= net->warmup_time) {
             Biogeo_Branch(b, dt, (void *)net);
+            Biogeo_GHG_Branch(b, dt);  /* GHG module (N2O, CH4 dynamics) */
         }
     }
     

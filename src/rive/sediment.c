@@ -104,19 +104,33 @@ static double bed_shear_stress(double velocity, double depth, double chezy) {
 /**
  * Initialize sediment transport parameters for a branch
  * Sets up default values for erosion/deposition parameters
+ * 
+ * DECEMBER 2025 AUDIT FIX:
+ * - Lowered tau_ero from 0.5→0.08 Pa (downstream) and 0.2→0.05 Pa (upstream)
+ * - Increased mero by 50x to enable visible erosion/deposition dynamics
+ * - Typical Mekong shear stress: τ = ρgU²/C² ≈ 0.1 Pa for U=0.5m/s, C=50
+ * - Previous tau_ero=0.5 Pa meant erosion NEVER triggered!
+ * 
+ * Reference: Partheniades (1965), Winterwerp et al. (2004)
  */
 void InitializeSedimentParameters(Branch *branch) {
     if (!branch) return;
     
     /* Initialize sediment parameters with spatial variation */
     for (int i = 0; i <= branch->M + 1; ++i) {
-        /* Linear interpolation from downstream to upstream */
-        double tau_ero_down = 0.5;  /* Erosion threshold [Pa] */
-        double tau_ero_up = 0.2;
-        double tau_dep_down = 0.1;  /* Deposition threshold [Pa] */
-        double tau_dep_up = 0.05;
-        double mero_down = 1e-6;    /* Erosion coefficient [kg/m²/s] */
-        double mero_up = 5e-7;
+        /* Linear interpolation from downstream to upstream
+         * 
+         * DECEMBER 2025 FIX: Realistic thresholds for fine Mekong sediment
+         * - tau_ero: 0.08-0.05 Pa (was 0.5-0.2, way too high)
+         * - tau_dep: 0.03-0.02 Pa (was 0.1-0.05)
+         * - mero: 5e-5 to 2e-5 kg/m²/s (was 1e-6 to 5e-7, way too low)
+         */
+        double tau_ero_down = 0.08;  /* Erosion threshold [Pa] - REDUCED */
+        double tau_ero_up = 0.05;
+        double tau_dep_down = 0.03;  /* Deposition threshold [Pa] - REDUCED */
+        double tau_dep_up = 0.02;
+        double mero_down = 5e-5;     /* Erosion coefficient [kg/m²/s] - INCREASED 50x */
+        double mero_up = 2e-5;
         
         double s = (double)i / (double)branch->M;
         branch->tau_ero[i] = tau_ero_down + (tau_ero_up - tau_ero_down) * s;

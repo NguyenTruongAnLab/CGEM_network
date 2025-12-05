@@ -336,17 +336,24 @@ static void ComputeDispersionCoefficient_Internal(Branch *branch, double Q_total
         D0 = alpha * U_tidal * B0;
         
         /* =====================================================================
-         * D0 BOUNDS: PHYSICALLY REALISTIC VALUES
+         * D0 BOUNDS: PHYSICALLY REALISTIC VALUES FOR LARGE ESTUARIES
          * 
-         * Literature values for tidally-averaged dispersion (Savenije 2005):
-         * - D0 ~ 50-150 m²/s for well-mixed tropical estuaries
-         * - D0 ~ 100-200 m²/s typical for Mekong (Nguyen 2008)
-         * - D0 ~ 30-80 m²/s for partially mixed estuaries
+         * Literature values for tidally-averaged dispersion:
+         * - Small estuaries: D0 ~ 50-200 m²/s (Savenije 2005)
+         * - Large estuaries (Mekong, Ganges): D0 ~ 500-2000 m²/s
+         * - Amazon: D0 ~ 1000-5000 m²/s
          * 
-         * RECALIBRATED December 2025: Increased cap to allow 40-60km intrusion
-         * in dry season. Previous 150 m²/s with high K gave only ~20km intrusion.
+         * CRITICAL FIX (December 2025):
+         * Previous cap at 250 m²/s caused salt intrusion of only ~20km.
+         * Observed Mekong dry season intrusion is 60-80km, requiring D0 ~ 1000+ m²/s.
+         * 
+         * The formula D0 = α * U_tidal * B gives for Hau River:
+         *   D0 = 0.18 * 1.25 * 3000 = 675 m²/s
+         * This was being capped to 250, breaking the physics.
+         * 
+         * Reference: Nguyen et al. (2008), Savenije (2012) Chapter 5
          * =====================================================================*/
-        if (D0 > 250.0) D0 = 250.0;  /* Upper bound: avoid over-dispersion */
+        if (D0 > 2000.0) D0 = 2000.0;  /* Upper bound: realistic for mega-deltas */
     }
     
     /*
@@ -359,8 +366,8 @@ static void ComputeDispersionCoefficient_Internal(Branch *branch, double Q_total
     /* Realistic bounds for tropical estuaries */
     if (D0 < 0.0) D0 = 0.0;
     /* INCREASED minimum for ocean branches to ensure adequate tidal mixing */
-    if (has_ocean_boundary && D0 < 80.0) D0 = 80.0;   /* Minimum tidal mixing at mouth */
-    /* Note: D0 already capped at 250 m²/s above */
+    if (has_ocean_boundary && D0 < 200.0) D0 = 200.0;   /* Minimum tidal mixing at mouth */
+    /* Note: D0 capped at 2000 m²/s above */
 
     branch->D0 = D0;
     branch->dispersion[0] = D0;
@@ -1225,18 +1232,22 @@ int Transport_Branch_Network(Branch *branch, double dt, void *network_ptr) {
          * that have forcing data. The init.c sets default values that should be
          * preserved even if transport or other modules accidentally zero them.
          * For ocean boundaries (NODE_LEVEL_BC), use hardcoded ocean defaults if c_down is 0.
+         * 
+         * DECEMBER 2025 FIX: GHG values must be in µmol/L (model internal unit)
+         * NOT nmol/L (which is the measurement unit, just convert all measurement into µmol/L to be consistent).
          */
         if (branch->down_node_type == NODE_LEVEL_BC && c_down < 1e-10) {
             /* Restore ocean defaults for key species */
             switch (sp) {
                 case CGEM_SPECIES_SALINITY: c_down = 30.5; break;
-                case CGEM_SPECIES_O2: c_down = 260.0; break;
-                case CGEM_SPECIES_NO3: c_down = 55.0; break;
-                case CGEM_SPECIES_TOC: c_down = 100.0; break;
-                case CGEM_SPECIES_DIC: c_down = 2050.0; break;
-                case CGEM_SPECIES_AT: c_down = 2200.0; break;
-                case CGEM_SPECIES_N2O: c_down = 8.0; break;
-                case CGEM_SPECIES_CH4: c_down = 40.0; break;
+                case CGEM_SPECIES_O2: c_down = 260.0; break;  /* µmol/L */
+                case CGEM_SPECIES_NO3: c_down = 55.0; break;   /* µmol N/L */
+                case CGEM_SPECIES_TOC: c_down = 100.0; break;  /* µmol C/L */
+                case CGEM_SPECIES_DIC: c_down = 2050.0; break; /* µmol C/L */
+                case CGEM_SPECIES_AT: c_down = 2200.0; break;  /* µeq/L */
+                /* GHG species: values in µmol/L (NOT nmol/L!) */
+                case CGEM_SPECIES_N2O: c_down = 0.008; break;  /* 8 nmol/L = 0.008 µmol/L */
+                case CGEM_SPECIES_CH4: c_down = 0.04; break;   /* 40 nmol/L = 0.04 µmol/L */
                 default: break;
             }
         }

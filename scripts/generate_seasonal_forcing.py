@@ -162,6 +162,9 @@ def interpolate_seasonal(dry_val: float, wet_val: float, factor: float) -> float
 def generate_river_species_timeseries(duration_days: int) -> pd.DataFrame:
     """
     Generate seasonally-varying river species concentrations.
+    
+    CRITICAL: DIC and AT must be coupled to maintain DIC/TA < 0.95
+    Otherwise the carbonate system becomes unstable (pH crash).
     """
     n_steps = int(duration_days * 86400 / DT_SPECIES) + 1
     time_s = np.arange(n_steps) * DT_SPECIES
@@ -170,17 +173,18 @@ def generate_river_species_timeseries(duration_days: int) -> pd.DataFrame:
     
     np.random.seed(42)
     
+    # First pass: generate all species except DIC and AT
     for name in SPECIES_RIVER_DRY.keys():
+        if name in ["dic", "at"]:
+            continue  # Handle separately
+            
         dry_val = SPECIES_RIVER_DRY[name]
         wet_val = SPECIES_RIVER_WET[name]
         
         values = []
         for t in time_s:
-            # Convert time to day of year
             day = int((t / 86400) % 365)
             factor = get_seasonal_factor(day)
-            
-            # Interpolate between dry and wet
             base_val = interpolate_seasonal(dry_val, wet_val, factor)
             
             # Add small noise (±5%)
@@ -188,6 +192,42 @@ def generate_river_species_timeseries(duration_days: int) -> pd.DataFrame:
             values.append(base_val * np.clip(noise, 0.9, 1.1))
         
         data[name] = values
+    
+    # Second pass: generate DIC and AT with COUPLED noise
+    # This ensures DIC/TA ratio stays stable (< 0.95)
+    dic_values = []
+    at_values = []
+    
+    # Use same random seed for coupling
+    np.random.seed(420)  # Different seed for DIC/AT
+    
+    for i, t in enumerate(time_s):
+        day = int((t / 86400) % 365)
+        factor = get_seasonal_factor(day)
+        
+        dic_base = interpolate_seasonal(SPECIES_RIVER_DRY["dic"], SPECIES_RIVER_WET["dic"], factor)
+        at_base = interpolate_seasonal(SPECIES_RIVER_DRY["at"], SPECIES_RIVER_WET["at"], factor)
+        
+        # Generate COUPLED noise: same relative change for both
+        # This maintains the DIC/TA ratio
+        coupled_noise = 1.0 + 0.03 * np.random.randn()
+        coupled_noise = np.clip(coupled_noise, 0.95, 1.05)
+        
+        # Small independent noise for TA only (adds to AT, making ratio safer)
+        at_extra = at_base * 0.02 * abs(np.random.randn())
+        
+        dic = dic_base * coupled_noise
+        at = (at_base + at_extra) * coupled_noise
+        
+        # Safety check: ensure ratio < 0.95
+        if dic / at > 0.94:
+            at = dic / 0.92  # Force ratio to 0.92
+        
+        dic_values.append(dic)
+        at_values.append(at)
+    
+    data["dic"] = dic_values
+    data["at"] = at_values
     
     return pd.DataFrame(data)
 

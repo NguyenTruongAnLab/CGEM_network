@@ -76,11 +76,14 @@ static const char* VAR_TYPE_NAMES[] = {
     /* Stage 2: Sediment */
     "WS", "FLOC_SAL_SCALE", "FLOC_FACTOR_MAX", "TAU_ERO", "TAU_DEP",
     "MERO", "POC_SPM_RATIO",
-    /* Stage 3: Biogeochemistry */
+    /* Stage 3: Biogeochemistry (Water Quality) */
     "KOX", "KNIT", "KDENIT", "PBMAX1", "PBMAX2", "KMORT1", "KMORT2",
     "WIND_COEFF", "CURRENT_K", "BENTHIC_RESP", "KPADS", "PAC",
     /* Tropical-specific */
     "SAL_STRESS_THRESH", "SAL_STRESS_COEF",
+    /* Stage 4: GHG Parameters */
+    "N2O_YIELD_NIT", "N2O_YIELD_DENIT", "BENTHIC_CH4_FLUX", "BENTHIC_N2O_FLUX",
+    "CH4_OXIDATION", "PCO2_ATM", "WIND_SPEED", "SCHMIDT_EXP",
     NULL
 };
 
@@ -281,7 +284,15 @@ static CalibStage get_var_stage(CalibVarType var) {
         case VAR_POC_SPM_RATIO:
             return STAGE_SEDIMENT;
         
-        /* Stage 3: Biogeochemistry */
+        /* Stage 4: Greenhouse Gases */
+        case VAR_N2O_YIELD_NIT:
+        case VAR_N2O_YIELD_DENIT:
+        case VAR_BENTHIC_CH4_FLUX:
+        case VAR_BENTHIC_N2O_FLUX:
+        case VAR_CURRENT_K:
+            return STAGE_GHG;
+        
+        /* Stage 3: Biogeochemistry (default for reaction rates, etc.) */
         default:
             return STAGE_BIOGEOCHEM;
     }
@@ -448,8 +459,11 @@ int calib_load_objectives(CalibrationEngine *engine, const char *filepath) {
             obj->stage = STAGE_SEDIMENT;
         } else if (obj->species_idx == CGEM_SPECIES_SALINITY) {
             obj->stage = STAGE_HYDRO;  /* Salinity intrusion = hydro objective */
+        } else if (obj->species_idx == CGEM_SPECIES_PCO2 || obj->species_idx == CGEM_SPECIES_PH ||
+                   obj->species_idx == CGEM_SPECIES_CH4 || obj->species_idx == CGEM_SPECIES_N2O) {
+            obj->stage = STAGE_GHG;  /* GHG variables = Stage 4 */
         } else {
-            obj->stage = STAGE_BIOGEOCHEM;
+            obj->stage = STAGE_BIOGEOCHEM;  /* O2, nutrients, TOC, phytoplankton */
         }
         
         if (obj->obj_type < 0) {
@@ -471,6 +485,11 @@ int calib_load_objectives(CalibrationEngine *engine, const char *filepath) {
 /**
  * Load seasonal targets from CSV file
  * Format: Branch, Variable, Location_km, Time_Day, Value, Weight
+ * 
+ * IMPORTANT: Time_Day is days AFTER WARMUP (post-warmup simulation day)
+ *   - Time_Day = 15 means compare at day 15 of the "real" simulation
+ *   - This is independent of the warmup period in case_config.txt
+ *   - The model should extract output at this post-warmup day for comparison
  * 
  * This allows calibration against both dry season and wet season observations.
  * Each row creates an entry in the objective's time-series arrays.
@@ -627,8 +646,11 @@ int calib_load_seasonal_targets(CalibrationEngine *engine, const char *filepath)
             obj->stage = STAGE_HYDRO;
         } else if (obj->species_idx == CGEM_SPECIES_SPM) {
             obj->stage = STAGE_SEDIMENT;
+        } else if (obj->species_idx == CGEM_SPECIES_PCO2 || obj->species_idx == CGEM_SPECIES_PH ||
+                   obj->species_idx == CGEM_SPECIES_CH4 || obj->species_idx == CGEM_SPECIES_N2O) {
+            obj->stage = STAGE_GHG;  /* GHG variables = Stage 4 */
         } else {
-            obj->stage = STAGE_BIOGEOCHEM;
+            obj->stage = STAGE_BIOGEOCHEM;  /* O2, nutrients, TOC, phytoplankton */
         }
         
         engine->num_objectives++;
@@ -806,6 +828,32 @@ static void set_global_param(CalibVarType var, double value) {
             break;
         case VAR_SAL_STRESS_COEF:
             p->sal_stress_coef = value;
+            break;
+        
+        /* Stage 4: GHG Parameters */
+        case VAR_N2O_YIELD_NIT:
+            p->N2O_yield_nit = value;
+            break;
+        case VAR_N2O_YIELD_DENIT:
+            p->N2O_yield_denit = value;
+            break;
+        case VAR_BENTHIC_CH4_FLUX:
+            p->benthic_CH4_flux = value;
+            break;
+        case VAR_BENTHIC_N2O_FLUX:
+            p->benthic_N2O_flux = value;
+            break;
+        case VAR_CH4_OXIDATION:
+            /* CH4 oxidation rate - not yet in BiogeoParams, add if needed */
+            break;
+        case VAR_PCO2_ATM:
+            p->pco2_atm = value;
+            break;
+        case VAR_WIND_SPEED:
+            p->wind_speed = value;
+            break;
+        case VAR_SCHMIDT_EXP:
+            p->schmidt_exp = value;
             break;
         
         default:
@@ -1055,10 +1103,35 @@ static double get_branch_value(Branch *branch, int species_idx, CalibObjType obj
 }
 
 /**
+ * Get unit scaling factor for species
+ * 
+ * CRITICAL: Model works in µmol/L (µM), but calibration targets may use different units:
+ *   - CH4, N2O targets are in nmol/L (nM) → scale by 1000 to convert µM → nM
+ *   - All other species: targets match model units (no scaling)
+ * 
+ * This ensures apples-to-apples comparison between model and observations.
+ */
+static double get_species_unit_scale(int species_idx) {
+    /* GHG species: model is in µM, targets are in nM → multiply by 1000 */
+    if (species_idx == CGEM_SPECIES_CH4 || species_idx == CGEM_SPECIES_N2O) {
+        return 1000.0;  /* µM → nM */
+    }
+    /* All other species: no scaling needed */
+    return 1.0;
+}
+
+/**
  * Get value at specific spatial location in branch
+ * 
+ * GRID CONVENTION:
+ *   - Index 1 = downstream (ocean mouth, km=0)
+ *   - Index M = upstream (river, km=L)
+ *   - location_km is distance from mouth (0 = ocean, L = upstream)
+ * 
+ * NOTE: Applies unit scaling for GHG species (model µM → target nM)
  */
 static double get_value_at_location(Branch *branch, int species_idx, double location_km) {
-    if (!branch) return 0.0;
+    if (!branch) return 0.0;     
     
     double *arr = NULL;
     
@@ -1075,21 +1148,37 @@ static double get_value_at_location(Branch *branch, int species_idx, double loca
     
     if (!arr) return 0.0;
     
-    /* Convert km to grid index */
-    double idx_float = location_km * 1000.0 / branch->dx;
+    /* Convert km to grid index
+     * Grid convention: idx=1 is mouth (km=0), idx=M is upstream (km=L)
+     * So: idx = 1 + (location_km / L_km) * (M - 1)
+     */
+    double L_km = branch->length_m / 1000.0;  /* Branch length in km */
+    if (L_km <= 0) L_km = branch->M * branch->dx / 1000.0;
+    
+    /* Clamp location to valid range */
+    if (location_km < 0) location_km = 0;
+    if (location_km > L_km) location_km = L_km;
+    
+    /* Map [0, L_km] to [1, M] */
+    double idx_float = 1.0 + (location_km / L_km) * (branch->M - 1);
     int idx_lo = (int)idx_float;
     int idx_hi = idx_lo + 1;
     double frac = idx_float - idx_lo;
     
-    /* Clamp to valid range */
+    /* Clamp to valid range [1, M] */
     if (idx_lo < 1) idx_lo = 1;
     if (idx_hi > branch->M) idx_hi = branch->M;
     if (idx_lo >= branch->M) {
-        return arr[branch->M];
+        double unit_scale = get_species_unit_scale(species_idx);
+        return arr[branch->M] * unit_scale;
     }
     
     /* Linear interpolation */
-    return arr[idx_lo] * (1.0 - frac) + arr[idx_hi] * frac;
+    double raw_value = arr[idx_lo] * (1.0 - frac) + arr[idx_hi] * frac;
+    
+    /* Apply unit scaling (critical for GHG species) */
+    double unit_scale = get_species_unit_scale(species_idx);
+    return raw_value * unit_scale;
 }
 
 /**
@@ -1247,34 +1336,61 @@ double calib_calculate_stage_objective(CalibrationEngine *engine, Network *netwo
         CalibObjective *obj = &engine->objectives[i];
         if (!obj->enabled || obj->stage != stage) continue;
         
-        /* Same calculation as above, but filtered by stage */
+        /* Resolve branch index if needed */
         if (obj->branch_idx < 0 && obj->branch_name[0] != '\0') {
             obj->branch_idx = calib_find_branch(network, obj->branch_name);
         }
         
         double model_val = 0.0;
+        double contribution = 0.0;
         
-        if (obj->obj_type == OBJ_INTRUSION_LEN) {
+        /* ==== SEASONAL TIME-SERIES OBJECTIVES ==== */
+        if (obj->use_seasonal && obj->num_obs > 0) {
+            /* Calculate seasonal RMSE for this objective */
+            double seasonal_rmse = calib_calc_seasonal_rmse(engine, obj, network);
+            
+            /* Get representative model value for reporting */
+            if (obj->branch_idx >= 0 && obj->branch_idx < (int)network->num_branches) {
+                model_val = get_value_at_location(network->branches[obj->branch_idx],
+                                                  obj->species_idx, obj->location_km);
+            }
+            
+            obj->model_value = model_val;
+            obj->residual = seasonal_rmse;  /* Store RMSE as residual for reporting */
+            contribution = obj->weight * seasonal_rmse * seasonal_rmse;
+        }
+        /* ==== INTRUSION LENGTH OBJECTIVE ==== */
+        else if (obj->obj_type == OBJ_INTRUSION_LEN) {
             if (obj->branch_idx >= 0 && obj->branch_idx < (int)network->num_branches) {
                 model_val = calib_calc_intrusion_length(network->branches[obj->branch_idx],
                                                         obj->threshold);
             }
-        } else if (obj->obj_type == OBJ_ETM_LOCATION) {
+            obj->model_value = model_val;
+            obj->residual = model_val - obj->target_value;
+            contribution = obj->weight * obj->residual * obj->residual;
+        }
+        /* ==== ETM LOCATION OBJECTIVE ==== */
+        else if (obj->obj_type == OBJ_ETM_LOCATION) {
             if (obj->branch_idx >= 0 && obj->branch_idx < (int)network->num_branches) {
                 model_val = calib_calc_etm_location(network->branches[obj->branch_idx]);
             }
-        } else {
+            obj->model_value = model_val;
+            obj->residual = model_val - obj->target_value;
+            contribution = obj->weight * obj->residual * obj->residual;
+        }
+        /* ==== STANDARD MEAN/MIN/MAX OBJECTIVES ==== */
+        else {
             if (obj->branch_idx >= 0 && obj->branch_idx < (int)network->num_branches) {
                 model_val = get_branch_value(network->branches[obj->branch_idx],
                                              obj->species_idx, obj->obj_type);
             }
+            obj->model_value = model_val;
+            obj->residual = model_val - obj->target_value;
+            contribution = obj->weight * obj->residual * obj->residual;
         }
         
-        obj->model_value = model_val;
-        obj->residual = model_val - obj->target_value;
-        obj->contribution = obj->weight * obj->residual * obj->residual;
-        
-        total_weighted_sq += obj->contribution;
+        obj->contribution = contribution;
+        total_weighted_sq += contribution;
         total_weight += obj->weight;
     }
     
@@ -1626,8 +1742,8 @@ void calib_print_summary(CalibrationEngine *engine) {
     }
     
     printf("\nOBJECTIVE PERFORMANCE:\n");
-    printf("%-20s %-12s %-12s %-12s %-8s\n",
-           "Target", "Model", "Target", "Residual", "Weight");
+    printf("%-20s %6s %-12s %-12s %-12s %-8s\n",
+           "Target", "Loc_km", "Model", "Target", "Residual", "Weight");
     printf("--------------------------------------------------------------\n");
     
     for (int i = 0; i < engine->num_objectives; ++i) {
@@ -1640,8 +1756,8 @@ void calib_print_summary(CalibrationEngine *engine) {
         snprintf(target_name, sizeof(target_name), "%s_%s",
                  obj->branch_name, obj->species_name);
         
-        printf("%-20s %12.4f %12.4f %12.4f %8.2f\n",
-               target_name, obj->model_value, obj->target_value,
+        printf("%-20s %6.1f %12.4f %12.4f %12.4f %8.2f\n",
+               target_name, obj->location_km, obj->model_value, obj->target_value,
                obj->residual, obj->weight);
     }
     

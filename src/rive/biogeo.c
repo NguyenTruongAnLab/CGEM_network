@@ -152,7 +152,32 @@ static int g_carb_config_initialized = 0;
  * ============================================================================*/
 
 /**
- * Henry's constant for CO2 (µmol m⁻³ µatm⁻¹)
+ * Henry's constant for CO2
+ * 
+ * UNIT CHAIN DOCUMENTATION (December 2025 Audit):
+ * ================================================
+ * 1. The formula (modified Weiss 1974) gives ln(K0) where K0 is in mol/(kg·atm)
+ * 2. For freshwater/seawater, mol/kg ≈ mol/L (ρ ≈ 1 kg/L)
+ * 3. Multiply by 1e6 to convert: mol/(L·atm) → µmol/(m³·µatm)
+ *    - Numerator: 1 mol = 1e6 µmol
+ *    - Denominator: 1 atm = 1e6 µatm
+ *    - Volume: 1 L = 0.001 m³, so mol/L = 1000 mol/m³
+ *    - Net: mol/(L·atm) × 1e6 × 1000/1e6 = 1000 × mol/(m³·µatm)
+ *    - Actually: the ×1e6 here encodes both µmol conversion AND m³ scaling
+ * 
+ * 4. When used in calculate_carbonate_system():
+ *    - Divide by 1e6 to convert m³ → L for concentration comparison
+ *    - pCO2 [µatm] = CO2 [µmol/L] / (henry / 1e6) [µmol/(L·µatm)]
+ * 
+ * Typical values at 25°C:
+ *   - Freshwater (S=0): K0 ≈ 0.034 mol/(L·atm) = 34000 µmol/(m³·µatm) after ×1e6
+ *   - Seawater (S=35): K0 ≈ 0.029 mol/(L·atm) = 29000 µmol/(m³·µatm) after ×1e6
+ * 
+ * Reference: Weiss (1974) Marine Chemistry 2:203-215
+ * 
+ * @param temp Water temperature [°C]
+ * @param salinity Salinity [PSU]
+ * @return Henry's constant [µmol/(m³·µatm)] - divide by 1e6 for [µmol/(L·µatm)]
  */
 static double henry_co2(double temp, double salinity) {
     double Tabs = temp + 273.15;
@@ -408,11 +433,23 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
         double nit_rate = k_nit_T * nh4[i] * o2_lim * nh4_lim;
         
         /* =======================================================================
-         * DENITRIFICATION (NO3 → N2) - Only in low O2
+         * DENITRIFICATION (NO3 → N2) - CRITICAL FOR ALKALINITY BALANCE
+         * 
+         * Denitrification is the KEY pH buffer mechanism in estuaries!
+         * It restores alkalinity consumed by nitrification.
+         * 
+         * Requirements:
+         *   - Low O2 (inhibited by O2 > ~30 µM)
+         *   - Organic carbon substrate (TOC)
+         *   - Nitrate availability
+         * 
+         * Stoichiometry: 5CH2O + 4NO3- + 4H+ → 2N2 + 5CO2 + 7H2O
+         * Produces 0.93 mol TA per mol N reduced (critical buffer!)
          * =======================================================================*/
         double denit_o2_inhib = branch->kino2 / (o2[i] + branch->kino2);
         double no3_lim = no3[i] / (no3[i] + branch->kno3);
-        double denit_rate = k_denit_T * no3[i] * denit_o2_inhib * no3_lim;
+        double toc_lim_denit = toc[i] / (toc[i] + branch->ktox);  /* TOC limitation */
+        double denit_rate = k_denit_T * no3[i] * denit_o2_inhib * no3_lim * toc_lim_denit;
         
         /* =======================================================================
          * OXYGEN EXCHANGE
@@ -449,25 +486,68 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
         o2[i] = CGEM_MAX(0.0, o2[i] + (o2_ex - o2_consumption) * dt);
         
         /* =======================================================================
-         * CARBONATE CHEMISTRY (DIC/TA) - OPTIONAL
+         * CARBONATE CHEMISTRY (DIC/TA) - SCIENTIFIC MODE
          * 
-         * When skip_carbonate_reactions = 1, DIC and TA are transported 
-         * conservatively without reaction modifications. This gives best
-         * results when boundary conditions already capture the pCO2/pH gradient
-         * from upstream (high pCO2, low pH) to ocean (low pCO2, high pH).
+         * STOICHIOMETRY (Zeebe & Wolf-Gladrow 2001, Frankignoulle et al. 1996):
          * 
-         * Validated December 2025: Transport-only gives R²=0.97 for pCO2 vs
-         * R²=0.02 with reactions (reactions add too much respiration-derived CO2).
+         * DIC Budget:
+         *   + Aerobic respiration: C6H12O6 + 6O2 → 6CO2 + 6H2O
+         *   + Denitrification: also produces CO2
+         *   - CO2 air-water exchange (positive = CO2 escaping to atmosphere)
+         * 
+         * TA Budget (H+ equivalent):
+         *   + Denitrification: +0.93 TA per mol N (consumes H+ = adds TA)
+         *   - Nitrification: -2.0 TA per mol N (produces 2 H+)
+         *   + Aerobic degradation: +0.14 TA per mol C (minor)
+         *   
+         * CRITICAL: CO2 exchange does NOT directly change TA (CO2 is uncharged)
+         * but indirectly affects pH through carbonate equilibrium.
+         * 
+         * The key to stability is BALANCING nitrification (acid) with 
+         * denitrification (base). This requires:
+         *   1. Sufficient TOC for denitrification substrate
+         *   2. Sufficient NO3 from nitrification
+         *   3. Low O2 zones where denitrification can occur
          * =======================================================================*/
         if (!p->skip_carbonate_reactions) {
-            /* DIC update (simplified - just respiration source) */
+            /* DIC update: respiration adds CO2, gas exchange removes it */
             if (dic) {
-                dic[i] = CGEM_MAX(0.0, dic[i] + toc_deg_rate * dt);
+                /* CO2 flux: positive = entering water, negative = leaving to atm */
+                double co2_flux_rate = (pis_vel[i] / depth) * 
+                    (dic[i] / (1.0 + 10.0) - 420.0 * 0.035);  /* Approximate CO2 flux */
+                
+                /* DIC balance: respiration - CO2 evasion */
+                double dic_change = toc_deg_rate + denit_rate - co2_flux_rate;
+                dic[i] = CGEM_MAX(0.0, dic[i] + dic_change * dt);
             }
             
-            /* TA update (simplified stoichiometry) */
+            /* TA update: scientifically correct stoichiometry
+             * Reference: Wolf-Gladrow et al. (2007) Mar. Chem. 106:287-300
+             * 
+             * Key insight: The balance of nitrification vs denitrification
+             * determines whether the system acidifies or alkalinizes.
+             * 
+             * With proper kox (0.05), enough TOC is degraded to sustain
+             * denitrification, which restores TA and prevents pH crash.
+             */
             if (at) {
-                double ta_change = (15.0/106.0) * toc_deg_rate - 2.0 * nit_rate + (93.4/106.0) * denit_rate;
+                double ta_change = 0.0;
+                
+                /* Aerobic respiration: minor TA production
+                 * (from organic N,P release) ~0.14 per mol C */
+                ta_change += (15.0/106.0) * toc_deg_rate;
+                
+                /* Nitrification: STRONG ACID PRODUCTION
+                 * NH4+ + 2O2 → NO3- + 2H+ + H2O
+                 * Consumes 2 mol TA per mol N oxidized */
+                ta_change -= 2.0 * nit_rate;
+                
+                /* Denitrification: CRITICAL ALKALINITY RESTORATION
+                 * 5CH2O + 4NO3- + 4H+ → 2N2 + 5CO2 + 7H2O
+                 * Produces ~0.93 mol TA per mol N reduced
+                 * This is the KEY buffer mechanism in estuaries! */
+                ta_change += 0.93 * denit_rate;
+                
                 at[i] = CGEM_MAX(0.0, at[i] + ta_change * dt);
             }
         }
@@ -793,6 +873,9 @@ int Biogeo_GHG_Branch(Branch *branch, double dt) {
     /* Initialize GHG config if needed */
     if (!g_ghg_config_initialized) {
         crive_ghg_init_config(&g_ghg_config);
+        /* Override defaults with values from biogeo_params.txt */
+        g_ghg_config.benthic_CH4_flux = p->benthic_CH4_flux;
+        g_ghg_config.benthic_N2O_flux = p->benthic_N2O_flux;
         g_ghg_config_initialized = 1;
     }
     
@@ -837,12 +920,15 @@ int Biogeo_GHG_Branch(Branch *branch, double dt) {
          * N2O CALCULATION (Yield-based from core rates)
          * N2O is just a fraction of the N processed by nitrification/denitrification
          * Reference: Garnier et al. (2007), Marescaux et al. (2019)
+         * 
+         * DECEMBER 2025 FIX: All rates now in µmol/L/s to match model internal units.
+         * The ×1000 factor was removed from ghg_module.c to fix unit mismatch.
          * ===================================================================== */
-        /* N2O from nitrification: yield × nit_rate (µmol N/L/s → nmol N/L/s) */
-        double n2o_from_nit = core_nit_rate * p->N2O_yield_nit * 1000.0;
+        /* N2O from nitrification: yield × nit_rate [µmol N/L/s] */
+        double n2o_from_nit = core_nit_rate * p->N2O_yield_nit;
         
-        /* N2O from denitrification: yield × denit_rate */
-        double n2o_from_denit = core_denit_rate * p->N2O_yield_denit * 1000.0;
+        /* N2O from denitrification: yield × denit_rate [µmol N/L/s] */
+        double n2o_from_denit = core_denit_rate * p->N2O_yield_denit;
         
         /* N2O air-water exchange */
         double k600 = crive_calc_k600(velocity, depth, K600_STRAHLER, 6, 0.0);
@@ -865,9 +951,9 @@ int Biogeo_GHG_Branch(Branch *branch, double dt) {
                               toc ? toc[i] : 100.0,
                               core_denit_rate, k600, &g_ghg_config);
         
-        /* Add benthic CH4 flux (scaled by depth) */
-        double benthic_ch4 = p->benthic_CH4_flux / RIVE_SECONDS_PER_DAY / depth;
-        ghg_state.CH4_prod += benthic_ch4;
+        /* NOTE: benthic_CH4_flux is already included in crive_calc_ghg_system()
+         * via crive_calc_ch4_production(). Do NOT add it again here!
+         */
         
         /* =====================================================================
          * STORE REACTION RATES (for output/diagnostics)

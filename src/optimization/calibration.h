@@ -5,10 +5,11 @@
  * This module provides a flexible, config-file-based calibration framework
  * that allows parameter tuning without recompiling. It supports:
  * 
- * 1. MULTI-STAGE CALIBRATION:
- *    - Stage 1: Hydrodynamics (tidal range, salinity intrusion)
+ * 1. MULTI-STAGE CALIBRATION (4 stages for comprehensive validation):
+ *    - Stage 1: Hydrodynamics + Salinity (tidal range, intrusion length)
  *    - Stage 2: Sediment transport (SPM, ETM location)
- *    - Stage 3: Biogeochemistry (O2, nutrients, carbon)
+ *    - Stage 3: Water Quality (O2, nutrients, TOC, Chl-a)
+ *    - Stage 4: Greenhouse Gases (pCO2, pH, CH4, N2O)
  * 
  * 2. PARAMETER TARGETING:
  *    - GLOBAL: Apply to entire network
@@ -49,7 +50,7 @@
  * ============================================================================*/
 
 #define CALIB_MAX_PARAMS        64      /* Maximum tunable parameters */
-#define CALIB_MAX_OBJECTIVES    128     /* Maximum calibration targets (increased for seasonal) */
+#define CALIB_MAX_OBJECTIVES    256     /* Maximum calibration targets (increased for 4-stage seasonal) */
 #define CALIB_MAX_NAME_LEN      64      /* Parameter/branch name length */
 #define CALIB_MAX_OBS_POINTS    1000    /* Max observation time points */
 #define CALIB_SALINITY_THRESH   4.0     /* Default intrusion threshold [PSU] */
@@ -114,6 +115,16 @@ typedef enum {
     VAR_SAL_STRESS_THRESH,  /* Salinity stress threshold [PSU] */
     VAR_SAL_STRESS_COEF,    /* Salinity stress coefficient */
     
+    /* Stage 4: Greenhouse Gases */
+    VAR_N2O_YIELD_NIT,      /* N2O yield from nitrification [mol N2O/mol N] */
+    VAR_N2O_YIELD_DENIT,    /* N2O yield from denitrification [mol N2O/mol N] */
+    VAR_BENTHIC_CH4_FLUX,   /* Benthic CH4 flux [nmol/m²/day] */
+    VAR_BENTHIC_N2O_FLUX,   /* Benthic N2O flux [nmol/m²/day] */
+    VAR_CH4_OXIDATION,      /* CH4 oxidation rate [1/day] */
+    VAR_PCO2_ATM,           /* Atmospheric pCO2 [µatm] */
+    VAR_WIND_SPEED,         /* Wind speed for gas exchange [m/s] */
+    VAR_SCHMIDT_EXP,        /* Schmidt number exponent [-] */
+    
     VAR_COUNT               /* Total number of variable types */
 } CalibVarType;
 
@@ -135,11 +146,18 @@ typedef enum {
 
 /**
  * @brief Calibration stage
+ * 
+ * 4-Stage Calibration Workflow (Mekong Delta):
+ * - Stage 1: Hydrodynamics + Salinity (Chezy, LC, VDB, D0, RS)
+ * - Stage 2: Sediment Transport (WS, Floc, Tau, SPM boundary)
+ * - Stage 3: Water Quality (O2, Nutrients, TOC, Chl-a)
+ * - Stage 4: Greenhouse Gases (pCO2, pH, CH4, N2O)
  */
 typedef enum {
-    STAGE_HYDRO = 1,        /* Stage 1: Hydrodynamics */
-    STAGE_SEDIMENT = 2,     /* Stage 2: Sediment transport */
-    STAGE_BIOGEOCHEM = 3    /* Stage 3: Biogeochemistry */
+    STAGE_HYDRO = 1,        /* Stage 1: Hydrodynamics + Salinity */
+    STAGE_SEDIMENT = 2,     /* Stage 2: Sediment transport (SPM) */
+    STAGE_BIOGEOCHEM = 3,   /* Stage 3: Water quality (O2, nutrients, TOC, Chl-a) */
+    STAGE_GHG = 4           /* Stage 4: Greenhouse gases (pCO2, pH, CH4, N2O) */
 } CalibStage;
 
 /* ============================================================================

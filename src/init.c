@@ -77,13 +77,16 @@ void init_species_bc(Branch *b, int num_species, double Q_river) {
             b->conc_down[CGEM_SPECIES_O2] = 260.0;          /* Oxygen [µM] - 8+ mg/L saturated */
             b->conc_down[CGEM_SPECIES_TOC] = 100.0;         /* TOC [µM C] - 1.3-2.3 mgC/L */
             b->conc_down[CGEM_SPECIES_SPM] = 10.0;          /* SPM [mg/L] - 8-35 at mouth */
+            /* Carbonate chemistry - adjusted for moderate pCO2 at mouth (~1000 µatm)
+             * Typical Mekong mouth: pCO2 ~500-1500 µatm due to mixing
+             * Reducing AT relative to DIC increases pCO2 */
             b->conc_down[CGEM_SPECIES_DIC] = 2050.0;        /* DIC [µM] */
-            b->conc_down[CGEM_SPECIES_AT] = 2200.0;         /* Total alkalinity [µM] - ~2.2 mmol/L */
-            b->conc_down[CGEM_SPECIES_PCO2] = 500.0;        /* pCO2 [µatm] - near equilibrium */
-            b->conc_down[CGEM_SPECIES_CO2] = 12.0;          /* CO2 [µM] */
-            b->conc_down[CGEM_SPECIES_PH] = 8.10;           /* pH - 8.05-8.16 */
+            b->conc_down[CGEM_SPECIES_AT] = 2000.0;         /* AT [µM] - REDUCED from 2200 */
+            b->conc_down[CGEM_SPECIES_PCO2] = 800.0;        /* pCO2 [µatm] - elevated at mouth */
+            b->conc_down[CGEM_SPECIES_CO2] = 25.0;          /* CO2 [µM] - higher */
+            b->conc_down[CGEM_SPECIES_PH] = 7.95;           /* pH - slightly lower */
             b->conc_down[CGEM_SPECIES_HS] = 0.0;            /* Hydrogen sulfide [µM] */
-            b->conc_down[CGEM_SPECIES_ALKC] = 2200.0;       /* Carbonate alkalinity [µM] */
+            b->conc_down[CGEM_SPECIES_ALKC] = 2000.0;       /* Carbonate alkalinity [µM] */
         }
     }
 
@@ -98,31 +101,36 @@ void init_species_bc(Branch *b, int num_species, double Q_river) {
         b->conc_up[CGEM_SPECIES_PHY1] = 3.0;            /* Diatoms [µM C] - ~2 ug/L Chl-a */
         b->conc_up[CGEM_SPECIES_PHY2] = 2.0;            /* Non-siliceous [µM C] */
 
-        /* Nutrients - LOW based on validation! */
+        /* Nutrients - based on March 2025 validation upstream data */
         b->conc_up[CGEM_SPECIES_DSI] = 50.0;            /* Dissolved Si [µM] - 0.5-1.8 mgSi/L */
-        b->conc_up[CGEM_SPECIES_NO3] = 10.0;            /* Nitrate [µM] - 0.11-0.18 mgN/L = 8-13 µM */
-        b->conc_up[CGEM_SPECIES_NH4] = 2.0;             /* Ammonium [µM] - 0.02-0.07 mgN/L = 1-5 µM */
+        b->conc_up[CGEM_SPECIES_NO3] = 12.0;            /* Nitrate [µM] - 7-13 µM from field data */
+        b->conc_up[CGEM_SPECIES_NH4] = 5.0;             /* Ammonium [µM] - 4-5 µM from field data */
         b->conc_up[CGEM_SPECIES_PO4] = 1.0;             /* Phosphate [µM] - 0.02-0.03 mgP/L */
 
-        /* Dissolved gases - undersaturated O2 in freshwater */
-        b->conc_up[CGEM_SPECIES_O2] = 175.0;            /* Oxygen [µM] - 5.3-6.2 mg/L = 166-194 µM */
+        /* Dissolved gases - undersaturated O2 in freshwater (from respiration) */
+        b->conc_up[CGEM_SPECIES_O2] = 175.0;            /* Oxygen [µM] - 166-194 µM from field data */
 
-        /* Organic matter */
-        b->conc_up[CGEM_SPECIES_TOC] = 150.0;           /* TOC [µM C] - 1.45-2.0 mgC/L = 121-167 µM */
+        /* Organic matter - INCREASED based on field data (120-217 µM) */
+        b->conc_up[CGEM_SPECIES_TOC] = 170.0;           /* TOC [µM C] - average of upstream observations */
 
-        /* Suspended matter */
-        b->conc_up[CGEM_SPECIES_SPM] = 15.0;            /* SPM [mg/L] - 9-18 mg/L upstream */
+        /* Suspended matter - INCREASED based on field data (11-38 mg/L upstream) */
+        b->conc_up[CGEM_SPECIES_SPM] = 30.0;            /* SPM [mg/L] - 30 mg/L for proper ETM formation */
 
         /* Carbon chemistry - HIGH pCO2 from respiration */
-        /* CRITICAL: DIC/AT ratio determines pCO2! */
-        /* To get pCO2 ~4000 ppm with AT=1350, need DIC ~1450 */
-        b->conc_up[CGEM_SPECIES_DIC] = 1450.0;          /* DIC [µM] - lower than AT for high pCO2 */
-        b->conc_up[CGEM_SPECIES_AT] = 1350.0;           /* Alkalinity [µM] - 1.28-1.36 mmol/L */
+        /* CRITICAL: DIC/AT ratio determines pCO2!
+         * When DIC > AT: excess CO2 → high pCO2, low pH (acidic)
+         * When DIC < AT: excess CO3²⁻ → low pCO2, high pH (basic)
+         * 
+         * Mekong upstream: pCO2 ~4000 µatm, pH ~7.4 → DIC >> AT
+         * Empirical: pCO2 ≈ 10^(6-pH) × 10^4 with DIC ~1500 µM → DIC/AT ~1.5
+         */
+        b->conc_up[CGEM_SPECIES_DIC] = 1800.0;          /* DIC [µM] - HIGHER than AT for high pCO2! */
+        b->conc_up[CGEM_SPECIES_AT] = 1200.0;           /* Alkalinity [µM] - lower for high pCO2 */
         b->conc_up[CGEM_SPECIES_PCO2] = 4000.0;         /* pCO2 [µatm] - 3800-4700 ppm! */
-        b->conc_up[CGEM_SPECIES_CO2] = 60.0;            /* CO2 [µM] - high */
-        b->conc_up[CGEM_SPECIES_PH] = 7.45;             /* pH - 7.35-7.60 */
+        b->conc_up[CGEM_SPECIES_CO2] = 120.0;           /* CO2 [µM] - high for pCO2 ~4000 */
+        b->conc_up[CGEM_SPECIES_PH] = 7.40;             /* pH - 7.35-7.60 */
         b->conc_up[CGEM_SPECIES_HS] = 0.0;              /* No hydrogen sulfide [µM] */
-        b->conc_up[CGEM_SPECIES_ALKC] = 1350.0;         /* Carbonate alk [µM] */
+        b->conc_up[CGEM_SPECIES_ALKC] = 1200.0;         /* Carbonate alk [µM] */
         
         /* ===============================================================
          * RIVE Multi-Pool Organic Matter (HD1-3, HP1-3)
@@ -161,12 +169,13 @@ void init_species_bc(Branch *b, int num_species, double Q_river) {
          * Greenhouse Gas Species
          * Reference: March 2025 Mekong Delta field data
          * 
-         * CH4: 0.5-2.9 ugC/L = 40-240 nmol/L
-         * N2O: 0.2-5.3 ugN/L = 7-190 nmol/L (higher near cities!)
+         * UNITS: Model uses µmol/L for all species (per define.h)
+         * Field data: CH4 40-240 nmol/L = 0.04-0.24 µmol/L
+         *            N2O 7-190 nmol/L = 0.007-0.19 µmol/L
          * =============================================================== */
         b->conc_up[CGEM_SPECIES_NO2] = 0.5;    /* Nitrite [µM N] - nitrification intermediate */
-        b->conc_up[CGEM_SPECIES_N2O] = 50.0;   /* N2O [nmol/L] - Mekong upstream: 20-100 nmol/L */
-        b->conc_up[CGEM_SPECIES_CH4] = 120.0;  /* CH4 [nmol/L] - Mekong upstream: 50-200 nmol/L */
+        b->conc_up[CGEM_SPECIES_N2O] = 0.05;   /* N2O [µmol/L] = 50 nmol/L - Mekong upstream */
+        b->conc_up[CGEM_SPECIES_CH4] = 0.12;   /* CH4 [µmol/L] = 120 nmol/L - Mekong upstream */
     }
     
     /* ===================================================================
@@ -192,11 +201,12 @@ void init_species_bc(Branch *b, int num_species, double Q_river) {
         b->conc_down[CGEM_SPECIES_DSS] = 0.05;  /* Low substrates */
         
         /* GHG species - based on March 2025 field data at mouth */
-        /* CH4: 0.5-0.6 ugC/L = 40-50 nmol/L at mouth */
-        /* N2O: 0.18-0.24 ugN/L = 6-9 nmol/L at mouth */
+        /* UNITS: Model uses µmol/L (per define.h)
+         * Field: CH4 40-50 nmol/L = 0.04-0.05 µmol/L
+         *        N2O 6-9 nmol/L = 0.006-0.009 µmol/L */
         b->conc_down[CGEM_SPECIES_NO2] = 0.1;   /* Low nitrite in oxic ocean */
-        b->conc_down[CGEM_SPECIES_N2O] = 8.0;   /* N2O [nmol/L] - near equilibrium */
-        b->conc_down[CGEM_SPECIES_CH4] = 40.0;  /* CH4 [nmol/L] - at estuary mouth */
+        b->conc_down[CGEM_SPECIES_N2O] = 0.008; /* N2O [µmol/L] = 8 nmol/L */
+        b->conc_down[CGEM_SPECIES_CH4] = 0.04;  /* CH4 [µmol/L] = 40 nmol/L */
     }
 
     /* =================================================================

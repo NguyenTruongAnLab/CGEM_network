@@ -115,13 +115,13 @@ JAXA_EMISSIONS = {
         "NH4": 15.0,    # Sewage leakage, pet waste (increased from 10)
         "NO3": 5.0,     # Fertilized lawns, septic (increased from 3)
         "PO4": 2.0,     # Detergents, sewage (increased from 1.5)
-        "TOC": 150.0,   # Organic waste, sewage (INCREASED 3x based on validation)
-        "DIC": 40.0,    # Concrete weathering, sewage CO2 (increased)
-        "AT": 2000.0,   # Alkalinity from concrete, detergents [µeq/L]
+        "TOC": 350.0,   # INCREASED Dec 2025: 150→350 to fix -70 µM TOC bias
+        "DIC": 18.0,    # mg C/L → 1500 µM after ×83.3 conversion (reduced for realistic pCO2)
+        "AT": 1400.0,   # Alkalinity [µeq/L] - reduced to give AT < DIC for high pCO2
         "SPM": 150.0,   # Construction sediment
-        "CH4": 800.0,   # Anaerobic sewers, septic tanks [nmol/L]
-                        # Ref: Stanley et al. (2016) - urban streams 200-2000 nmol/L
-        "N2O": 50.0,    # WWTP nitrification-denitrification [nmol/L]
+        "CH4": 500.0,   # ENABLED Dec 2025: Urban sewer CH4 [nmol/L]
+                        # Ref: Beaulieu et al. (2011), Wang et al. (2017)
+        "N2O": 50.0,    # ENABLED Dec 2025: Urban nitrification N2O [nmol/L]
                         # Ref: Beaulieu et al. (2011) - urban 20-100 nmol/L
         "Runoff_C": 0.85,
     },
@@ -138,16 +138,16 @@ JAXA_EMISSIONS = {
         "NH4": 8.0,     # Urea fertilizer breakdown (increased - major N source)
         "NO3": 10.0,    # Nitrified fertilizer (increased for N2O production)
         "PO4": 1.5,     # Phosphate fertilizer (increased)
-        "TOC": 200.0,   # Straw decomposition, dissolved organic C (MAJOR increase)
-                        # Ref: Rice paddy DOC typically 150-300 µmol/L
-        "DIC": 80.0,    # High respiration in flooded soils
-        "AT": 1500.0,   # Carbonate from fertilizer, soil minerals [µeq/L]
+        "TOC": 400.0,   # INCREASED Dec 2025: 200→400 to fix -70 µM TOC bias
+                        # Rice paddy drainage high in dissolved organic C
+        "DIC": 25.0,    # mg C/L → 2080 µM (reduced from 80 - was 6600 µM!)
+        "AT": 1200.0,   # [µeq/L] - lower than DIC for high pCO2 (rice paddies supersaturated)
         "SPM": 100.0,   # Tillage erosion, resuspension
-        "CH4": 1500.0,  # CRITICAL: Rice paddy drainage - highest CH4 source [nmol/L]
-                        # Literature: 500-3000 nmol/L in drainage water
-                        # Mekong validation shows 100-200 nmol/L upstream
-        "N2O": 80.0,    # Nitrification-denitrification in rice soils [nmol/L]
-                        # Ref: Mekong agricultural areas 30-175 nmol/L
+        "CH4": 1500.0,  # ENABLED Dec 2025: Rice paddy drainage CH4 [nmol/L]
+                        # Ref: Borges & Abril (2011) 500-5000 nmol/L, using mid-range
+                        # This is THE MAJOR upstream CH4 source!
+        "N2O": 80.0,    # ENABLED Dec 2025: Agricultural N2O [nmol/L]
+                        # Ref: Mekong agricultural areas 30-175 nmol/L (Garnier 2007)
         "Runoff_C": 0.40,  # Bunded paddies retain water
     },
     
@@ -160,14 +160,15 @@ JAXA_EMISSIONS = {
         "NH4": 12.0,    # Fish excretion, uneaten feed (increased)
         "NO3": 4.0,     # Some nitrification in ponds
         "PO4": 3.0,     # Feed phosphorus (increased)
-        "TOC": 250.0,   # High organic load from feed, feces (MAJOR increase)
-                        # Aquaculture effluent TOC: 200-400 µmol/L typical
-        "DIC": 100.0,   # High respiration in ponds
-        "AT": 2500.0,   # Lime addition for pH control, shell dissolution [µeq/L]
+        "TOC": 450.0,   # INCREASED Dec 2025: 250→450 to fix -70 µM TOC bias
+                        # Aquaculture effluent very high in organic load
+        "DIC": 30.0,    # mg C/L → 2500 µM (reduced from 100 - was 8300 µM!)
+        "AT": 2000.0,   # Lime [µeq/L] - high but still < DIC×83.3 for pCO2 >1000
         "SPM": 200.0,   # Pond sediment resuspension
-        "CH4": 1200.0,  # Anaerobic pond sediments [nmol/L]
-                        # Ref: Yang et al. (2019) - shrimp ponds 500-2000 nmol/L
-        "N2O": 60.0,    # Coupled nitrification-denitrification [nmol/L]
+        "CH4": 1200.0,  # ENABLED Dec 2025: Aquaculture pond CH4 [nmol/L]
+                        # Ref: Yang et al. (2019) pond drainage 500-2000 nmol/L
+        "N2O": 60.0,    # ENABLED Dec 2025: Pond nitrification N2O [nmol/L]
+                        # Ref: Hu et al. (2012) aquaculture 30-100 nmol/L
         "Runoff_C": 0.70,  # Direct discharge during harvest
     },
     
@@ -180,14 +181,15 @@ JAXA_EMISSIONS = {
         "NH4": 0.5,     # N sink but some mineralization
         "NO3": 0.2,     # Strong N sink (denitrification)
         "PO4": 0.2,     # P burial
-        "TOC": 180.0,   # Major carbon export via tidal flushing (increased)
-                        # Mangrove DOC export: 100-300 µmol/L
-        "DIC": 120.0,   # High respiration + carbonate dissolution
-        "AT": 2200.0,   # Carbonate-rich mangrove soils [µeq/L]
+        "TOC": 350.0,   # INCREASED Dec 2025: 180→350 - major DOC exporter
+                        # Mangrove tidal flushing exports high DOC
+        "DIC": 35.0,    # mg C/L → 2900 µM (reduced from 120 - was 10000 µM!)
+        "AT": 2200.0,   # Carbonate-rich [µeq/L] - balanced with DIC for moderate pCO2
         "SPM": 60.0,    # Fine sediment, some trapping
-        "CH4": 400.0,   # Moderate - sulfate reduction competes with methanogenesis [nmol/L]
-                        # Ref: Mangrove waters 100-800 nmol/L CH4
-        "N2O": 15.0,    # Low - denitrification goes to N2 [nmol/L]
+        "CH4": 300.0,   # ENABLED Dec 2025: Mangrove sediment CH4 [nmol/L]
+                        # Ref: Maher et al. (2013) mangrove creek 100-500 nmol/L
+        "N2O": 15.0,    # ENABLED Dec 2025: Low N2O (denitrification sink) [nmol/L]
+                        # Ref: Alongi (2014) - mangroves are N2O sinks
         "Runoff_C": 0.90,  # Tidal flushing
     },
     
@@ -198,12 +200,14 @@ JAXA_EMISSIONS = {
         "NH4": 5.0,     # Moderate fertilizer
         "NO3": 12.0,    # Higher NO3 from orchards (increased)
         "PO4": 1.5,     # Phosphate application
-        "TOC": 80.0,    # Leaf litter, prunings (increased)
-        "DIC": 30.0,    # Soil respiration
-        "AT": 1200.0,   # Natural soil alkalinity [µeq/L]
+        "TOC": 150.0,   # INCREASED Dec 2025: 80→150 - leaf litter decomposition
+        "DIC": 15.0,    # mg C/L → 1250 µM (reduced from 30 - was 2500 µM)
+        "AT": 1000.0,   # Natural [µeq/L] - lower for moderate pCO2
         "SPM": 80.0,    # Exposed soil erosion
-        "CH4": 100.0,   # Low - aerobic soils [nmol/L]
-        "N2O": 40.0,    # Fertilizer-derived N2O [nmol/L]
+        "CH4": 100.0,   # ENABLED Dec 2025: Orchard soil CH4 [nmol/L]
+                        # Lower than rice (aerobic soils)
+        "N2O": 40.0,    # ENABLED Dec 2025: Fertilizer-derived N2O [nmol/L]
+                        # Ref: Fertilized soils 20-80 nmol/L
         "Runoff_C": 0.30,  # Tree cover reduces runoff
     },
     
@@ -214,12 +218,14 @@ JAXA_EMISSIONS = {
         "NH4": 0.5,     # Minimal
         "NO3": 0.8,     # Natural background
         "PO4": 0.08,    # Weathering only
-        "TOC": 50.0,    # Leaf litter leachate (increased slightly)
-        "DIC": 20.0,    # Soil respiration
+        "TOC": 100.0,   # INCREASED Dec 2025: 50→100 - forest floor leachate
+        "DIC": 12.0,    # mg C/L → 1000 µM (reduced from 20)
         "AT": 800.0,    # Natural background [µeq/L]
         "SPM": 25.0,    # Low erosion
-        "CH4": 50.0,    # Low - aerobic forest soils [nmol/L]
-        "N2O": 10.0,    # Natural soil N2O [nmol/L]
+        "CH4": 50.0,    # ENABLED Dec 2025: Forest soil background CH4 [nmol/L]
+                        # Ref: Natural background ~20-100 nmol/L
+        "N2O": 10.0,    # ENABLED Dec 2025: Natural soil N2O [nmol/L]
+                        # Ref: Natural soils 5-20 nmol/L
         "Runoff_C": 0.15,  # High infiltration
     },
 }
@@ -640,13 +646,13 @@ POINT_SOURCES_MEKONG = {
 # TYPICAL RAW SEWAGE CONCENTRATIONS (mg/L)
 # These are what actually enters the river, NOT per-capita loads
 # Reference: Metcalf & Eddy (2014), Henze et al. (2008)
-# FIXED December 2025: Corrected CH4 concentration (was 5.0, way too high)
+# FIXED December 2025: Corrected DIC (was 100 mg C/L → 8300 µM, now 20 → 1660 µM)
 SEWAGE_CONCENTRATIONS = {
     "NH4": 40.0,     # mg N/L - typical raw sewage
     "NO3": 1.0,      # mg N/L - minimal in raw sewage
     "PO4": 8.0,      # mg P/L - typical raw sewage
     "TOC": 200.0,    # mg C/L - typical raw sewage BOD ~250 → TOC ~200
-    "DIC": 100.0,    # mg C/L - from respiration
+    "DIC": 20.0,     # mg C/L → 1660 µM (REDUCED from 100 for realistic pCO2)
     "SPM": 250.0,    # mg/L - typical TSS
     # GHG in sewage/sewer systems - CORRECTED VALUES
     # Reference: Wang et al. (2011), Daelman et al. (2012)
@@ -663,7 +669,7 @@ PERCAPITA_EMISSIONS = {
     "NO3": 1.0,    # Minimal (mostly NH4)
     "PO4": 2.0,    # ~2g P/person/day
     "TOC": 80.0,   # ~80g BOD/person/day → TOC
-    "DIC": 40.0,   # Respiration CO2
+    "DIC": 15.0,   # mg C/L (REDUCED from 40)
     "SPM": 50.0,   # Fecal solids
     "CH4": 0.05,   # g CH4/person/day
     "N2O": 0.002,  # g N2O/person/day

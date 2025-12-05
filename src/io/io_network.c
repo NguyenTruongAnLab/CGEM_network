@@ -222,7 +222,13 @@ static int load_all_species_forcing(const char *full_path, Node *node, double dt
             if (sp >= 0 && sp < CGEM_NUM_SPECIES && 
                 node->species_forcing_time[sp] && node->species_forcing_value[sp]) {
                 node->species_forcing_time[sp][row_idx] = time_val;
-                node->species_forcing_value[sp][row_idx] = col_vals[c];
+                
+                /* Unit conversion for GHG species: CSV uses nmol/L, model uses µmol/L */
+                double val = col_vals[c];
+                if (sp == CGEM_SPECIES_N2O || sp == CGEM_SPECIES_CH4) {
+                    val *= 0.001;  /* nmol/L → µmol/L */
+                }
+                node->species_forcing_value[sp][row_idx] = val;
             }
         }
         row_idx++;
@@ -941,15 +947,16 @@ int LoadLateralSources(Network *net, const char *case_dir) {
             /* DIC: mg C/L → µmol C/L */
             b->lateral_conc[CGEM_SPECIES_DIC][grid_idx] = dic_conc * 83.3;
             
-            /* === NEW: GHG species (December 2025) === */
-            /* CH4: Already in nmol/L in CSV - store directly */
+            /* === GHG species (December 2025) === */
+            /* CRITICAL FIX: Model works in µM, but CSV has nmol/L
+             * Convert nmol/L → µmol/L by dividing by 1000
+             */
             if (ch4_conc > 0) {
-                b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] = ch4_conc;  /* nmol/L */
+                b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] = ch4_conc * 0.001;  /* nmol/L → µmol/L */
             }
             
-            /* N2O: Already in nmol/L in CSV - store directly */
             if (n2o_conc > 0) {
-                b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] = n2o_conc;  /* nmol/L */
+                b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] = n2o_conc * 0.001;  /* nmol/L → µmol/L */
             }
             
             /* AT (Total Alkalinity): Already in µeq/L in CSV - store directly */
@@ -1404,18 +1411,18 @@ int LoadPointSources(Network *net, const char *case_dir) {
                     w_lateral * b->lateral_conc[CGEM_SPECIES_DIC][grid_idx] + 
                     w_point * (dic_mg_L * 83.3);
                 
-                /* CH4: already in nmol/L */
+                /* CH4: input in nmol/L, convert to µmol/L (divide by 1000) */
                 if (ch4_nmol_L > 0) {
                     b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] = 
                         w_lateral * b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] + 
-                        w_point * ch4_nmol_L;
+                        w_point * (ch4_nmol_L * 0.001);  /* nmol/L → µmol/L */
                 }
                 
-                /* N2O: already in nmol/L */
+                /* N2O: input in nmol/L, convert to µmol/L (divide by 1000) */
                 if (n2o_nmol_L > 0) {
                     b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] = 
                         w_lateral * b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] + 
-                        w_point * n2o_nmol_L;
+                        w_point * (n2o_nmol_L * 0.001);  /* nmol/L → µmol/L */
                 }
             } else {
                 /* No existing lateral load - set directly */
@@ -1424,8 +1431,9 @@ int LoadPointSources(Network *net, const char *case_dir) {
                 b->lateral_conc[CGEM_SPECIES_PO4][grid_idx] = po4_mg_L * 32.3;
                 b->lateral_conc[CGEM_SPECIES_TOC][grid_idx] = toc_mg_L * 83.3;
                 b->lateral_conc[CGEM_SPECIES_DIC][grid_idx] = dic_mg_L * 83.3;
-                if (ch4_nmol_L > 0) b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] = ch4_nmol_L;
-                if (n2o_nmol_L > 0) b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] = n2o_nmol_L;
+                /* GHG: Convert nmol/L → µmol/L */
+                if (ch4_nmol_L > 0) b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] = ch4_nmol_L * 0.001;
+                if (n2o_nmol_L > 0) b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] = n2o_nmol_L * 0.001;
             }
         }
         

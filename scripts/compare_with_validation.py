@@ -51,6 +51,12 @@ def load_model_output(branch, variable):
             distances.append(dist)
             values.append(last_row[col])
     
+    # Apply unit conversions
+    # Model outputs CH4/N2O in µmol/L (µM), validation is in nmol/L
+    # 1 µM = 1000 nmol/L
+    if variable in ['ch4', 'n2o']:
+        values = [v * 1000 for v in values]  # Convert µM → nmol/L
+    
     return np.array(distances), np.array(values)
 
 def calculate_metrics(obs, mod):

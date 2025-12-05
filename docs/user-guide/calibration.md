@@ -4,7 +4,7 @@
 
 C-GEM includes a built-in calibration module powered by **NLopt**, supporting:
 
-- **Multi-stage calibration**: Hydro → Sediment → Biogeochemistry
+- **Multi-stage calibration**: Hydro → Sediment → Water Quality → GHG (4 stages)
 - **Multiple algorithms**: BOBYQA, Nelder-Mead, DIRECT, COBYLA
 - **Seasonal objectives**: Time-series RMSE for dry/wet season
 - **Config-driven**: No recompilation needed
@@ -12,11 +12,11 @@ C-GEM includes a built-in calibration module powered by **NLopt**, supporting:
 ## Quick Start
 
 ```powershell
-# Full 3-stage calibration
+# Full 4-stage calibration
 .\bin\Debug\CGEM_Network.exe INPUT/Cases/Mekong_Delta_Full/case_config.txt --calibrate
 
 # Single stage with options
-.\bin\Debug\CGEM_Network.exe INPUT/Cases/Mekong_Delta_Full/case_config.txt --calibrate --stage 1 --max-iter 100 --verbose 2
+.\bin\Debug\CGEM_Network.exe INPUT/Cases/Mekong_Delta_Full/case_config.txt --calibrate --stage 1 --max-iter 10 --verbose 2
 ```
 
 ## Command-Line Options
@@ -24,15 +24,15 @@ C-GEM includes a built-in calibration module powered by **NLopt**, supporting:
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--calibrate` | Enable calibration mode | Off |
-| `--stage N` | Run only stage N (1, 2, or 3) | All stages |
+| `--stage N` | Run only stage N (1, 2, 3, or 4) | All stages |
 | `--max-iter N` | Maximum optimizer iterations | 100 |
 | `--verbose N` | Verbosity level (0-2) | 1 |
 
-## Three-Stage Workflow
+## Four-Stage Calibration Workflow
 
-### Stage 1: Hydrodynamics
+### Stage 1: Hydrodynamics + Salinity
 
-**Goal**: Match tidal propagation and salinity intrusion
+**Goal**: Match tidal propagation and salinity intrusion (60-80 km for Mekong dry season)
 
 **Parameters**:
 
@@ -40,17 +40,18 @@ C-GEM includes a built-in calibration module powered by **NLopt**, supporting:
 |------|-------------|---------------|------|
 | `CHEZY` | Friction coefficient | 40-80 | m^0.5/s |
 | `LC_CONV` | Convergence length | 10-100 | km |
-| `VDB_COEF` | Van den Burgh coefficient | 0.1-0.8 | - |
-| `D0` | Dispersion at mouth | 100-2000 | m²/s |
-| `RS` | Storage width ratio | 1-15 | - |
+| `VDB_COEF` | Van den Burgh coefficient | 0.1-0.5 | - |
+| `MIXING_ALPHA` | Fischer mixing efficiency | 0.2-0.8 | - |
+| `D0` | Dispersion at mouth | 500-2000 | m²/s |
+| `RS` | Storage width ratio | 1-5 | - |
 
 **Objectives**:
 
 - Tidal range at gauging stations
 - Salinity intrusion length (4 PSU isohaline)
-- Mean velocity at key sections
+- Salinity profile along estuary
 
-### Stage 2: Sediment Transport
+### Stage 2: Sediment Transport (SPM)
 
 **Goal**: Reproduce SPM patterns and ETM location
 
@@ -58,17 +59,18 @@ C-GEM includes a built-in calibration module powered by **NLopt**, supporting:
 
 | Name | Description | Typical Range | Unit |
 |------|-------------|---------------|------|
-| `WS` | Settling velocity | 0.1-3.0 | mm/s |
-| `TAU_ERO` | Critical erosion stress | 0.1-0.8 | Pa |
-| `TAU_DEP` | Critical deposition stress | 0.03-0.2 | Pa |
-| `FLOC_FACTOR` | Flocculation enhancement | 1-15 | - |
+| `WS` | Settling velocity | 0.0001-0.005 | m/s |
+| `TAU_ERO` | Critical erosion stress | 0.05-0.5 | Pa |
+| `TAU_DEP` | Critical deposition stress | 0.01-0.2 | Pa |
+| `FLOC_SAL_SCALE` | Flocculation salinity scale | 1-15 | PSU |
+| `FLOC_FACTOR_MAX` | Maximum flocculation factor | 2-20 | - |
 
 **Objectives**:
 
-- Mean SPM at monitoring stations
+- Mean SPM at monitoring stations (8-38 mg/L)
 - ETM location (maximum turbidity position)
 
-### Stage 3: Biogeochemistry
+### Stage 3: Water Quality (O₂, Nutrients, TOC, Chl-a)
 
 **Goal**: Match water quality observations
 
@@ -76,17 +78,45 @@ C-GEM includes a built-in calibration module powered by **NLopt**, supporting:
 
 | Name | Description | Typical Range | Unit |
 |------|-------------|---------------|------|
-| `KOX` | Aerobic degradation rate | 0.02-0.3 | d⁻¹ |
-| `KNIT` | Nitrification rate | 0.03-0.25 | d⁻¹ |
-| `KDENIT` | Denitrification rate | 0.01-0.1 | d⁻¹ |
-| `PBMAX` | Max photosynthesis rate | 1-4 | d⁻¹ |
-| `KMORT` | Mortality rate | 0.02-0.2 | d⁻¹ |
+| `KOX` | TOC degradation rate | 0.005-0.10 | d⁻¹ |
+| `KNIT` | Nitrification rate | 0.02-0.20 | d⁻¹ |
+| `KDENIT` | Denitrification rate | 0.01-0.15 | d⁻¹ |
+| `PBMAX1` | Diatom max production | 1.0-5.0 | d⁻¹ |
+| `PBMAX2` | Non-siliceous max production | 0.8-4.0 | d⁻¹ |
+| `KMORT1` | Diatom mortality rate | 0.03-0.20 | d⁻¹ |
+| `KMORT2` | Non-siliceous mortality | 0.02-0.15 | d⁻¹ |
+| `BENTHIC_RESP` | Benthic respiration | 5-100 | µmol/m²/day |
 
 **Objectives**:
 
-- O₂ concentration at stations
-- Nutrient concentrations (NO₃, NH₄, PO₄)
-- Chlorophyll-a (via PHY1 + PHY2)
+- O₂ concentration (170-260 µmol/L)
+- NO₃ concentration (7-66 µmol/L)
+- NH₄ concentration (0.7-5 µmol/L)
+- TOC concentration (107-220 µmol/L)
+- Chlorophyll-a (0.7-7 µg/L)
+
+### Stage 4: Greenhouse Gases (pCO₂, pH, CH₄, N₂O)
+
+**Goal**: Match GHG concentrations and emissions
+
+**Parameters**:
+
+| Name | Description | Typical Range | Unit |
+|------|-------------|---------------|------|
+| `N2O_YIELD_NIT` | N₂O yield from nitrification | 0.001-0.02 | mol/mol |
+| `N2O_YIELD_DENIT` | N₂O yield from denitrification | 0.005-0.05 | mol/mol |
+| `BENTHIC_CH4_FLUX` | Benthic CH₄ flux | 50-1000 | nmol/m²/day |
+| `BENTHIC_N2O_FLUX` | Benthic N₂O flux | 5-100 | nmol/m²/day |
+| `WIND_SPEED` | Wind speed for gas exchange | 2-8 | m/s |
+| `WIND_COEFF` | Wind gas exchange coefficient | 0.15-0.50 | - |
+| `PCO2_ATM` | Atmospheric pCO₂ | 400-450 | µatm |
+
+**Objectives**:
+
+- pCO₂ (500-4700 µatm, gradient from ocean to upstream)
+- pH (7.3-8.2, gradient from ocean to upstream)
+- CH₄ (38-243 nmol/L, high upstream due to rice paddies)
+- N₂O (6-52 nmol/L)
 
 ## Configuration Files
 

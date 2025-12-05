@@ -117,9 +117,12 @@ double crive_calc_n2o_sat(double temp, double salinity) {
     
     double beta = exp(ln_beta);  /* mol/L/atm */
     
-    /* N2O saturation at atmospheric equilibrium [nmol/L] */
+    /* N2O saturation at atmospheric equilibrium [µmol/L]
+     * DECEMBER 2025 FIX: Return µmol/L to match model internal units.
+     * Previously returned nmol/L which caused unit mismatch in flux calculation.
+     */
     double N2O_atm_atm = CRIVE_N2O_ATM_PPB * 1e-9;  /* ppb to atm */
-    Csat = beta * N2O_atm_atm * 1e9;  /* mol/L/atm * atm * 1e9 = nmol/L */
+    Csat = beta * N2O_atm_atm * 1e6;  /* mol/L/atm * atm * 1e6 = µmol/L */
     
     return Csat;
 }
@@ -154,7 +157,10 @@ double crive_calc_n2o_flux(double N2O_conc, double N2O_sat, double depth,
     double kg = 1.719 * sqrt((600.0 * fabs(velocity)) / (Sc * depth));
     double Fwa = kg * (N2O_conc - N2O_sat);
     
-    return Fwa;  /* [nmol/L/s] - positive = evasion */
+    /* DECEMBER 2025 FIX: Return µmol/L/s to match model internal units.
+     * N2O_conc and N2O_sat are now both in µmol/L.
+     */
+    return Fwa;  /* [µmol/L/s] - positive = evasion */
 }
 
 double crive_calc_n2o_from_nitrification(double nitrif_rate, double yield) {
@@ -165,11 +171,12 @@ double crive_calc_n2o_from_nitrification(double nitrif_rate, double yield) {
      * 
      * Typical yield: 0.003-0.01 mol N2O-N / mol NH4-N oxidized
      * 
-     * Convert µmol/L/s to nmol/L/s (factor of 1000)
+     * DECEMBER 2025 FIX: Keep in µmol/L/s to match model's internal units.
+     * The ×1000 conversion was causing unit mismatch with n2o[] array.
      */
     if (nitrif_rate < 0.0) nitrif_rate = 0.0;
     
-    return yield * nitrif_rate * 1000.0;  /* nmol N/L/s */
+    return yield * nitrif_rate;  /* µmol N/L/s - matches model internal unit */
 }
 
 double crive_calc_n2o_from_denitrification(double denit_rate, double yield) {
@@ -180,11 +187,11 @@ double crive_calc_n2o_from_denitrification(double denit_rate, double yield) {
      * 
      * Typical yield: 0.005-0.02 mol N2O / mol NO3 reduced
      * 
-     * Convert µmol/L/s to nmol/L/s
+     * DECEMBER 2025 FIX: Keep in µmol/L/s to match model's internal units.
      */
     if (denit_rate < 0.0) denit_rate = 0.0;
     
-    return yield * denit_rate * 1000.0;  /* nmol N/L/s */
+    return yield * denit_rate;  /* µmol N/L/s - matches model internal unit */
 }
 
 /* ===========================================================================

@@ -11,6 +11,33 @@
  * 
  * COPYRIGHT: Original C-RIVE code (c) 2023 Contributors to the librive library.
  * Eclipse Public License v2.0
+ * 
+ * ============================================================================
+ * KNOWN ISSUE: HENRY'S CONSTANT UNIT CONVERSION (December 2025)
+ * ============================================================================
+ * 
+ * The `henry_co2()` function in biogeo.c and this module may have unit
+ * inconsistencies when calculating pCO2 from dissolved CO2.
+ * 
+ * CORRECT UNIT CHAIN:
+ * 1. Weiss (1974) formula gives K0 in **mol/(kg·atm)**
+ * 2. Multiply by density (ρ ≈ 1 kg/L) → **mol/(L·atm)**
+ * 3. 1 mol = 10^6 µmol, 1 atm = 10^6 µatm
+ * 4. So K0 in **µmol/(L·µatm)** is NUMERICALLY IDENTICAL to **mol/(L·atm)**
+ *    Example: 0.03 mol/(L·atm) = 0.03 µmol/(L·µatm)
+ * 
+ * IF the code multiplies by 1e6 to convert from mol to µmol, it must also
+ * divide by 1e6 to convert from atm to µatm, resulting in NO NET CHANGE.
+ * 
+ * CURRENT STATUS:
+ * - skip_carbonate_reactions = 1 (transport mode) is VALIDATED and matches
+ *   field data with R² > 0.9 for pCO2 and pH
+ * - Full carbonate equilibrium (skip_carbonate_reactions = 0) produces
+ *   unrealistically low pCO2 when AT > DIC due to this unit issue
+ * 
+ * TODO: Audit henry_co2() and crive_calc_co2_solubility() to ensure
+ * consistent units throughout the pCO2 calculation chain.
+ * ============================================================================
  */
 
 #include "carbonate_chem.h"
