@@ -688,6 +688,7 @@ static void set_branch_param(Branch *branch, CalibVarType var, double value) {
             break;
         case VAR_LC_CONV:
             branch->lc_convergence = value;
+            branch->lc_specified = value;  /* Also update specified so it persists if geometry re-inits */
             break;
         case VAR_VDB_COEF:
             branch->vdb_coef = value;

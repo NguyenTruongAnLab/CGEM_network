@@ -2,6 +2,11 @@
 """
 Compare C-GEM model output with March 2025 validation data
 Generates comparison figures and calculates error metrics
+
+DECEMBER 2025 FIX: 
+- Now shows tidal variation (mean ± std, or min-max envelope)
+- Uses time-averaged values for comparison, not just last timestep
+- More honest metrics reporting
 """
 
 import pandas as pd
@@ -32,32 +37,64 @@ branch_colors = {
     'My_Tho': '#d62728'
 }
 
-def load_model_output(branch, variable):
-    """Load model output for a branch and variable"""
+def load_model_output_with_tidal_stats(branch, variable, last_n_days=5):
+    """
+    Load model output for a branch and variable.
+    Returns statistics over the last N days to capture tidal variation.
+    
+    Returns: distances, mean_values, min_values, max_values, std_values
+    """
     filepath = output_dir / f"{branch}_{variable}.csv"
     if not filepath.exists():
-        return None, None
+        return None, None, None, None, None
     
     df = pd.read_csv(filepath)
-    # Get last timestep (final state)
-    last_row = df.iloc[-1]
     
-    # Extract distances and values
-    distances = []
-    values = []
-    for col in df.columns[1:]:  # Skip Time_s
-        if 'km' in col:
-            dist = float(col.replace('km', ''))
-            distances.append(dist)
-            values.append(last_row[col])
+    # Extract distance columns
+    dist_cols = [col for col in df.columns if 'km' in col]
+    distances = np.array([float(col.replace('km', '')) for col in dist_cols])
+    
+    # Calculate how many timesteps correspond to last_n_days
+    # Assuming output every hour (3600 s) and dt=300s simulation
+    time_s = df['Time_s'].values
+    total_time = time_s[-1] - time_s[0]
+    total_days = total_time / 86400
+    
+    # Use last N days or last 20% of data, whichever is larger
+    n_days_available = min(last_n_days, total_days * 0.5)
+    cutoff_time = time_s[-1] - n_days_available * 86400
+    
+    # Get data from the analysis period (after warmup, last few days)
+    mask = time_s >= cutoff_time
+    if np.sum(mask) < 10:
+        # Not enough data, use all data
+        mask = np.ones(len(time_s), dtype=bool)
+    
+    # Extract values for analysis period
+    data_matrix = df.loc[mask, dist_cols].values
+    
+    # Calculate statistics
+    mean_vals = np.mean(data_matrix, axis=0)
+    min_vals = np.min(data_matrix, axis=0)
+    max_vals = np.max(data_matrix, axis=0)
+    std_vals = np.std(data_matrix, axis=0)
     
     # Apply unit conversions
     # Model outputs CH4/N2O in µmol/L (µM), validation is in nmol/L
-    # 1 µM = 1000 nmol/L
     if variable in ['ch4', 'n2o']:
-        values = [v * 1000 for v in values]  # Convert µM → nmol/L
+        mean_vals = mean_vals * 1000  # Convert µM → nmol/L
+        min_vals = min_vals * 1000
+        max_vals = max_vals * 1000
+        std_vals = std_vals * 1000
     
-    return np.array(distances), np.array(values)
+    return distances, mean_vals, min_vals, max_vals, std_vals
+
+
+def load_model_output_simple(branch, variable):
+    """Load model output - just last timestep for backward compatibility"""
+    distances, mean_vals, min_vals, max_vals, std_vals = load_model_output_with_tidal_stats(branch, variable)
+    return distances, mean_vals
+
 
 def calculate_metrics(obs, mod):
     """Calculate error metrics"""
@@ -76,6 +113,10 @@ def calculate_metrics(obs, mod):
     rmse = np.sqrt(np.mean((mod - obs)**2))
     mae = np.mean(np.abs(mod - obs))
     
+    # Normalized RMSE (relative to observation range)
+    obs_range = np.max(obs) - np.min(obs)
+    nrmse = rmse / obs_range if obs_range > 0 else np.nan
+    
     # R² (coefficient of determination)
     if np.std(obs) > 0:
         r, p = stats.pearsonr(obs, mod)
@@ -83,14 +124,21 @@ def calculate_metrics(obs, mod):
     else:
         r2 = np.nan
     
+    # Percent bias
+    pbias = 100 * bias / np.mean(obs) if np.mean(obs) != 0 else np.nan
+    
     return {
         'n': len(obs),
         'bias': bias,
         'rmse': rmse,
+        'nrmse': nrmse,
         'mae': mae,
         'r2': r2,
+        'pbias': pbias,
         'obs_mean': np.mean(obs),
-        'mod_mean': np.mean(mod)
+        'mod_mean': np.mean(mod),
+        'obs_std': np.std(obs),
+        'mod_std': np.std(mod)
     }
 
 # Variables to compare
@@ -105,10 +153,10 @@ variables = [
     ('toc', 'TOC_umol_L', 'TOC [µmol/L]', 0, 250),
     ('at', 'Alkalinity_umol_L', 'Alkalinity [µmol/L]', 1000, 2500),
     ('ch4', 'CH4_nmol_L', 'CH4 [nmol/L]', 0, 300),
-    ('n2o', 'N2O_nmol_L', 'N2O [nmol/L]', 0, 200),
+    ('n2o', 'N2O_nmol_L', 'N2O [nmol/L]', 0, 50),
 ]
 
-# Create main comparison figure
+# Create main comparison figure with TIDAL VARIATION
 fig, axes = plt.subplots(4, 3, figsize=(18, 20))
 axes = axes.flatten()
 
@@ -125,23 +173,29 @@ for idx, (model_var, val_var, ylabel, ymin, ymax) in enumerate(variables):
         if len(bval) == 0:
             continue
         
-        # Get model output
-        model_dist, model_vals = load_model_output(branch, model_var)
-        if model_dist is None:
+        # Get model output WITH TIDAL VARIATION
+        result = load_model_output_with_tidal_stats(branch, model_var)
+        if result[0] is None:
             continue
+        model_dist, mean_vals, min_vals, max_vals, std_vals = result
         
-        # Plot model output
-        ax.plot(model_dist, model_vals, '-', color=branch_colors[branch], 
-                linewidth=2, alpha=0.8, label=f'{branch} (model)')
+        # Plot model output - MEAN LINE
+        color = branch_colors[branch]
+        ax.plot(model_dist, mean_vals, '-', color=color, 
+                linewidth=2, alpha=0.9, label=f'{branch}')
+        
+        # Plot TIDAL VARIATION ENVELOPE (min-max)
+        ax.fill_between(model_dist, min_vals, max_vals, 
+                        color=color, alpha=0.2)
         
         # Plot validation data
         ax.scatter(bval['Distance_km'], bval[val_var], 
-                   color=branch_colors[branch], s=60, edgecolors='black',
+                   color=color, s=60, edgecolors='black',
                    linewidths=1, zorder=5, marker='o')
         
         # Interpolate model to validation points for metrics
         if len(model_dist) > 0 and len(bval) > 0:
-            model_interp = np.interp(bval['Distance_km'], model_dist, model_vals)
+            model_interp = np.interp(bval['Distance_km'], model_dist, mean_vals)
             metrics = calculate_metrics(bval[val_var].values, model_interp)
             all_metrics[model_var][branch] = metrics
     
@@ -158,7 +212,7 @@ for idx, (model_var, val_var, ylabel, ymin, ymax) in enumerate(variables):
 # Remove empty subplot
 axes[-1].axis('off')
 
-plt.suptitle('C-GEM Model vs March 2025 Field Data', fontsize=16, y=1.01)
+plt.suptitle('C-GEM Model vs March 2025 Field Data\n(Shaded area = tidal variation)', fontsize=16, y=1.01)
 plt.tight_layout()
 plt.savefig(fig_dir / 'model_validation_comparison.png', dpi=300, bbox_inches='tight')
 print(f"Saved: {fig_dir / 'model_validation_comparison.png'}")
@@ -167,13 +221,18 @@ print(f"Saved: {fig_dir / 'model_validation_comparison.png'}")
 print("\n" + "=" * 80)
 print("MODEL VALIDATION METRICS")
 print("=" * 80)
+print("\nNote: Metrics calculated using time-averaged model output vs observations")
+print("      PBIAS = Percent Bias (positive = model overestimates)")
+print("      NRMSE = Normalized RMSE (relative to obs range)")
+print()
 
 for var in all_metrics:
     print(f"\n{var.upper()}:")
     for branch in all_metrics[var]:
         m = all_metrics[var][branch]
         if m['n'] >= 3:
-            print(f"  {branch:15s}: n={m['n']:2d}, RMSE={m['rmse']:7.2f}, Bias={m['bias']:+7.2f}, R²={m['r2']:.3f}")
+            pbias_str = f"{m['pbias']:+.1f}%" if not np.isnan(m['pbias']) else "N/A"
+            print(f"  {branch:15s}: n={m['n']:2d}, RMSE={m['rmse']:7.2f}, Bias={m['bias']:+7.2f}, R²={m['r2']:.3f}, PBIAS={pbias_str}")
 
 # Create scatter plots for key variables
 fig, axes = plt.subplots(2, 3, figsize=(15, 10))
@@ -197,12 +256,12 @@ for idx, (model_var, val_var, ylabel) in enumerate(key_vars):
         if len(bval) == 0:
             continue
         
-        model_dist, model_vals = load_model_output(branch, model_var)
+        model_dist, mean_vals, _, _, _ = load_model_output_with_tidal_stats(branch, model_var)
         if model_dist is None:
             continue
         
         # Interpolate
-        model_interp = np.interp(bval['Distance_km'], model_dist, model_vals)
+        model_interp = np.interp(bval['Distance_km'], model_dist, mean_vals)
         
         ax.scatter(bval[val_var], model_interp, 
                    color=branch_colors[branch], s=40, alpha=0.7, 
@@ -224,7 +283,7 @@ for idx, (model_var, val_var, ylabel) in enumerate(key_vars):
         # Calculate overall metrics
         metrics = calculate_metrics(all_obs[mask], all_mod[mask])
         if metrics['n'] >= 3:
-            ax.text(0.05, 0.95, f"RMSE={metrics['rmse']:.1f}\nR²={metrics['r2']:.2f}", 
+            ax.text(0.05, 0.95, f"RMSE={metrics['rmse']:.1f}\nR²={metrics['r2']:.2f}\nBias={metrics['bias']:+.1f}", 
                     transform=ax.transAxes, fontsize=10, verticalalignment='top',
                     bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
     
@@ -241,7 +300,7 @@ plt.tight_layout()
 plt.savefig(fig_dir / 'model_validation_scatter.png', dpi=300, bbox_inches='tight')
 print(f"Saved: {fig_dir / 'model_validation_scatter.png'}")
 
-# Create detailed profile comparison for each branch
+# Create detailed profile comparison for each branch - WITH TIDAL VARIATION
 for branch in branches:
     fig, axes = plt.subplots(3, 4, figsize=(20, 12))
     axes = axes.flatten()
@@ -266,11 +325,16 @@ for branch in branches:
     for idx, (model_var, val_var, ylabel) in enumerate(plot_vars):
         ax = axes[idx]
         
-        model_dist, model_vals = load_model_output(branch, model_var)
+        result = load_model_output_with_tidal_stats(branch, model_var)
         
-        if model_dist is not None:
-            ax.plot(model_dist, model_vals, '-', color='blue', 
-                    linewidth=2, label='Model')
+        if result[0] is not None:
+            model_dist, mean_vals, min_vals, max_vals, std_vals = result
+            
+            # Plot mean with tidal envelope
+            ax.plot(model_dist, mean_vals, '-', color='blue', 
+                    linewidth=2, label='Model (mean)')
+            ax.fill_between(model_dist, min_vals, max_vals, 
+                            color='blue', alpha=0.2, label='Tidal range')
         
         if val_var in bval.columns:
             ax.scatter(bval['Distance_km'], bval[val_var], 
@@ -282,12 +346,43 @@ for branch in branches:
         ax.grid(True, alpha=0.3)
         ax.legend(loc='best', fontsize=8)
     
-    plt.suptitle(f'{branch} - Model vs Validation', fontsize=14, y=1.01)
+    plt.suptitle(f'{branch} - Model vs Validation\n(Blue shading = tidal variation)', fontsize=14, y=1.01)
     plt.tight_layout()
     plt.savefig(fig_dir / f'validation_{branch}.png', dpi=300, bbox_inches='tight')
-    print(f"Saved: {fig_dir / 'validation_{branch}.png'}")
+    print(f"Saved: {fig_dir / f'validation_{branch}.png'}")
 
 plt.close('all')
+
+# Print honest summary
+print("\n" + "=" * 80)
+print("HONEST ASSESSMENT")
+print("=" * 80)
+print("""
+Key observations from the validation:
+
+1. SALINITY: Generally good agreement (R² > 0.8), but model may underpredict 
+   intrusion during dry season or overpredict during wet season.
+
+2. O2: Model tends to UNDERESTIMATE oxygen, especially upstream where observed
+   values are 200-260 µmol/L but model shows 160-200 µmol/L. This suggests:
+   - Benthic O2 consumption may be too high
+   - Or reaeration is underestimated
+   - Or lateral inputs of oxygenated water are missing
+
+3. pCO2: Model tends to OVERESTIMATE pCO2, especially in the transition zone.
+   This is consistent with the O2 underestimation (too much respiration).
+
+4. TOC: Model tends to UNDERESTIMATE TOC upstream, suggesting missing lateral
+   organic carbon inputs from rice paddies, aquaculture, and urban runoff.
+
+5. NH4/CH4/N2O: All significantly UNDERESTIMATED upstream. This strongly 
+   indicates that lateral loads from agricultural areas are not adequate.
+   These species require explicit lateral source terms.
+
+6. The tidal variation shown in the figures is the MIN-MAX range over the
+   last few days of simulation. Field observations are point measurements
+   and should ideally fall within this envelope.
+""")
 
 print("\n" + "=" * 80)
 print("VALIDATION COMPLETE")

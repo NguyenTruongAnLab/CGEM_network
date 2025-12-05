@@ -7,7 +7,6 @@
 # For consistency: DIC~1900-2000 gives correct pCO2 with observed TA
 #
 # CRITICAL: DIC/TA ratio must be ~0.86-0.88 for pH~8.1
-# Using DIC=1900, TA=2200 gives pCO2~350-400 (slightly supersaturated)
 # Using DIC=1950, TA=2200 gives pCO2~450-500 (matches observations better)
 #
 # NO3 = 50-60 umol/L from validation data (high due to coastal upwelling)

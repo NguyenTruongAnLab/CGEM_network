@@ -60,6 +60,7 @@ typedef struct {
 
     double chezy;
     double lc_convergence;
+    double lc_specified;    /* User-specified LC from topology file (0 = auto-calculate) */
 
     int M;
     double dx;

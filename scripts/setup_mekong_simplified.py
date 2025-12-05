@@ -302,7 +302,7 @@ Warmup = 30
 
 # Numerical parameters
 TimeStep = 60.0
-DELXI = 2000.0
+DELXI = 1000.0
 
 # Output
 WriteNetCDF = 1

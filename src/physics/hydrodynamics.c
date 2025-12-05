@@ -115,12 +115,20 @@ void InitializeBranchGeometry(Branch *branch, double target_dx) {
     branch->depth_m = fmax(branch->depth_m, CGEM_MIN_DEPTH);
 
     /* Compute convergence length: LC = -L / ln(W_up/W_down) 
-       width_down_m = mouth (downstream), width_up_m = head (upstream) */
-    double ratio = branch->width_up_m / branch->width_down_m;
-    if (ratio <= 0.0 || fabs(log(ratio)) < 1e-6) {
-        branch->lc_convergence = 1e9;  /* Prismatic channel */
+       width_down_m = mouth (downstream), width_up_m = head (upstream)
+       
+       If lc_specified > 0 from topology file, use that instead (for calibration) */
+    if (branch->lc_specified > 0.0) {
+        /* Use user-specified LC from topology file */
+        branch->lc_convergence = branch->lc_specified;
     } else {
-        branch->lc_convergence = -length / log(ratio);
+        /* Auto-calculate from width ratio */
+        double ratio = branch->width_up_m / branch->width_down_m;
+        if (ratio <= 0.0 || fabs(log(ratio)) < 1e-6) {
+            branch->lc_convergence = 1e9;  /* Prismatic channel */
+        } else {
+            branch->lc_convergence = -length / log(ratio);
+        }
     }
 
     /* Initialize arrays along the branch */

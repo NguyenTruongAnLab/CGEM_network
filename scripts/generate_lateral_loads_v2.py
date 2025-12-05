@@ -83,8 +83,9 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 PROJECT_ROOT = SCRIPT_DIR.parent
 DEFAULT_CASE_DIR = PROJECT_ROOT / "INPUT" / "Cases" / "Mekong_Delta_Full"
 
-# Grid spacing (from topology)
-DX_M = 2000.0  # Grid cell size [m]
+# Grid spacing (from topology) - FIXED December 2025: Changed to 1000m
+# Model now uses 1km grid cells (DELXI=1000 in case_config.txt)
+DX_M = 1000.0  # Grid cell size [m]
 
 # ==============================================================================
 # GLOBAL DATASETS: JAXA LAND USE → EMISSION FACTORS
@@ -615,30 +616,49 @@ def calculate_base_loads(
 # ==============================================================================
 # POINT SOURCES: CITIES AND INDUSTRIAL DISCHARGES
 # ==============================================================================
+# 
+# DECEMBER 2025 UPDATE: Verified positions against Mekong Delta geography
+# Distance is measured from UPSTREAM (junction) in km
+# Model index = M - (distance_km * 1000 / dx)
+#
+# GEOGRAPHIC REFERENCE (Literature: Nguyen et al. 2008, MRC 2018):
+# - Hau_River: 166km from Vam Nao junction to Dinh An/Tran De mouths
+# - My_Tho: 72km from Tien_Connector junction to Cua Tieu/Cua Dai mouths
+# - Ham_Luong: 76km from Tien_Connector junction to Ham Luong mouth
+# - Co_Chien: 98km from Co_Chien_Split junction to Cung Hau/Co Chien mouths
 
 # Major cities in the Mekong Delta
 POINT_SOURCES_MEKONG = {
     "Can_Tho": {
+        # Can Tho City: ~80km from Vam Nao, ~86km from ocean
+        # Population: 1.5 million (Vietnam's 4th largest city)
+        # Primary treatment since 2010s
         "branch": "Hau_River",
-        "distance_km": 80.0,
+        "distance_km": 80.0,  # From Vam Nao junction
         "population": 1_500_000,
         "treatment_level": "primary",  # 30% removal
     },
     "My_Tho": {
+        # My Tho City: ~45km from junction, ~27km from ocean
+        # Population: 500,000 (Tien Giang province capital)
         "branch": "My_Tho",
-        "distance_km": 40.0,
+        "distance_km": 45.0,  # From Tien_Connector junction
         "population": 500_000,
         "treatment_level": "none",
     },
     "Ben_Tre": {
+        # Ben Tre City: ~40km from junction, ~36km from ocean  
+        # Population: 200,000 (Ben Tre province capital)
         "branch": "Ham_Luong",
-        "distance_km": 45.0,
+        "distance_km": 40.0,  # From Tien_Connector junction
         "population": 200_000,
         "treatment_level": "none",
     },
     "Vinh_Long": {
+        # Vinh Long City: ~50km from junction, ~48km from ocean
+        # Population: 150,000 (Vinh Long province capital)
         "branch": "Co_Chien",
-        "distance_km": 60.0,
+        "distance_km": 50.0,  # From Co_Chien_Split junction
         "population": 150_000,
         "treatment_level": "none",
     },

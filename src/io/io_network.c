@@ -394,6 +394,7 @@ int LoadTopology(const char *path, Network *net) {
          * 11: VDB_K (optional, default 0.35) - Van den Burgh dispersion coefficient
          * 12: Mixing_Alpha (optional, default 0.25) - D0 mixing efficiency: D0 = α * U_tidal * B
          * 13: BiogeoParams (optional) - Path to branch-specific biogeo params file
+         * 14: LC_m (optional, default 0 = auto) - Explicit convergence length [m] for calibration
          */
         int column = 0;
         int tmp_id = -1;
@@ -410,8 +411,9 @@ int LoadTopology(const char *path, Network *net) {
         double tmp_vdb_coef = 0.35;          /* Default Van den Burgh K (Savenije, 2005) */
         double tmp_mixing_alpha = 0.25;      /* Default mixing efficiency for D0 (Fischer, 1979) */
         char tmp_biogeo_path[CGEM_MAX_PATH] = {0}; /* Empty = use global defaults */
+        double tmp_lc_specified = 0.0;       /* 0 = auto-calculate from widths */
         char *token = strtok(text, ",");
-        while (token && column < 14) {
+        while (token && column < 15) {
             char *value = trim_in_place(token);
             switch (column) {
                 case 0:
@@ -467,6 +469,12 @@ int LoadTopology(const char *path, Network *net) {
                 case 13:
                     /* BiogeoParams: Path to branch-specific biogeochemistry parameters */
                     snprintf(tmp_biogeo_path, sizeof(tmp_biogeo_path), "%s", value);
+                    break;
+                case 14:
+                    /* LC_m: Explicit convergence length [m] for calibration
+                     * If > 0, overrides auto-calculation from width ratio
+                     * If 0 or missing, LC is auto-calculated: LC = -L / ln(W_up/W_down) */
+                    tmp_lc_specified = strtod(value, NULL);
                     break;
                 default:
                     break;
@@ -537,10 +545,14 @@ int LoadTopology(const char *path, Network *net) {
         branch->has_biogeo = 1;  /* Always enable biogeo for now */
         branch->vdb_coef = tmp_vdb_coef;
         branch->mixing_alpha = tmp_mixing_alpha;
+        branch->lc_specified = tmp_lc_specified;  /* User-specified LC (0 = auto-calculate) */
         snprintf(branch->biogeo_params_path, sizeof(branch->biogeo_params_path), "%s", tmp_biogeo_path);
         
         /* Diagnostic output for configuration verification */
         printf("  Parsed branch %d: %s (RS=%.1f, K=%.2f, α=%.2f", tmp_id, tmp_name, tmp_storage_ratio, tmp_vdb_coef, tmp_mixing_alpha);
+        if (tmp_lc_specified > 0) {
+            printf(", LC=%.0fm", tmp_lc_specified);
+        }
         if (tmp_biogeo_path[0] != '\0') {
             printf(", biogeo=%s", tmp_biogeo_path);
         }
