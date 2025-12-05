@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-This audit documents the current state of the C-GEM Network model following intensive debugging and calibration efforts in December 2025. The model has achieved **good performance** for conservative tracers (salinity R²=0.65-0.99) and nutrient gradients (NO₃, NH₄, PO₄), but shows **systematic biases** in the carbonate system (pCO₂, pH) and greenhouse gases (CH₄, N₂O) that reflect fundamental model limitations rather than parameter tuning issues.
+This audit documents the current state of the C-GEM Network model following intensive debugging and calibration efforts in December 2025. The model has achieved **good performance** for conservative tracers (salinity R²=0.65-0.99) and just acceptable for nutrient gradients (NO₃), but shows **systematic biases** in nutrients (TOC, O₂, NH₄, PO₄), the carbonate system (pCO₂, pH) and greenhouse gases (CH₄, N₂O) that reflect fundamental model limitations rather than parameter tuning issues.
 
 The audit follows the **80/20 principle**: identifying the 20% of missing processes that cause 80% of the remaining model-data mismatch, with focus on improvements achievable using globally-available datasets rather than site-specific measurements.
 
@@ -38,11 +38,11 @@ The audit follows the **80/20 principle**: identifying the 20% of missing proces
 | **Salinity** | Co_Chien | 1.38 PSU | -0.77 | 0.987 | ✅ Excellent |
 | **pH** | My_Tho | 0.11 | +0.05 | 0.732 | ✅ Good |
 | **O₂** | My_Tho | 24.2 µmol/L | -17.6 | 0.586 | ⚠️ Model too low |
-| **NO₃** | Co_Chien | 4.81 µmol/L | -0.41 | 0.945 | ✅ Excellent |
-| **NH₄** | Co_Chien | 1.01 µmol/L | +0.07 | 0.019 | ✅ Good (low variability) |
+| **NO₃** | Co_Chien | 4.81 µmol/L | -0.41 | 0.945 | ⚠️ Branch-dependent, Model too low|
+| **NH₄** | Co_Chien | 1.01 µmol/L | +0.07 | 0.019 | 🟠 Gradient captured, bias remains|
 | **SPM** | Co_Chien | 4.76 mg/L | +0.13 | 0.100 | ⚠️ Low R² |
 | **pCO₂** | Hau_River | 1033 µatm | -191 | 0.794 | 🟠 Gradient captured, bias remains |
-| **TOC** | Hau_River | 21.7 µmol/L | +9.6 | 0.582 | ⚠️ Branch-dependent |
+| **TOC** | Hau_River | 21.7 µmol/L | +9.6 | 0.582 | ⚠️ Branch-dependent, Model too low |
 | **Alkalinity** | Co_Chien | 66.5 µeq/L | +35.5 | 0.878 | ✅ Good |
 | **CH₄** | My_Tho | 15.4 nmol/L | -6.1 | 0.034 | 🔴 Missing lateral sources |
 | **N₂O** | Co_Chien | 8.37 nmol/L | -6.6 | 0.305 | 🟠 Missing agricultural inputs |

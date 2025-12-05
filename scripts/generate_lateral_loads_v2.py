@@ -125,7 +125,7 @@ JAXA_EMISSIONS = {
         "NH4": 15.0,    # Sewage leakage, pet waste (increased from 10)
         "NO3": 5.0,     # Fertilized lawns, septic (increased from 3)
         "PO4": 2.0,     # Detergents, sewage (increased from 1.5)
-        "TOC": 350.0,   # INCREASED Dec 2025: 150→350 to fix -70 µM TOC bias
+        "TOC": 4.0,     # mg C/L (4 × 83.3 = 333 µmol/L) - urban runoff
         "DIC": 18.0,    # mg C/L → 1500 µM after ×83.3 conversion (reduced for realistic pCO2)
         "AT": 1400.0,   # Alkalinity [µeq/L] - reduced to give AT < DIC for high pCO2
         "SPM": 150.0,   # Construction sediment
@@ -148,8 +148,7 @@ JAXA_EMISSIONS = {
         "NH4": 8.0,     # Urea fertilizer breakdown (increased - major N source)
         "NO3": 10.0,    # Nitrified fertilizer (increased for N2O production)
         "PO4": 1.5,     # Phosphate fertilizer (increased)
-        "TOC": 400.0,   # INCREASED Dec 2025: 200→400 to fix -70 µM TOC bias
-                        # Rice paddy drainage high in dissolved organic C
+        "TOC": 5.0,     # mg C/L (5 × 83.3 = 417 µmol/L) - rice paddy DOC
         "DIC": 25.0,    # mg C/L → 2080 µM (reduced from 80 - was 6600 µM!)
         "AT": 1200.0,   # [µeq/L] - lower than DIC for high pCO2 (rice paddies supersaturated)
         "SPM": 100.0,   # Tillage erosion, resuspension
@@ -170,8 +169,7 @@ JAXA_EMISSIONS = {
         "NH4": 12.0,    # Fish excretion, uneaten feed (increased)
         "NO3": 4.0,     # Some nitrification in ponds
         "PO4": 3.0,     # Feed phosphorus (increased)
-        "TOC": 450.0,   # INCREASED Dec 2025: 250→450 to fix -70 µM TOC bias
-                        # Aquaculture effluent very high in organic load
+        "TOC": 6.0,     # mg C/L (6 × 83.3 = 500 µmol/L) - aquaculture effluent
         "DIC": 30.0,    # mg C/L → 2500 µM (reduced from 100 - was 8300 µM!)
         "AT": 2000.0,   # Lime [µeq/L] - high but still < DIC×83.3 for pCO2 >1000
         "SPM": 200.0,   # Pond sediment resuspension
@@ -191,8 +189,7 @@ JAXA_EMISSIONS = {
         "NH4": 0.5,     # N sink but some mineralization
         "NO3": 0.2,     # Strong N sink (denitrification)
         "PO4": 0.2,     # P burial
-        "TOC": 350.0,   # INCREASED Dec 2025: 180→350 - major DOC exporter
-                        # Mangrove tidal flushing exports high DOC
+        "TOC": 4.0,     # mg C/L (4 × 83.3 = 333 µmol/L) - mangrove DOC export
         "DIC": 35.0,    # mg C/L → 2900 µM (reduced from 120 - was 10000 µM!)
         "AT": 2200.0,   # Carbonate-rich [µeq/L] - balanced with DIC for moderate pCO2
         "SPM": 60.0,    # Fine sediment, some trapping
@@ -210,7 +207,7 @@ JAXA_EMISSIONS = {
         "NH4": 5.0,     # Moderate fertilizer
         "NO3": 12.0,    # Higher NO3 from orchards (increased)
         "PO4": 1.5,     # Phosphate application
-        "TOC": 150.0,   # INCREASED Dec 2025: 80→150 - leaf litter decomposition
+        "TOC": 2.0,     # mg C/L (2 × 83.3 = 167 µmol/L) - leaf litter
         "DIC": 15.0,    # mg C/L → 1250 µM (reduced from 30 - was 2500 µM)
         "AT": 1000.0,   # Natural [µeq/L] - lower for moderate pCO2
         "SPM": 80.0,    # Exposed soil erosion
@@ -228,7 +225,7 @@ JAXA_EMISSIONS = {
         "NH4": 0.5,     # Minimal
         "NO3": 0.8,     # Natural background
         "PO4": 0.08,    # Weathering only
-        "TOC": 100.0,   # INCREASED Dec 2025: 50→100 - forest floor leachate
+        "TOC": 1.5,     # mg C/L (1.5 × 83.3 = 125 µmol/L) - natural background
         "DIC": 12.0,    # mg C/L → 1000 µM (reduced from 20)
         "AT": 800.0,    # Natural background [µeq/L]
         "SPM": 25.0,    # Low erosion

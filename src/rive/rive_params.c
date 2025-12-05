@@ -90,6 +90,10 @@ int LoadBiogeoParams(const char *path) {
     g_biogeo_params.benthic_resp_20C = 60.0;
     g_biogeo_params.benthic_Q10 = 2.0;
     
+    /* Spatially-varying benthic flux defaults (December 2025 Audit Fix) */
+    g_biogeo_params.benthic_ocean_scale = 0.3;     /* Sandy sediments at mouth */
+    g_biogeo_params.benthic_upstream_scale = 2.0;  /* Fine organic sediments upstream */
+    
     /* RIVE organic matter */
     g_biogeo_params.khydr1 = 0.75;
     g_biogeo_params.khydr2 = 0.25;
@@ -262,6 +266,8 @@ int LoadBiogeoParams(const char *path) {
         else if (strcmp(key, "current_k_factor") == 0) g_biogeo_params.current_k_factor = v;
         else if (strcmp(key, "benthic_resp_20C") == 0) g_biogeo_params.benthic_resp_20C = v;
         else if (strcmp(key, "benthic_Q10") == 0) g_biogeo_params.benthic_Q10 = v;
+        else if (strcmp(key, "benthic_ocean_scale") == 0) g_biogeo_params.benthic_ocean_scale = v;
+        else if (strcmp(key, "benthic_upstream_scale") == 0) g_biogeo_params.benthic_upstream_scale = v;
         else if (strcmp(key, "khydr1") == 0) g_biogeo_params.khydr1 = v;
         else if (strcmp(key, "khydr2") == 0) g_biogeo_params.khydr2 = v;
         else if (strcmp(key, "khydr3") == 0) g_biogeo_params.khydr3 = v;

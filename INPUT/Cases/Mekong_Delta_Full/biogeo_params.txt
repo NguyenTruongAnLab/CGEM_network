@@ -53,14 +53,15 @@ kpo42 = 0.5
 #   - Refractory DOM: k = 0.001-0.01 /day (Middelburg 1989)
 #   - Mekong mix: weighted average ~0.008 /day (mostly refractory)
 #
-# PHASE 3 FIX: kox = 0.02 (increased from 0.008)
-# Need sufficient water column respiration to generate pCO2 gradient.
-# Combined with benthic respiration, this drives O2 consumption and CO2 production.
-# TOC consumption is acceptable as lateral loads replace it.
+# PHASE 3 FIX (v3): kox = 0.012 (reduced from 0.02)
+# December 2025: kox=0.02 was too aggressive - O2 dropping too fast and TOC
+# being consumed too quickly. Reduced to 0.012 for better fit.
+# Combined with salinity-based benthic flux scaling, this should give
+# more gradual O2 decline and preserve TOC better.
 #
 # Reference: Middelburg (1989), Hopkinson & Vallino (2005)
 #
-kox = 0.02
+kox = 0.012
 kdenit = 0.03
 knit = 0.05
 
@@ -97,12 +98,16 @@ redsi = 0.12
 # - wind_coeff: Site-specific (0.31 is Wanninkhof 1992 value)
 # - current_k_factor: Tidal current turbulence (calibrate in Stage 4)
 #
-# Reference: Wanninkhof (1992), Ho et al. (2006)
+# December 2025 v4: Increased current_k_factor from 0.5 to 1.0 to boost
+# reaeration in the transition zone. O2 was dropping too fast (170 µmol/L)
+# compared to observed (~220 µmol/L) at km 20.
+#
+# Reference: Wanninkhof (1992), Ho et al. (2006), O'Connor & Dobbins (1958)
 pco2_atm = 420.0
 wind_speed = 5.0
 wind_coeff = 0.31
 schmidt_exp = -0.5
-current_k_factor = 0.50
+current_k_factor = 1.0
 
 # =============================================================================
 # BENTHIC FLUXES
@@ -119,15 +124,64 @@ current_k_factor = 0.50
 # - Frankignoulle et al. (1998): 40-100 mmol C/m²/day (Belgian estuaries)
 #
 # For Mekong Delta with high organic sediment deposition:
-# - benthic_resp_20C = 70 mmol C/m²/day at reference 20°C
-# - At 28°C with Q10=1.8: 70 × 1.8^0.8 = 110 mmol C/m²/day
+# - benthic_resp_20C = 45 mmol C/m²/day at reference 20°C
+# - At 28°C with Q10=1.8: 45 × 1.8^0.8 = 70 mmol C/m²/day
 # 
-# COMBINED with increased kox=0.02, this provides sufficient respiration
-# to generate O2 decline and pCO2 increase upstream.
+# December 2025 FINAL v5: Balance between O2 and pCO2 validation.
+# - 40 gave O2 bias -15, but pCO2 bias -766 (too low)
+# - 50 gave O2 bias -26, but pCO2 bias -84 (good)
+# - 45 should be optimal balance
+#
+# The salinity-based scaling (ocean_scale=0.2, upstream_scale=2.0) provides:
+#   - High salinity (>25 PSU): 45 × 0.2 = 9 mmol/m²/day
+#   - Low salinity (<5 PSU):  45 × 2.0 = 90 mmol/m²/day
 #
 # Reference: Abril et al. (2010), Frankignoulle et al. (1998)
-benthic_resp_20C = 70.0
+benthic_resp_20C = 45.0
 benthic_Q10 = 1.8
+
+# =============================================================================
+# SPATIALLY-VARYING BENTHIC FLUX (December 2025 80/20 Fix)
+# =============================================================================
+# Benthic fluxes (O2 demand, CO2/DIC production, CH4, N2O) vary enormously 
+# along estuaries due to sediment type:
+#
+#   - Ocean mouth (sandy): LOW benthic flux
+#     * Low organic content in coarse sediments
+#     * High permeability = rapid flushing
+#     * Typical SOD: 10-30 mmol O2/m²/day
+#
+#   - Upstream (fine organic mud): HIGH benthic flux
+#     * High organic deposition from river, mangroves, rice paddies
+#     * Low permeability = anoxic conditions
+#     * Typical SOD: 80-150 mmol O2/m²/day
+#
+# The scale factors multiply benthic_resp_20C spatially:
+#   At ocean (i=1): benthic_rate = benthic_resp_20C × benthic_ocean_scale
+#   At upstream (i=M): benthic_rate = benthic_resp_20C × benthic_upstream_scale
+#   In between: linear interpolation
+#
+# For Mekong Delta:
+#   - benthic_ocean_scale = 0.2 → 70 × 0.2 = 14 mmol/m²/day at high salinity
+#   - benthic_upstream_scale = 1.5 → 70 × 1.5 = 105 mmol/m²/day at low salinity
+#
+# SALINITY-BASED SCALING (v2 - December 2025):
+# The scaling is now based on LOCAL SALINITY, not branch position:
+#   - S > 25 PSU: benthic_rate = benthic_resp_20C × ocean_scale (sandy)
+#   - S < 5 PSU:  benthic_rate = benthic_resp_20C × upstream_scale (fine organic)
+#   - 5-25 PSU:   linear interpolation
+#
+# This correctly handles network branches where "upstream" is a junction.
+# Salinity is a much better proxy for sediment type than position!
+#
+# December 2025 v4: Increased upstream_scale to 2.0 for better pCO2 gradient
+# while keeping ocean_scale low to preserve O2 near saturation at mouth.
+#
+# Reference: Abril et al. (2010), Cai (2011), Middelburg et al. (1996)
+# =============================================================================
+benthic_ocean_scale = 0.2
+benthic_upstream_scale = 2.0
+
 benthic_NH4_flux = 2.0
 benthic_PO4_flux = 0.10
 

@@ -467,11 +467,63 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
          * The benthic_resp_20C parameter [mmol C/m²/day] represents CO2 production
          * which equals O2 consumption in aerobic sediments (1:1 stoichiometry).
          * 
-         * Literature values for tropical estuaries:
-         * - Abril et al. (2010): 20-80 mmol O2/m²/day
-         * - Cai (2011): 30-100 mmol O2/m²/day for turbid estuaries
+         * SALINITY-BASED BENTHIC FLUX SCALING (December 2025 Fix v2):
+         * ===========================================================
+         * Previous version used distance from ocean, but this fails for network
+         * branches where "upstream" is a junction, not the river source.
+         * 
+         * BETTER APPROACH: Use SALINITY as proxy for sediment type!
+         * - High salinity (>25 PSU): Sandy marine sediments → LOW benthic flux
+         * - Low salinity (<5 PSU): Fine organic riverine sediments → HIGH benthic flux
+         * - Transition zone: Linear interpolation
+         * 
+         * This is physically correct because:
+         * 1. Marine sediments are coarser (higher energy waves/currents)
+         * 2. Fine organic particles settle where currents weaken (low salinity zone)
+         * 3. Flocculation peaks around 5-15 PSU, enhancing fine sediment deposition
+         * 
+         * Scale factor: 
+         *   S > 25 PSU: benthic_ocean_scale (default 0.3)
+         *   S < 5 PSU:  benthic_upstream_scale (default 1.5)
+         *   5-25 PSU:   linear interpolation
+         * 
+         * Literature: Abril et al. (2010), Cai (2011), Middelburg et al. (1996)
          * =======================================================================*/
-        double benthic_rate_day = p->benthic_resp_20C * pow(p->benthic_Q10, (temp - 20.0) / 10.0);
+        double ocean_scale = (p->benthic_ocean_scale > 0.0) ? p->benthic_ocean_scale : 0.3;
+        double upstream_scale = (p->benthic_upstream_scale > 0.0) ? p->benthic_upstream_scale : 1.5;
+        
+        /* =======================================================================
+         * REVISED APPROACH (December 2025 Fix v3):
+         * 
+         * The salinity-based scaling was causing O₂ to be over-consumed in the
+         * transition zone (5-25 PSU), where the scale was being interpolated
+         * toward the upstream value. This destroyed the conservative mixing
+         * signal from the ocean.
+         * 
+         * NEW APPROACH: Use a STEP FUNCTION instead of linear interpolation:
+         * - S > 2 PSU: Use ocean_scale (minimal benthic consumption)
+         * - S <= 2 PSU: Use upstream_scale (elevated benthic consumption)
+         * 
+         * This keeps benthic effects minimal in the saline estuary where
+         * sediments are coarser and less organic, and only applies high
+         * benthic flux in the truly freshwater zone.
+         * 
+         * The O₂ gradient should primarily come from CONSERVATIVE MIXING
+         * between ocean (260 µmol/L) and river (175 µmol/L) boundaries.
+         * =======================================================================*/
+        double S_threshold = 2.0;  /* Only apply high benthic flux in truly fresh water */
+        double benthic_scale;
+        
+        /* Safety: ensure sal is valid (non-negative, non-NaN) */
+        double safe_sal = (sal >= 0.0 && sal == sal) ? sal : 0.0;
+        
+        if (safe_sal > S_threshold) {
+            benthic_scale = ocean_scale;  /* Marine/brackish: low benthic flux */
+        } else {
+            benthic_scale = upstream_scale;  /* Fresh: elevated benthic flux */
+        }
+        
+        double benthic_rate_day = p->benthic_resp_20C * benthic_scale * pow(p->benthic_Q10, (temp - 20.0) / 10.0);
         double benthic_o2_rate = benthic_rate_day / depth / RIVE_SECONDS_PER_DAY;  /* µmol O2/L/s */
         
         /* =======================================================================
@@ -537,18 +589,23 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
                  * This is THE CRITICAL MISSING PIECE for pCO2/pH dynamics!
                  * Tropical estuary sediments produce 10-50 mmol C/m²/day of CO2.
                  * 
+                 * SPATIALLY-VARYING (uses same scaling as SOD above):
+                 * - Ocean mouth (sandy): LOW CO2 production
+                 * - Upstream (fine organic): HIGH CO2 production
+                 * 
                  * Unit chain:
                  *   benthic_resp_20C [mmol C/m²/day] 
+                 *   × scale_factor (ocean to upstream gradient)
                  *   × Q10^((T-20)/10) [temperature correction]
                  *   / depth [m] → [mmol C/m³/day]
-                 *   / 86400 [s/day] → [mmol C/L/s] ≈ [µmol/L/s × 0.001]
-                 *   × 1000 → [µmol C/L/s]
+                 *   / 86400 [s/day] → [µmol/L/s]
                  * 
                  * Reference: Abril et al. (2010), Frankignoulle et al. (1998)
                  *            Borges & Abril (2011) - tropical estuaries
                  * =============================================================*/
-                double benthic_rate_day = p->benthic_resp_20C * 
-                                          pow(p->benthic_Q10, (temp - 20.0) / 10.0);
+                /* NOTE: benthic_scale was calculated above for SOD */
+                double benthic_dic_rate_day = p->benthic_resp_20C * benthic_scale * 
+                                              pow(p->benthic_Q10, (temp - 20.0) / 10.0);
                 /* Convert: mmol/m²/day → µmol/L/s
                  * mmol/m² × 1000 µmol/mmol / depth [m] / 1000 L/m³ / 86400 s/day
                  * = mmol/m²/day / depth / 86400 [µmol/L/s]
@@ -557,7 +614,7 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
                  *   50 / 10 / 86400 = 5.8e-5 µmol/L/s
                  *   Over 12 hours: 5.8e-5 × 43200 = 2.5 µmol/L DIC increase
                  */
-                double benthic_co2_rate = benthic_rate_day / depth / RIVE_SECONDS_PER_DAY;
+                double benthic_co2_rate = benthic_dic_rate_day / depth / RIVE_SECONDS_PER_DAY;
                 
                 /* Store benthic CO2 rate for diagnostics */
                 if (branch->reaction_rates) {
@@ -1070,6 +1127,28 @@ int Biogeo_GHG_Branch(Branch *branch, double dt) {
              * ================================================================= */
             
             /* =============================================================
+             * SALINITY-BASED BENTHIC GHG FLUX (December 2025 Fix v3)
+             * 
+             * Using STEP FUNCTION: only apply high benthic flux in truly
+             * fresh water (S < 2 PSU). This preserves the conservative
+             * mixing signal from ocean boundaries.
+             * ============================================================= */
+            double ocean_scale = (p->benthic_ocean_scale > 0.0) ? p->benthic_ocean_scale : 0.3;
+            double upstream_scale = (p->benthic_upstream_scale > 0.0) ? p->benthic_upstream_scale : 1.5;
+            
+            double S_threshold = 2.0;
+            double benthic_scale;
+            
+            /* Safety: ensure sal is valid */
+            double safe_sal = (sal >= 0.0 && sal == sal) ? sal : 0.0;
+            
+            if (safe_sal > S_threshold) {
+                benthic_scale = ocean_scale;
+            } else {
+                benthic_scale = upstream_scale;
+            }
+            
+            /* =============================================================
              * N2O: production + benthic flux - air-water exchange
              * 
              * BENTHIC N2O FLUX (December 2025 Audit Fix)
@@ -1080,12 +1159,21 @@ int Biogeo_GHG_Branch(Branch *branch, double dt) {
              *   nmol/m²/day × 1e-3 µmol/nmol / depth [m] / 1e3 L/m³ / 86400 s/day
              *   = nmol/m²/day / depth / 86400e6 [µmol/L/s]
              * ============================================================= */
-            double benthic_n2o_rate = g_ghg_config.benthic_N2O_flux / depth / (RIVE_SECONDS_PER_DAY * 1e6);
+            double benthic_n2o_rate = g_ghg_config.benthic_N2O_flux * benthic_scale / depth / (RIVE_SECONDS_PER_DAY * 1e6);
             double dN2O = n2o_from_nit + n2o_from_denit + benthic_n2o_rate - n2o_flux;
             n2o[i] = CGEM_MAX(0.0, n2o[i] + dN2O * dt);
             
-            /* Update CH4: benthic production - oxidation - air-water exchange - ebullition */
-            double dCH4 = ghg_state.CH4_prod - ghg_state.CH4_ox - ghg_state.CH4_flux - ghg_state.CH4_ebul;
+            /* Update CH4: benthic production - oxidation - air-water exchange - ebullition 
+             * NOTE: CH4_prod from crive_calc_ghg_system already includes benthic_CH4_flux
+             * But we need to scale it spatially. Since ghg_state.CH4_prod was calculated
+             * with uniform benthic flux, we need to add the spatial correction:
+             * 
+             * correction = (benthic_scale - 1.0) × base_benthic_CH4_flux_rate
+             */
+            double base_ch4_benthic_rate = g_ghg_config.benthic_CH4_flux / depth / 1000.0 / RIVE_SECONDS_PER_DAY;
+            double ch4_benthic_correction = (benthic_scale - 1.0) * base_ch4_benthic_rate;
+            
+            double dCH4 = ghg_state.CH4_prod + ch4_benthic_correction - ghg_state.CH4_ox - ghg_state.CH4_flux - ghg_state.CH4_ebul;
             ch4[i] = CGEM_MAX(0.0, ch4[i] + dCH4 * dt);
             
             /* NO2 in passive mode: just track intermediate (no feedback) */
@@ -1096,6 +1184,22 @@ int Biogeo_GHG_Branch(Branch *branch, double dt) {
              * ACTIVE MODE (RISKY): Apply full 2-step nitrification feedback
              * WARNING: Only use if you have calibrated GHG parameters!
              * ================================================================= */
+            
+            /* Calculate salinity-based spatial scaling (step function) */
+            double ocean_scale = (p->benthic_ocean_scale > 0.0) ? p->benthic_ocean_scale : 0.3;
+            double upstream_scale = (p->benthic_upstream_scale > 0.0) ? p->benthic_upstream_scale : 1.5;
+            
+            double S_threshold = 2.0;
+            double benthic_scale;
+            
+            /* Safety: ensure sal is valid */
+            double safe_sal = (sal >= 0.0 && sal == sal) ? sal : 0.0;
+            
+            if (safe_sal > S_threshold) {
+                benthic_scale = ocean_scale;
+            } else {
+                benthic_scale = upstream_scale;
+            }
             
             /* 2-step nitrification */
             double nitrosation = crive_calc_nitrosation(nh4 ? nh4[i] : 0.0, 
@@ -1114,13 +1218,16 @@ int Biogeo_GHG_Branch(Branch *branch, double dt) {
             double dNO2 = nitrosation - nitratation - n2o_from_nit * 0.001;
             no2[i] = CGEM_MAX(0.0, no2[i] + dNO2 * dt);
             
-            /* Update N2O (with benthic flux) */
-            double benthic_n2o_rate = g_ghg_config.benthic_N2O_flux / depth / (RIVE_SECONDS_PER_DAY * 1e6);
+            /* Update N2O (with spatially-varying benthic flux) */
+            double benthic_n2o_rate = g_ghg_config.benthic_N2O_flux * benthic_scale / depth / (RIVE_SECONDS_PER_DAY * 1e6);
             double dN2O = n2o_from_nit + n2o_from_denit + benthic_n2o_rate - n2o_flux;
             n2o[i] = CGEM_MAX(0.0, n2o[i] + dN2O * dt);
             
-            /* Update CH4 */
-            double dCH4 = ghg_state.CH4_prod - ghg_state.CH4_ox - ghg_state.CH4_ox_anaer 
+            /* Update CH4 (with spatially-varying benthic correction) */
+            double base_ch4_benthic_rate = g_ghg_config.benthic_CH4_flux / depth / 1000.0 / RIVE_SECONDS_PER_DAY;
+            double ch4_benthic_correction = (benthic_scale - 1.0) * base_ch4_benthic_rate;
+            
+            double dCH4 = ghg_state.CH4_prod + ch4_benthic_correction - ghg_state.CH4_ox - ghg_state.CH4_ox_anaer 
                         - ghg_state.CH4_flux - ghg_state.CH4_ebul;
             ch4[i] = CGEM_MAX(0.0, ch4[i] + dCH4 * dt);
             

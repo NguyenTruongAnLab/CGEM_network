@@ -62,6 +62,20 @@ typedef struct {
     double benthic_resp_20C;
     double benthic_Q10;
     
+    /* Spatially-varying benthic flux (December 2025 Audit Fix)
+     * Benthic fluxes vary along estuaries due to sediment type:
+     * - Ocean mouth: Sandy sediments → LOW benthic flux
+     * - Upstream: Fine organic sediments → HIGH benthic flux
+     * 
+     * The scaling factors multiply benthic_resp_20C:
+     *   benthic_rate(x) = benthic_resp_20C * scale_factor(x)
+     * where scale_factor = ocean_scale at x=0, upstream_scale at x=L
+     * 
+     * Reference: Abril et al. (2010), Cai (2011)
+     */
+    double benthic_ocean_scale;     /* Scaling at ocean mouth (default 0.3) */
+    double benthic_upstream_scale;  /* Scaling at upstream end (default 2.0) */
+    
     /* RIVE organic matter */
     double khydr1, khydr2, khydr3;
     double frac_hd1, frac_hd2;
