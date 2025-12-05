@@ -1,0 +1,3 @@
+# Ignore validation raw inputs in this case
+Validation/
+Validation/*
