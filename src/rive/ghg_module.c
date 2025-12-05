@@ -146,21 +146,26 @@ double crive_calc_n2o_flux(double N2O_conc, double N2O_sat, double depth,
                            double velocity, double Sc) {
     /* Direct port from C-RIVE rea_degassing_N2O()
      * 
-     * kg = 1.719 * sqrt((600 * v) / (Sc * h))
-     * Fwa = kg * (C - Csat)
+     * O'Connor-Dobbins (1958) gas transfer:
+     * kg [m/day] = 1.719 * sqrt((600 * v) / (Sc * h))
      * 
-     * Note: Flux is positive when N2O evades (C > Csat)
+     * DECEMBER 2025 FIX: Proper unit conversion to µmol/L/s
+     * The original formula gives kg in m/day.
+     * Surface flux [µmol/m²/day] = kg [m/day] × (C - Csat) [µmol/L] × 1000 [L/m³]
+     * Rate [µmol/L/s] = Flux [µmol/m²/day] / depth [m] / 86400 [s/day]
      */
     if (depth < 0.01) depth = 0.01;
     if (Sc < 100.0) Sc = 100.0;
     
-    double kg = 1.719 * sqrt((600.0 * fabs(velocity)) / (Sc * depth));
-    double Fwa = kg * (N2O_conc - N2O_sat);
+    double kg_m_day = 1.719 * sqrt((600.0 * fabs(velocity)) / (Sc * depth));
     
-    /* DECEMBER 2025 FIX: Return µmol/L/s to match model internal units.
-     * N2O_conc and N2O_sat are now both in µmol/L.
-     */
-    return Fwa;  /* [µmol/L/s] - positive = evasion */
+    /* Convert kg from m/day to the rate in µmol/L/s */
+    /* Fwa [µmol/m²/day] = kg [m/day] × (C - Csat) [µmol/L] × 1000 [L/m³] */
+    /* Rate [µmol/L/s] = Fwa / depth / 86400 */
+    double Fwa_umol_m2_day = kg_m_day * (N2O_conc - N2O_sat) * 1000.0;
+    double rate_umol_L_s = Fwa_umol_m2_day / depth / 86400.0;
+    
+    return rate_umol_L_s;  /* [µmol/L/s] - positive = evasion */
 }
 
 double crive_calc_n2o_from_nitrification(double nitrif_rate, double yield) {

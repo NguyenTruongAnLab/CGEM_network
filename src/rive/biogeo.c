@@ -458,12 +458,30 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
         double o2_ex = rive_calc_o2_exchange(o2[i], o2_sat, pis_vel[i], depth);
         
         /* =======================================================================
+         * BENTHIC OXYGEN DEMAND (SOD) - CRITICAL for O2 gradient!
+         * 
+         * Sediment Oxygen Demand (SOD) represents O2 consumed by:
+         * - Aerobic decomposition of settled organic matter
+         * - Oxidation of reduced species diffusing from anoxic sediments (NH4, H2S, Fe2+)
+         * 
+         * The benthic_resp_20C parameter [mmol C/m²/day] represents CO2 production
+         * which equals O2 consumption in aerobic sediments (1:1 stoichiometry).
+         * 
+         * Literature values for tropical estuaries:
+         * - Abril et al. (2010): 20-80 mmol O2/m²/day
+         * - Cai (2011): 30-100 mmol O2/m²/day for turbid estuaries
+         * =======================================================================*/
+        double benthic_rate_day = p->benthic_resp_20C * pow(p->benthic_Q10, (temp - 20.0) / 10.0);
+        double benthic_o2_rate = benthic_rate_day / depth / RIVE_SECONDS_PER_DAY;  /* µmol O2/L/s */
+        
+        /* =======================================================================
          * OXYGEN BALANCE
-         * - Degradation (C oxidation): 1 mol O2 per mol C
+         * - Water column degradation (C oxidation): 1 mol O2 per mol C
          * - Nitrification: 2 mol O2 per mol N (NH4 → NO3)
+         * - BENTHIC O2 demand (SOD): 1 mol O2 per mol CO2 released
          * + Reaeration
          * =======================================================================*/
-        double o2_consumption = toc_deg_rate + 2.0 * nit_rate;
+        double o2_consumption = toc_deg_rate + 2.0 * nit_rate + benthic_o2_rate;
         
         /* Store reaction rates for output */
         branch->reaction_rates[CGEM_REACTION_AER_DEG][i] = toc_deg_rate;
@@ -493,6 +511,7 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
          * DIC Budget:
          *   + Aerobic respiration: C6H12O6 + 6O2 → 6CO2 + 6H2O
          *   + Denitrification: also produces CO2
+         *   + BENTHIC RESPIRATION: Sediment organic matter → CO2 (CRITICAL!)
          *   - CO2 air-water exchange (positive = CO2 escaping to atmosphere)
          * 
          * TA Budget (H+ equivalent):
@@ -512,12 +531,72 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
         if (!p->skip_carbonate_reactions) {
             /* DIC update: respiration adds CO2, gas exchange removes it */
             if (dic) {
-                /* CO2 flux: positive = entering water, negative = leaving to atm */
-                double co2_flux_rate = (pis_vel[i] / depth) * 
-                    (dic[i] / (1.0 + 10.0) - 420.0 * 0.035);  /* Approximate CO2 flux */
+                /* =============================================================
+                 * BENTHIC RESPIRATION CO2 SOURCE (December 2025 Audit Fix)
+                 * 
+                 * This is THE CRITICAL MISSING PIECE for pCO2/pH dynamics!
+                 * Tropical estuary sediments produce 10-50 mmol C/m²/day of CO2.
+                 * 
+                 * Unit chain:
+                 *   benthic_resp_20C [mmol C/m²/day] 
+                 *   × Q10^((T-20)/10) [temperature correction]
+                 *   / depth [m] → [mmol C/m³/day]
+                 *   / 86400 [s/day] → [mmol C/L/s] ≈ [µmol/L/s × 0.001]
+                 *   × 1000 → [µmol C/L/s]
+                 * 
+                 * Reference: Abril et al. (2010), Frankignoulle et al. (1998)
+                 *            Borges & Abril (2011) - tropical estuaries
+                 * =============================================================*/
+                double benthic_rate_day = p->benthic_resp_20C * 
+                                          pow(p->benthic_Q10, (temp - 20.0) / 10.0);
+                /* Convert: mmol/m²/day → µmol/L/s
+                 * mmol/m² × 1000 µmol/mmol / depth [m] / 1000 L/m³ / 86400 s/day
+                 * = mmol/m²/day / depth / 86400 [µmol/L/s]
+                 * 
+                 * Example: 50 mmol/m²/day at 10m depth:
+                 *   50 / 10 / 86400 = 5.8e-5 µmol/L/s
+                 *   Over 12 hours: 5.8e-5 × 43200 = 2.5 µmol/L DIC increase
+                 */
+                double benthic_co2_rate = benthic_rate_day / depth / RIVE_SECONDS_PER_DAY;
                 
-                /* DIC balance: respiration - CO2 evasion */
-                double dic_change = toc_deg_rate + denit_rate - co2_flux_rate;
+                /* Store benthic CO2 rate for diagnostics */
+                if (branch->reaction_rates) {
+                    branch->reaction_rates[CGEM_REACTION_BENTHIC_DIC][i] = benthic_co2_rate;
+                }
+                
+                /* =============================================================
+                 * CO2 AIR-WATER EXCHANGE (Improved December 2025)
+                 * 
+                 * The CO2 flux depends on the difference between aqueous CO2
+                 * and atmospheric equilibrium CO2. We need to estimate CO2
+                 * from DIC and TA using carbonate speciation.
+                 * 
+                 * SIMPLIFIED APPROACH: Use DIC:TA ratio to estimate CO2 fraction
+                 * - When TA > DIC: mostly bicarbonate, low CO2 (α ~0.01-0.05)
+                 * - When TA ≈ DIC: intermediate CO2 (α ~0.05-0.15)
+                 * - When TA < DIC: high CO2, acidic (α ~0.15-0.50)
+                 * 
+                 * Empirical fit: α ≈ 0.05 + 0.30 × max(0, (DIC-TA)/DIC)
+                 * This gives α = 0.05 for TA ≥ DIC, increasing to 0.35 when TA << DIC
+                 * =============================================================*/
+                double ta_val = (at && at[i] > 0.0) ? at[i] : dic[i];  /* Default to DIC if TA unavailable */
+                double dic_ta_ratio = CGEM_MAX(0.0, (dic[i] - ta_val) / CGEM_MAX(dic[i], 1.0));
+                double co2_fraction = 0.05 + 0.30 * dic_ta_ratio;  /* CO2/DIC ratio */
+                if (co2_fraction > 0.50) co2_fraction = 0.50;  /* Physical limit */
+                
+                double co2_aq = dic[i] * co2_fraction;  /* Aqueous CO2 [µmol/L] */
+                
+                /* Atmospheric equilibrium CO2: K0 × pCO2_atm
+                 * K0 ≈ 0.035 µmol/L/µatm at 28°C
+                 * pCO2_atm ≈ 420 µatm
+                 * CO2_eq ≈ 14.7 µmol/L */
+                double co2_eq = 420.0 * 0.035;  /* µmol/L */
+                
+                /* CO2 flux: positive = INTO water (undersaturated), negative = OUT (supersaturated) */
+                double co2_flux_rate = (pis_vel[i] / depth) * (co2_eq - co2_aq);
+                
+                /* DIC balance: water column respiration + BENTHIC respiration + CO2 flux (can be + or -) */
+                double dic_change = toc_deg_rate + denit_rate + benthic_co2_rate + co2_flux_rate;
                 dic[i] = CGEM_MAX(0.0, dic[i] + dic_change * dt);
             }
             
@@ -945,7 +1024,8 @@ int Biogeo_GHG_Branch(Branch *branch, double dt) {
          */
         double k600 = crive_calc_k600(velocity, depth, K600_ESTUARINE, 6, p->wind_speed);
         double n2o_sat = crive_calc_n2o_sat(temp, sal);
-        double n2o_flux = crive_calc_n2o_flux(n2o[i], n2o_sat, depth, k600, temp);
+        double n2o_sc = crive_calc_n2o_schmidt(temp);  /* N2O Schmidt number */
+        double n2o_flux = crive_calc_n2o_flux(n2o[i], n2o_sat, depth, velocity, n2o_sc);
         
         /* =====================================================================
          * CH4 CALCULATION (Independent, does not affect O2 budget)
@@ -989,8 +1069,19 @@ int Biogeo_GHG_Branch(Branch *branch, double dt) {
              * This prevents double-counting with the core biogeochemistry module
              * ================================================================= */
             
-            /* Update N2O: production from yields - air-water exchange */
-            double dN2O = n2o_from_nit + n2o_from_denit - n2o_flux;
+            /* =============================================================
+             * N2O: production + benthic flux - air-water exchange
+             * 
+             * BENTHIC N2O FLUX (December 2025 Audit Fix)
+             * N2O is produced in sediments via coupled nitrification-denitrification.
+             * Literature: 10-300 nmol N2O/m²/day (Seitzinger & Kroeze 1998)
+             * 
+             * Unit conversion: nmol/m²/day → µmol/L/s
+             *   nmol/m²/day × 1e-3 µmol/nmol / depth [m] / 1e3 L/m³ / 86400 s/day
+             *   = nmol/m²/day / depth / 86400e6 [µmol/L/s]
+             * ============================================================= */
+            double benthic_n2o_rate = g_ghg_config.benthic_N2O_flux / depth / (RIVE_SECONDS_PER_DAY * 1e6);
+            double dN2O = n2o_from_nit + n2o_from_denit + benthic_n2o_rate - n2o_flux;
             n2o[i] = CGEM_MAX(0.0, n2o[i] + dN2O * dt);
             
             /* Update CH4: benthic production - oxidation - air-water exchange - ebullition */
@@ -1023,8 +1114,9 @@ int Biogeo_GHG_Branch(Branch *branch, double dt) {
             double dNO2 = nitrosation - nitratation - n2o_from_nit * 0.001;
             no2[i] = CGEM_MAX(0.0, no2[i] + dNO2 * dt);
             
-            /* Update N2O */
-            double dN2O = n2o_from_nit + n2o_from_denit - n2o_flux;
+            /* Update N2O (with benthic flux) */
+            double benthic_n2o_rate = g_ghg_config.benthic_N2O_flux / depth / (RIVE_SECONDS_PER_DAY * 1e6);
+            double dN2O = n2o_from_nit + n2o_from_denit + benthic_n2o_rate - n2o_flux;
             n2o[i] = CGEM_MAX(0.0, n2o[i] + dN2O * dt);
             
             /* Update CH4 */
