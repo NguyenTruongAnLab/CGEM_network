@@ -252,10 +252,22 @@ RQ_benthic = 1.5            # Respiratory quotient (CO2/O2) for tropical sedimen
 # - Middelburg et al. (1996): Organic-rich muds 150-250 mmol/m²/day
 # - Cai (2011): Mekong-type systems with high OM loading
 #
+# DECEMBER 2025 AUDIT v4: Calibrated to balance O2/pCO2 against validation
+# - Scale 4.0: O2 bias -65 µM, pCO2 bias +3300 (too strong)
+# - Scale 2.5: O2 bias -32 µM, pCO2 bias +600-1850 (better but still high)
+# - Scale 2.0: Testing for optimal balance
+#
 # Reference: Abril et al. (2010), Cai (2011), Middelburg et al. (1996)
 # =============================================================================
-benthic_ocean_scale = 0.1
-benthic_upstream_scale = 4.0
+benthic_ocean_scale = 0.15
+benthic_upstream_scale = 2.0
+
+# Salinity thresholds for spatial scaling (December 2025 v4)
+# S > S_high: ocean_scale applies (sandy sediments near mouth)
+# S < S_low: upstream_scale applies (muddy sediments upstream)
+# In between: linear interpolation
+benthic_S_high = 15.0
+benthic_S_low = 2.0
 
 benthic_NH4_flux = 2.0
 benthic_PO4_flux = 0.10

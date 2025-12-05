@@ -119,6 +119,8 @@ typedef struct {
      */
     double benthic_ocean_scale;     /* Scaling at ocean mouth (default 0.3) */
     double benthic_upstream_scale;  /* Scaling at upstream end (default 2.0) */
+    double benthic_S_high;          /* Salinity threshold for ocean scale (default 15) */
+    double benthic_S_low;           /* Salinity threshold for upstream scale (default 2) */
     
     /* RIVE organic matter */
     double khydr1, khydr2, khydr3;
