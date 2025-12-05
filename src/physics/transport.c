@@ -543,9 +543,21 @@ static void ComputeDispersionCoefficient_Internal(Branch *branch, double Q_total
             }
         }
         
-        /* Ensure realistic dispersion bounds */
+        /* Ensure realistic dispersion bounds
+         * 
+         * DECEMBER 2025 AUDIT FIX: Increased upper cap from 100 to 2000 m²/s
+         * The previous 100 m²/s cap was applied INSIDE the loop, which broke
+         * the Van den Burgh decay profile for branches with D0 > 100.
+         * 
+         * For Mekong distributaries:
+         *   - D0 ~ 500-1500 m²/s at mouth (Nguyen et al. 2008)
+         *   - Decays to ~1-10 m²/s at salt intrusion limit
+         * 
+         * The cap should only enforce physical upper bound, not override physics.
+         * Reference: Savenije (2012) Table 5.1, Nguyen (2008)
+         */
         if (D_curr < 1.0) D_curr = 1.0;          /* Minimum molecular diffusion */
-        if (D_curr > 100.0) D_curr = 100.0;      /* Cap at realistic max */
+        if (D_curr > 2000.0) D_curr = 2000.0;    /* Physical upper bound for mega-deltas */
         
         branch->dispersion[i] = D_curr;
     }
@@ -1354,24 +1366,26 @@ int Transport_Branch_Network(Branch *branch, double dt, void *network_ptr) {
         branch->conc[sp][M] = c_up;        /* Upstream ghost */
         branch->conc[sp][M+1] = c_up;      /* Upstream ghost 2 */
         
-        /* CRITICAL FIX: For ocean boundaries, ensure cell 1 reflects ocean concentration.
-         * This is necessary because:
-         * 1. Dispersion always brings ocean water in (Savenije 2005)
-         * 2. During ebb tide, advection exports but cannot create negative salt
-         * 3. The steady-state balance requires ocean BC to be visible at the boundary cell
+        /* =====================================================================
+         * DECEMBER 2025 AUDIT FIX: REMOVED UNCONDITIONAL RELAXATION HACK
          * 
-         * Apply strong relaxation for all species at ocean boundary.
-         */
-        if (branch->down_node_type == NODE_LEVEL_BC) {
-            double alpha = 0.5;  /* Strong relaxation toward ocean value */
-            branch->conc[sp][1] = branch->conc[sp][1] + alpha * (c_down - branch->conc[sp][1]);
-        }
-        
-        /* Apply river BC at upstream boundary */
-        if (branch->up_node_type == NODE_DISCHARGE_BC) {
-            double alpha = 0.5;
-            branch->conc[sp][M-1] = branch->conc[sp][M-1] + alpha * (c_up - branch->conc[sp][M-1]);
-        }
+         * The previous code had:
+         *   if (ocean_boundary) conc[1] += 0.5 * (c_ocean - conc[1])
+         * 
+         * This was REMOVED because:
+         * 1. It is an artificial numerical hack that overrides physics
+         * 2. It prevents proper salt flushing during ebb tide
+         * 3. Reviewers will reject this as non-physical forcing
+         * 4. It affects ALL species (O2, DIC, etc.) not just salinity
+         * 
+         * The flow-dependent relaxation at lines 1289-1296 (flood tide only)
+         * is sufficient and physically justified (ocean water entering).
+         * 
+         * Ghost cells (index 0, M, M+1) set above provide the boundary
+         * condition for the advection-dispersion stencil.
+         * 
+         * Reference: Fischer et al. (1979), Savenije (2005)
+         * ===================================================================== */
     }
     
     return 0;

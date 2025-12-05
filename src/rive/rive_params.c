@@ -77,6 +77,16 @@ int LoadBiogeoParams(const char *path) {
     g_biogeo_params.kno3 = 5.0;
     g_biogeo_params.knh4 = 2.0;
     g_biogeo_params.kino2 = 5.0;
+    
+    /* 2-Pool TOC model defaults (SCIENTIFIC FIX - December 2025 Audit) */
+    g_biogeo_params.kox_labile = 0.15;       /* Labile TOC: fast decay [1/day] */
+    g_biogeo_params.kox_refractory = 0.008;  /* Refractory TOC: slow decay [1/day] */
+    
+    /* Decoupled benthic fluxes (SCIENTIFIC FIX - December 2025 Audit)
+     * Default: RQ_benthic = 1.5 for mixed aerobic/anaerobic sediments */
+    g_biogeo_params.benthic_SOD = 0.0;       /* 0 = use benthic_resp_20C for backward compat */
+    g_biogeo_params.benthic_DIC_flux = 0.0;  /* 0 = use benthic_resp_20C * RQ */
+    g_biogeo_params.RQ_benthic = 1.5;        /* Respiratory quotient for tropical sediments */
     g_biogeo_params.redn = 0.151;
     g_biogeo_params.redp = 0.01;
     g_biogeo_params.redsi = 0.1;
@@ -256,6 +266,13 @@ int LoadBiogeoParams(const char *path) {
         else if (strcmp(key, "kno3") == 0) g_biogeo_params.kno3 = v;
         else if (strcmp(key, "knh4") == 0) g_biogeo_params.knh4 = v;
         else if (strcmp(key, "kino2") == 0) g_biogeo_params.kino2 = v;
+        /* 2-Pool TOC model (SCIENTIFIC FIX) */
+        else if (strcmp(key, "kox_labile") == 0) g_biogeo_params.kox_labile = v;
+        else if (strcmp(key, "kox_refractory") == 0) g_biogeo_params.kox_refractory = v;
+        /* Decoupled benthic fluxes (SCIENTIFIC FIX) */
+        else if (strcmp(key, "benthic_SOD") == 0) g_biogeo_params.benthic_SOD = v;
+        else if (strcmp(key, "benthic_DIC_flux") == 0) g_biogeo_params.benthic_DIC_flux = v;
+        else if (strcmp(key, "RQ_benthic") == 0) g_biogeo_params.RQ_benthic = v;
         else if (strcmp(key, "redn") == 0) g_biogeo_params.redn = v;
         else if (strcmp(key, "redp") == 0) g_biogeo_params.redp = v;
         else if (strcmp(key, "redsi") == 0) g_biogeo_params.redsi = v;

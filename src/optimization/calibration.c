@@ -108,6 +108,7 @@ static const char* SPECIES_NAMES_CALIB[] = {
     "BAG", "BAP",                                                     /* 23-24 (RIVE bacteria) */
     "PIP", "DSS",                                                     /* 25-26 (RIVE P/substrates) */
     "NO2", "N2O", "CH4",                                              /* 27-29 (GHG species) */
+    "TOC_LABILE", "TOC_REFRACTORY",                                   /* 30-31 (2-pool TOC - Dec 2025) */
     NULL
 };
 

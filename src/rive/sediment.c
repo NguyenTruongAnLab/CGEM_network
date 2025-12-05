@@ -219,14 +219,19 @@ int Sediment_Branch(Branch *branch, double dt) {
      * A fraction of TOC is Particulate Organic Carbon (POC) bound to SPM.
      * When SPM settles, POC settles. When SPM erodes, POC is resuspended.
      * 
-     * This is CRITICAL for the "Oxygen Sag" at the Estuarine Turbidity
-     * Maximum (ETM). Without this coupling:
-     * - Model predicts high O2 in turbid zones (wrong)
-     * - Reality: Resuspended POC consumes O2 immediately
+     * DECEMBER 2025 SCIENTIFIC FIX:
+     * Removed the arbitrary "toc_coupling = 0.001" hack that effectively
+     * disabled sediment-carbon coupling. The correct approach is to:
+     *   1. Use realistic erosion parameters (tau_ero, mero) - DONE ABOVE
+     *   2. Calculate POC flux using proper stoichiometry
+     *   3. Let the model run with real coupling
      * 
-     * Implementation:
-     *   dTOC = f_POC * (Erosion_SPM - Deposition_SPM) / rho_SPM
-     * where f_POC = POC/SPM mass ratio (typically 1-3% for Mekong)
+     * If TOC spikes are observed, fix the erosion PHYSICS (tau_ero, mero),
+     * not mask the problem by zeroing out the coupling!
+     * 
+     * POC flux calculation:
+     *   net_spm_flux [kg/m³/s] × f_poc [kg C/kg SPM] × 83333 [µmol/g] 
+     *   = [µmol C/L/s]
      * 
      * Reference: Wang et al. (2018) Water Research 144, 341-355
      * =======================================================================*/
@@ -240,36 +245,22 @@ int Sediment_Branch(Branch *branch, double dt) {
     
     if (toc && spm) {
         for (int i = 1; i <= M; ++i) {
-            /* Net SPM flux [kg/m³/s] = [g/L/s × 1e-3] */
+            /* Net SPM flux [kg/m³/s] */
             double net_spm_flux = branch->reaction_rates[CGEM_REACTION_EROSION_V][i] - 
                                   branch->reaction_rates[CGEM_REACTION_DEPOSITION_V][i];
             
-            /* POC flux calculation with correct units:
+            /* POC flux [µmol C/L/s]
+             * net_spm_flux [kg/m³/s] = [g/L/s × 1e-3]
+             * Convert g C → µmol C: ÷ 12 g/mol × 1e6 = × 83333
              * 
-             * net_spm_flux is in [kg/m³/s] = [g/L/s × 1e-3]
-             * f_poc is dimensionless (kg C / kg SPM = 0.02 for 2% POC content)
-             * 
-             * POC_flux [g C/L/s] = net_spm_flux [kg/m³/s] × 1000 [g/kg] / 1000 [L/m³] × f_poc
-             *                    = net_spm_flux × f_poc [g C/L/s]
-             * 
-             * Convert to µmol C/L/s: ÷ 12 g/mol × 1e6 µmol/mol = × 83333 µmol/g
-             * So: POC_flux [µmol/L/s] = net_spm_flux × f_poc × 83333
-             * 
-             * But this gives huge values. Let's check typical magnitudes:
-             * - net_spm_flux ~ 1e-6 kg/m³/s for moderate conditions
-             * - f_poc = 0.02
-             * - POC_flux ~ 1e-6 × 0.02 × 83333 = 1.67 µmol/L/s
-             * - Per 300s: 500 µmol/L → Still too high!
-             * 
-             * The issue is mero (erosion constant) - needs to be realistic.
-             * For now, use a small coupling coefficient to limit TOC changes.
+             * REMOVED: The "toc_coupling = 0.001" hack that zeroed this out!
              */
-            double toc_coupling = 0.001;  /* Limit sediment impact on DOC */
-            double toc_flux = net_spm_flux * f_poc * 83333.0 * toc_coupling;  /* µmol C/L/s */
+            double toc_flux = net_spm_flux * f_poc * 83333.0;  /* µmol C/L/s */
             
-            /* Apply with safety limit: max 1 µmol/L/s change */
-            if (toc_flux > 1.0) toc_flux = 1.0;
-            if (toc_flux < -1.0) toc_flux = -1.0;
+            /* Apply reasonable limits to prevent numerical instability
+             * Max change: 10 µmol/L/s (still allows significant flux) */
+            if (toc_flux > 10.0) toc_flux = 10.0;
+            if (toc_flux < -10.0) toc_flux = -10.0;
             
             toc[i] += toc_flux * dt;
             

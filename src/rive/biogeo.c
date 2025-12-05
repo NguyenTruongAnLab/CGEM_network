@@ -303,7 +303,35 @@ static double calculate_carbonate_system(Branch *branch, int idx, double temp,
     double depth_eff = (depth < CGEM_MIN_DEPTH) ? CGEM_MIN_DEPTH : depth;
     double co2_flux = 0.0;
     if (depth_eff > 0.0) {
-        co2_flux = -(piston_vel * 0.913 / depth_eff) * (co2_spec - henry * branch->pco2_atm);
+        /* =================================================================
+         * CO2 AIR-WATER FLUX CALCULATION (December 2025 Audit Fix)
+         * 
+         * Use rigorous C-RIVE functions instead of hardcoded scalar (0.913).
+         * This ensures proper Schmidt number scaling for CO2.
+         *
+         * Steps:
+         * 1. Calculate CO2 saturation concentration using proper Henry's law
+         * 2. Calculate Schmidt number for CO2 at current temperature
+         * 3. Calculate gas transfer velocity k for CO2 (Schmidt-corrected)
+         * 4. Apply flux equation: Flux = k * (Csat - C) / depth
+         *
+         * Reference: Wanninkhof (1992), Abril et al. (2009)
+         * =================================================================*/
+        
+        /* CO2 saturation from proper C-RIVE function */
+        double co2_sat = crive_calc_co2_sat(temp, temp, branch->pco2_atm, salinity);
+        
+        /* Schmidt number for CO2 */
+        double Sc_CO2 = crive_calc_co2_schmidt(temp);
+        
+        /* Gas transfer velocity for CO2 using Schmidt number correction
+         * k_CO2 = k600 * sqrt(600 / Sc_CO2)
+         * piston_vel is assumed to be approximately k600 from rive_calc_o2_exchange */
+        double k600_approx = piston_vel;  /* Approximate k600 from O2 calculation */
+        double k_CO2 = k600_approx * sqrt(600.0 / Sc_CO2);
+        
+        /* CO2 flux [µmol/L/s] - positive = into water (undersaturation) */
+        co2_flux = k_CO2 * (co2_sat - co2_spec) / depth_eff;
     }
     branch->reaction_rates[CGEM_REACTION_CO2_EX][idx] = co2_flux;
     branch->reaction_rates[CGEM_REACTION_CO2_EX_S][idx] = co2_flux * depth_eff;
@@ -316,10 +344,28 @@ static double calculate_carbonate_system(Branch *branch, int idx, double temp,
     double npp_nh4 = branch->reaction_rates[CGEM_REACTION_NPP_NH4][idx];
     double nitrif = branch->reaction_rates[CGEM_REACTION_NIT][idx];
 
-    /* Benthic respiration */
-    double benthic_rate_day = p->benthic_resp_20C * 
-                              pow(p->benthic_Q10, (temp - 20.0) / 10.0);
-    double benthic_co2_source = benthic_rate_day / depth_eff / RIVE_SECONDS_PER_DAY;
+    /* =================================================================
+     * BENTHIC DIC FLUX (December 2025 Audit Fix)
+     * 
+     * Use decoupled benthic DIC flux from biogeo_params if available.
+     * This allows RQ_benthic > 1 for anaerobic sediments.
+     * 
+     * The benthic_co2_source should use benthic_DIC_flux (which incorporates
+     * RQ_benthic), NOT benthic_resp_20C directly.
+     * =================================================================*/
+    double benthic_co2_source;
+    if (p->benthic_DIC_flux > 0.0) {
+        /* Use explicit DIC flux parameter */
+        benthic_co2_source = p->benthic_DIC_flux * 
+                             pow(p->benthic_Q10, (temp - 20.0) / 10.0) / 
+                             depth_eff / RIVE_SECONDS_PER_DAY;
+    } else {
+        /* Backward compat: apply RQ to benthic_resp_20C */
+        double RQ = (p->RQ_benthic > 0.0) ? p->RQ_benthic : 1.0;
+        benthic_co2_source = p->benthic_resp_20C * RQ * 
+                             pow(p->benthic_Q10, (temp - 20.0) / 10.0) / 
+                             depth_eff / RIVE_SECONDS_PER_DAY;
+    }
 
     /* DIC and TA reactions */
     branch->reaction_rates[CGEM_REACTION_DIC_REACT][idx] = co2_flux + aer_deg + denit 
@@ -396,6 +442,10 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
     double *dic = branch->conc[CGEM_SPECIES_DIC];
     double *at = branch->conc[CGEM_SPECIES_AT];
     
+    /* 2-Pool TOC model (SCIENTIFIC FIX - replaces salinity switch hack) */
+    double *toc_labile = branch->conc[CGEM_SPECIES_TOC_LABILE];
+    double *toc_refractory = branch->conc[CGEM_SPECIES_TOC_REFRACTORY];
+    
     if (!toc || !nh4 || !no3 || !o2) return -1;
     
     /* Pre-calculate piston velocity for gas exchange */
@@ -410,6 +460,9 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
         double depth = CGEM_MAX(branch->depth[i], CGEM_MIN_DEPTH);
         double sal = salinity ? salinity[i] : 0.0;
         
+        /* Safety: ensure sal is valid (non-negative, non-NaN) - used throughout */
+        double safe_sal = (sal >= 0.0 && sal == sal) ? sal : 0.0;
+        
         /* =======================================================================
          * TEMPERATURE CORRECTION (Arrhenius) - CRITICAL FOR TROPICS
          * Tropical waters (30°C) decay waste 2x faster than temperate (20°C)
@@ -419,11 +472,61 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
         double k_denit_T = (branch->kdenit / RIVE_SECONDS_PER_DAY) * pow(theta_denit, temp - 20.0);
         
         /* =======================================================================
-         * AEROBIC DEGRADATION (The "BOD" equivalent)
-         * Single Monod limitation on O2 - suitable for monitoring data
+         * AEROBIC DEGRADATION - SCIENTIFICALLY CORRECT 2-POOL MODEL
+         * 
+         * CRITICAL FIX (December 2025 Audit): The previous "salinity switch"
+         * hack scaled kox by salinity thresholds. This is WRONG because:
+         * 1. Degradation rate depends on OM QUALITY, not salinity
+         * 2. It fails predictively (drought scenario would give wrong results)
+         * 
+         * PROPER APPROACH: Model two TOC pools with intrinsic decay rates:
+         * 
+         * TOC_LABILE (k ~ 0.15 /day at 20°C):
+         *   - Fresh phytoplankton, sewage, aquaculture waste
+         *   - River boundary: ~20 µmol/L (10-15% of total TOC)
+         *   - Ocean boundary: ~5 µmol/L (minimal marine labile)
+         *   
+         * TOC_REFRACTORY (k ~ 0.008 /day at 20°C):
+         *   - Terrestrial humics from Tonle Sap, mangrove leachates
+         *   - River boundary: ~130 µmol/L (85-90% of total TOC)
+         *   - Ocean boundary: ~160 µmol/L (marine humics + aged terrestrial)
+         *
+         * The OBSERVED near-conservative TOC behavior emerges naturally from:
+         * - Labile fraction degrades quickly (O2 consumption near source)
+         * - Refractory fraction is transported conservatively (slow decay)
+         * - Mixing creates gradients without any salinity hacks
+         *
+         * Reference: Middelburg (1989), Hopkinson & Vallino (2005)
          * =======================================================================*/
+        
+        /* Get decay rate parameters from biogeo_params.txt */
+        double kox_labile = (p && p->kox_labile > 0.0) ? p->kox_labile : 0.15;  /* /day */
+        double kox_refractory = (p && p->kox_refractory > 0.0) ? p->kox_refractory : 0.008;  /* /day */
+        
+        /* Temperature correction (Arrhenius) */
+        double k_labile_T = (kox_labile / RIVE_SECONDS_PER_DAY) * pow(theta_ox, temp - 20.0);
+        double k_refractory_T = (kox_refractory / RIVE_SECONDS_PER_DAY) * pow(theta_ox, temp - 20.0);
+        
+        /* Oxygen limitation (Monod kinetics) */
         double o2_lim = o2[i] / (o2[i] + branch->ko2);
-        double toc_deg_rate = k_ox_T * toc[i] * o2_lim;
+        
+        /* Degradation rates for each pool */
+        double toc_lab_deg = 0.0;
+        double toc_ref_deg = 0.0;
+        
+        if (toc_labile && toc_refractory) {
+            /* Use 2-pool model (SCIENTIFIC) */
+            toc_lab_deg = k_labile_T * toc_labile[i] * o2_lim;
+            toc_ref_deg = k_refractory_T * toc_refractory[i] * o2_lim;
+        } else {
+            /* Fallback: single pool with base kox (NO salinity scaling!) */
+            double k_ox_T = (branch->kox / RIVE_SECONDS_PER_DAY) * pow(theta_ox, temp - 20.0);
+            toc_lab_deg = k_ox_T * toc[i] * o2_lim;
+            toc_ref_deg = 0.0;  /* Single pool treated as "labile" */
+        }
+        
+        /* Total TOC degradation rate */
+        double toc_deg_rate = toc_lab_deg + toc_ref_deg;
         
         /* =======================================================================
          * NITRIFICATION (NH4 → NO3)
@@ -458,80 +561,72 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
         double o2_ex = rive_calc_o2_exchange(o2[i], o2_sat, pis_vel[i], depth);
         
         /* =======================================================================
-         * BENTHIC OXYGEN DEMAND (SOD) - CRITICAL for O2 gradient!
+         * DECOUPLED BENTHIC FLUXES (SCIENTIFIC FIX - December 2025 Audit)
          * 
-         * Sediment Oxygen Demand (SOD) represents O2 consumed by:
-         * - Aerobic decomposition of settled organic matter
-         * - Oxidation of reduced species diffusing from anoxic sediments (NH4, H2S, Fe2+)
+         * CRITICAL: Previous code coupled benthic O2 and CO2 with RQ=1.
+         * This is WRONG for tropical estuaries where anaerobic respiration
+         * (sulfate reduction, methanogenesis) produces CO2 without consuming O2.
          * 
-         * The benthic_resp_20C parameter [mmol C/m²/day] represents CO2 production
-         * which equals O2 consumption in aerobic sediments (1:1 stoichiometry).
-         * 
-         * SALINITY-BASED BENTHIC FLUX SCALING (December 2025 Fix v2):
-         * ===========================================================
-         * Previous version used distance from ocean, but this fails for network
-         * branches where "upstream" is a junction, not the river source.
-         * 
-         * BETTER APPROACH: Use SALINITY as proxy for sediment type!
-         * - High salinity (>25 PSU): Sandy marine sediments → LOW benthic flux
-         * - Low salinity (<5 PSU): Fine organic riverine sediments → HIGH benthic flux
-         * - Transition zone: Linear interpolation
-         * 
-         * This is physically correct because:
-         * 1. Marine sediments are coarser (higher energy waves/currents)
-         * 2. Fine organic particles settle where currents weaken (low salinity zone)
-         * 3. Flocculation peaks around 5-15 PSU, enhancing fine sediment deposition
-         * 
-         * Scale factor: 
-         *   S > 25 PSU: benthic_ocean_scale (default 0.3)
-         *   S < 5 PSU:  benthic_upstream_scale (default 1.5)
-         *   5-25 PSU:   linear interpolation
-         * 
-         * Literature: Abril et al. (2010), Cai (2011), Middelburg et al. (1996)
+         * NEW APPROACH: Separate parameters for SOD and DIC flux
+         *   benthic_SOD: Sediment Oxygen Demand [mmol O2/m²/day]
+         *   benthic_DIC_flux: DIC release [mmol C/m²/day] 
+         *   RQ_benthic = DIC_flux / SOD (typically 1.0-3.0)
+         *
+         * The RQ > 1 accounts for:
+         *   - Sulfate reduction: produces CO2, H2S (no O2 consumption in water)
+         *   - Denitrification: produces CO2 with less O2 cost (uses NO3)
+         *   - Methanogenesis: produces CO2 + CH4 (no O2)
+         *
+         * For Mekong with high organic sediments: RQ ~ 1.5-2.0
+         * For purely aerobic sediments: RQ ~ 1.0
+         *
+         * NOTE: We REMOVED the salinity-based spatial scaling because:
+         * 1. It was a hack to fit the data, not a physical process
+         * 2. The 2-pool TOC model now provides the spatial gradient naturally
+         * 3. Benthic flux should depend on sediment type, not water salinity
+         *
+         * Reference: Cai (2011), Borges & Abril (2011), Middelburg et al. (2005)
          * =======================================================================*/
-        double ocean_scale = (p->benthic_ocean_scale > 0.0) ? p->benthic_ocean_scale : 0.3;
-        double upstream_scale = (p->benthic_upstream_scale > 0.0) ? p->benthic_upstream_scale : 1.5;
         
-        /* =======================================================================
-         * REVISED APPROACH (December 2025 Fix v3):
-         * 
-         * The salinity-based scaling was causing O₂ to be over-consumed in the
-         * transition zone (5-25 PSU), where the scale was being interpolated
-         * toward the upstream value. This destroyed the conservative mixing
-         * signal from the ocean.
-         * 
-         * NEW APPROACH: Use a STEP FUNCTION instead of linear interpolation:
-         * - S > 2 PSU: Use ocean_scale (minimal benthic consumption)
-         * - S <= 2 PSU: Use upstream_scale (elevated benthic consumption)
-         * 
-         * This keeps benthic effects minimal in the saline estuary where
-         * sediments are coarser and less organic, and only applies high
-         * benthic flux in the truly freshwater zone.
-         * 
-         * The O₂ gradient should primarily come from CONSERVATIVE MIXING
-         * between ocean (260 µmol/L) and river (175 µmol/L) boundaries.
-         * =======================================================================*/
-        double S_threshold = 2.0;  /* Only apply high benthic flux in truly fresh water */
-        double benthic_scale;
+        /* Get benthic parameters - use decoupled if specified, else RQ scaling */
+        double benthic_SOD_base, benthic_DIC_base;
+        double RQ = (p->RQ_benthic > 0.0) ? p->RQ_benthic : 1.5;
         
-        /* Safety: ensure sal is valid (non-negative, non-NaN) */
-        double safe_sal = (sal >= 0.0 && sal == sal) ? sal : 0.0;
-        
-        if (safe_sal > S_threshold) {
-            benthic_scale = ocean_scale;  /* Marine/brackish: low benthic flux */
+        if (p->benthic_SOD > 0.0) {
+            /* User specified explicit SOD - use it */
+            benthic_SOD_base = p->benthic_SOD;
         } else {
-            benthic_scale = upstream_scale;  /* Fresh: elevated benthic flux */
+            /* Backward compat: use benthic_resp_20C as SOD */
+            benthic_SOD_base = p->benthic_resp_20C;
         }
         
-        double benthic_rate_day = p->benthic_resp_20C * benthic_scale * pow(p->benthic_Q10, (temp - 20.0) / 10.0);
-        double benthic_o2_rate = benthic_rate_day / depth / RIVE_SECONDS_PER_DAY;  /* µmol O2/L/s */
+        if (p->benthic_DIC_flux > 0.0) {
+            /* User specified explicit DIC flux - use it */
+            benthic_DIC_base = p->benthic_DIC_flux;
+        } else {
+            /* Apply RQ to SOD to get DIC flux */
+            benthic_DIC_base = benthic_SOD_base * RQ;
+        }
+        
+        /* Temperature correction (Q10) */
+        double temp_factor = pow(p->benthic_Q10, (temp - 20.0) / 10.0);
+        
+        /* Calculate benthic rates [µmol/L/s] 
+         * Unit: [mmol/m²/day] / [m] / [s/day] = [mmol/m³/s] = [µmol/L/s] */
+        double benthic_o2_rate = benthic_SOD_base * temp_factor / depth / RIVE_SECONDS_PER_DAY;
+        double benthic_co2_rate = benthic_DIC_base * temp_factor / depth / RIVE_SECONDS_PER_DAY;
         
         /* =======================================================================
-         * OXYGEN BALANCE
-         * - Water column degradation (C oxidation): 1 mol O2 per mol C
-         * - Nitrification: 2 mol O2 per mol N (NH4 → NO3)
-         * - BENTHIC O2 demand (SOD): 1 mol O2 per mol CO2 released
-         * + Reaeration
+         * OXYGEN BALANCE (SCIENTIFIC - December 2025 Audit Fix)
+         * 
+         * O2 sources: Reaeration (o2_ex when undersaturated)
+         * O2 sinks:
+         *   - Water column TOC degradation (both pools)
+         *   - Nitrification: 2 mol O2 per mol N
+         *   - Benthic O2 demand (SOD) - DECOUPLED from CO2 flux
+         * 
+         * NOTE: Benthic O2 and CO2 are now DECOUPLED via RQ_benthic parameter.
+         * This allows RQ > 1 for anaerobic respiration in sediments.
          * =======================================================================*/
         double o2_consumption = toc_deg_rate + 2.0 * nit_rate + benthic_o2_rate;
         
@@ -542,6 +637,16 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
         branch->reaction_rates[CGEM_REACTION_O2_EX][i] = o2_ex;
         branch->reaction_rates[CGEM_REACTION_O2_EX_S][i] = o2_ex * depth;
         
+        /* Store 2-pool TOC rates (new) */
+        if (toc_labile && toc_refractory) {
+            branch->reaction_rates[CGEM_REACTION_TOC_LAB_DEG][i] = toc_lab_deg;
+            branch->reaction_rates[CGEM_REACTION_TOC_REF_DEG][i] = toc_ref_deg;
+        }
+        
+        /* Store decoupled benthic rates */
+        branch->reaction_rates[CGEM_REACTION_BENTHIC_O2][i] = benthic_o2_rate;
+        branch->reaction_rates[CGEM_REACTION_BENTHIC_DIC][i] = benthic_co2_rate;
+        
         /* Zero out complex rates not used in simplified mode */
         branch->reaction_rates[CGEM_REACTION_GPP_1][i] = 0.0;
         branch->reaction_rates[CGEM_REACTION_GPP_2][i] = 0.0;
@@ -550,138 +655,101 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
         /* =======================================================================
          * UPDATE CONCENTRATIONS
          * =======================================================================*/
-        toc[i] = CGEM_MAX(0.0, toc[i] - toc_deg_rate * dt);
-        nh4[i] = CGEM_MAX(0.0, nh4[i] - nit_rate * dt);
-        no3[i] = CGEM_MAX(0.0, no3[i] + (nit_rate - denit_rate) * dt);
-        o2[i] = CGEM_MAX(0.0, o2[i] + (o2_ex - o2_consumption) * dt);
+        
+        /* Update 2-pool TOC if available (SCIENTIFIC FIX) */
+        if (toc_labile && toc_refractory) {
+            toc_labile[i] = CGEM_MAX(0.0, toc_labile[i] - toc_lab_deg * dt);
+            toc_refractory[i] = CGEM_MAX(0.0, toc_refractory[i] - toc_ref_deg * dt);
+            /* Total TOC is diagnostic = sum of pools */
+            toc[i] = toc_labile[i] + toc_refractory[i];
+        } else {
+            /* Single-pool fallback */
+            toc[i] = CGEM_MAX(0.0, toc[i] - toc_deg_rate * dt);
+        }
+        
+        /* =================================================================
+         * NITROGEN & OXYGEN UPDATES (December 2025 Audit Fix)
+         * 
+         * CRITICAL: Prevent double-counting if GHG module is in ACTIVE mode.
+         * 
+         * If ghg_passive_mode == 0 (ACTIVE), the GHG module (Biogeo_GHG_Branch)
+         * calculates 2-step nitrification (NH4→NO2→NO3) and applies changes to
+         * NH4, NO3, and O2. We must NOT apply them here in that case.
+         * 
+         * If ghg_passive_mode == 1 (PASSIVE, default), the GHG module only
+         * calculates N2O/CH4 as diagnostics without modifying NH4/O2, so we
+         * apply the simplified nitrification here.
+         * =================================================================*/
+        
+        if (p->ghg_passive_mode == 1) {
+            /* PASSIVE MODE (SAFE): Apply simplified nitrification here */
+            nh4[i] = CGEM_MAX(0.0, nh4[i] - nit_rate * dt);
+            no3[i] = CGEM_MAX(0.0, no3[i] + (nit_rate - denit_rate) * dt);
+            
+            /* O2 consumption includes nitrification */
+            o2[i] = CGEM_MAX(0.0, o2[i] + (o2_ex - o2_consumption) * dt);
+        } else {
+            /* ACTIVE GHG MODE: Only apply non-nitrification changes here.
+             * GHG module will handle NH4 oxidation and associated O2 demand.
+             * 
+             * - NH4: Will be updated by GHG module (2-step nitrification)
+             * - NO3: Still affected by DENITRIFICATION (handled here)
+             * - O2: Consumption MINUS nitrification cost (handled by GHG module)
+             */
+            no3[i] = CGEM_MAX(0.0, no3[i] - denit_rate * dt);
+            
+            /* O2 consumption excluding nitrification (which GHG handles) */
+            double o2_cons_no_nit = toc_deg_rate + benthic_o2_rate;
+            o2[i] = CGEM_MAX(0.0, o2[i] + (o2_ex - o2_cons_no_nit) * dt);
+        }
         
         /* =======================================================================
-         * CARBONATE CHEMISTRY (DIC/TA) - SCIENTIFIC MODE
+         * CARBONATE CHEMISTRY (DIC/TA) - SCIENTIFICALLY CORRECT
          * 
-         * STOICHIOMETRY (Zeebe & Wolf-Gladrow 2001, Frankignoulle et al. 1996):
+         * DECEMBER 2025 SCIENTIFIC FIX: Decoupled SOD and DIC flux
+         * 
+         * Key insight: In tropical estuaries with anaerobic sediments,
+         * RQ (mol CO2 / mol O2) > 1 because:
+         *   - Sulfate reduction produces CO2 without O2 consumption
+         *   - Denitrification has lower O2 cost
+         *   - Methanogenesis produces CO2 + CH4 without O2
+         * 
+         * The benthic_co2_rate was calculated above using decoupled parameters
+         * (benthic_DIC_flux vs benthic_SOD), not the old 1:1 coupling.
+         * 
+         * STOICHIOMETRY (Zeebe & Wolf-Gladrow 2001):
          * 
          * DIC Budget:
-         *   + Aerobic respiration: C6H12O6 + 6O2 → 6CO2 + 6H2O
-         *   + Denitrification: also produces CO2
-         *   + BENTHIC RESPIRATION: Sediment organic matter → CO2 (CRITICAL!)
-         *   - CO2 air-water exchange (positive = CO2 escaping to atmosphere)
+         *   + Water column TOC degradation (both pools)
+         *   + Denitrification: produces CO2
+         *   + BENTHIC DIC FLUX: Uses RQ_benthic (can be > 1!)
+         *   - CO2 air-water exchange
          * 
-         * TA Budget (H+ equivalent):
-         *   + Denitrification: +0.93 TA per mol N (consumes H+ = adds TA)
-         *   - Nitrification: -2.0 TA per mol N (produces 2 H+)
+         * TA Budget:
+         *   + Denitrification: +0.93 TA per mol N
+         *   - Nitrification: -2.0 TA per mol N
          *   + Aerobic degradation: +0.14 TA per mol C (minor)
-         *   
-         * CRITICAL: CO2 exchange does NOT directly change TA (CO2 is uncharged)
-         * but indirectly affects pH through carbonate equilibrium.
-         * 
-         * The key to stability is BALANCING nitrification (acid) with 
-         * denitrification (base). This requires:
-         *   1. Sufficient TOC for denitrification substrate
-         *   2. Sufficient NO3 from nitrification
-         *   3. Low O2 zones where denitrification can occur
          * =======================================================================*/
         if (!p->skip_carbonate_reactions) {
-            /* DIC update: respiration adds CO2, gas exchange removes it */
             if (dic) {
-                /* =============================================================
-                 * BENTHIC RESPIRATION CO2 SOURCE (December 2025 Audit Fix)
-                 * 
-                 * This is THE CRITICAL MISSING PIECE for pCO2/pH dynamics!
-                 * Tropical estuary sediments produce 10-50 mmol C/m²/day of CO2.
-                 * 
-                 * SPATIALLY-VARYING (uses same scaling as SOD above):
-                 * - Ocean mouth (sandy): LOW CO2 production
-                 * - Upstream (fine organic): HIGH CO2 production
-                 * 
-                 * Unit chain:
-                 *   benthic_resp_20C [mmol C/m²/day] 
-                 *   × scale_factor (ocean to upstream gradient)
-                 *   × Q10^((T-20)/10) [temperature correction]
-                 *   / depth [m] → [mmol C/m³/day]
-                 *   / 86400 [s/day] → [µmol/L/s]
-                 * 
-                 * Reference: Abril et al. (2010), Frankignoulle et al. (1998)
-                 *            Borges & Abril (2011) - tropical estuaries
-                 * =============================================================*/
-                /* NOTE: benthic_scale was calculated above for SOD */
-                double benthic_dic_rate_day = p->benthic_resp_20C * benthic_scale * 
-                                              pow(p->benthic_Q10, (temp - 20.0) / 10.0);
-                /* Convert: mmol/m²/day → µmol/L/s
-                 * mmol/m² × 1000 µmol/mmol / depth [m] / 1000 L/m³ / 86400 s/day
-                 * = mmol/m²/day / depth / 86400 [µmol/L/s]
-                 * 
-                 * Example: 50 mmol/m²/day at 10m depth:
-                 *   50 / 10 / 86400 = 5.8e-5 µmol/L/s
-                 *   Over 12 hours: 5.8e-5 × 43200 = 2.5 µmol/L DIC increase
-                 */
-                double benthic_co2_rate = benthic_dic_rate_day / depth / RIVE_SECONDS_PER_DAY;
-                
-                /* Store benthic CO2 rate for diagnostics */
-                if (branch->reaction_rates) {
-                    branch->reaction_rates[CGEM_REACTION_BENTHIC_DIC][i] = benthic_co2_rate;
-                }
-                
-                /* =============================================================
-                 * CO2 AIR-WATER EXCHANGE (Improved December 2025)
-                 * 
-                 * The CO2 flux depends on the difference between aqueous CO2
-                 * and atmospheric equilibrium CO2. We need to estimate CO2
-                 * from DIC and TA using carbonate speciation.
-                 * 
-                 * SIMPLIFIED APPROACH: Use DIC:TA ratio to estimate CO2 fraction
-                 * - When TA > DIC: mostly bicarbonate, low CO2 (α ~0.01-0.05)
-                 * - When TA ≈ DIC: intermediate CO2 (α ~0.05-0.15)
-                 * - When TA < DIC: high CO2, acidic (α ~0.15-0.50)
-                 * 
-                 * Empirical fit: α ≈ 0.05 + 0.30 × max(0, (DIC-TA)/DIC)
-                 * This gives α = 0.05 for TA ≥ DIC, increasing to 0.35 when TA << DIC
-                 * =============================================================*/
-                double ta_val = (at && at[i] > 0.0) ? at[i] : dic[i];  /* Default to DIC if TA unavailable */
-                double dic_ta_ratio = CGEM_MAX(0.0, (dic[i] - ta_val) / CGEM_MAX(dic[i], 1.0));
-                double co2_fraction = 0.05 + 0.30 * dic_ta_ratio;  /* CO2/DIC ratio */
-                if (co2_fraction > 0.50) co2_fraction = 0.50;  /* Physical limit */
-                
-                double co2_aq = dic[i] * co2_fraction;  /* Aqueous CO2 [µmol/L] */
-                
-                /* Atmospheric equilibrium CO2: K0 × pCO2_atm
-                 * K0 ≈ 0.035 µmol/L/µatm at 28°C
-                 * pCO2_atm ≈ 420 µatm
-                 * CO2_eq ≈ 14.7 µmol/L */
-                double co2_eq = 420.0 * 0.035;  /* µmol/L */
-                
-                /* CO2 flux: positive = INTO water (undersaturated), negative = OUT (supersaturated) */
-                double co2_flux_rate = (pis_vel[i] / depth) * (co2_eq - co2_aq);
-                
-                /* DIC balance: water column respiration + BENTHIC respiration + CO2 flux (can be + or -) */
-                double dic_change = toc_deg_rate + denit_rate + benthic_co2_rate + co2_flux_rate;
-                dic[i] = CGEM_MAX(0.0, dic[i] + dic_change * dt);
+                /* DIC sources: water column + benthic (benthic_co2_rate already calculated) */
+                double dic_source = toc_deg_rate + denit_rate + benthic_co2_rate;
+                dic[i] = CGEM_MAX(0.0, dic[i] + dic_source * dt);
             }
             
             /* TA update: scientifically correct stoichiometry
              * Reference: Wolf-Gladrow et al. (2007) Mar. Chem. 106:287-300
-             * 
-             * Key insight: The balance of nitrification vs denitrification
-             * determines whether the system acidifies or alkalinizes.
-             * 
-             * With proper kox (0.05), enough TOC is degraded to sustain
-             * denitrification, which restores TA and prevents pH crash.
              */
             if (at) {
                 double ta_change = 0.0;
                 
-                /* Aerobic respiration: minor TA production
-                 * (from organic N,P release) ~0.14 per mol C */
+                /* Aerobic respiration: minor TA production */
                 ta_change += (15.0/106.0) * toc_deg_rate;
                 
-                /* Nitrification: STRONG ACID PRODUCTION
-                 * NH4+ + 2O2 → NO3- + 2H+ + H2O
-                 * Consumes 2 mol TA per mol N oxidized */
+                /* Nitrification: STRONG ACID PRODUCTION (-2 TA per mol N) */
                 ta_change -= 2.0 * nit_rate;
                 
-                /* Denitrification: CRITICAL ALKALINITY RESTORATION
-                 * 5CH2O + 4NO3- + 4H+ → 2N2 + 5CO2 + 7H2O
-                 * Produces ~0.93 mol TA per mol N reduced
-                 * This is the KEY buffer mechanism in estuaries! */
+                /* Denitrification: ALKALINITY RESTORATION (+0.93 TA per mol N) */
                 ta_change += 0.93 * denit_rate;
                 
                 at[i] = CGEM_MAX(0.0, at[i] + ta_change * dt);
@@ -807,9 +875,25 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
         /* =======================================================================
          * CARBONATE CHEMISTRY (compute pH, pCO2 from DIC/TA)
          * Skip if skip_carbonate_reactions=1 - let transport handle pCO2/pH
+         * 
+         * CRITICAL (December 2025 Fix v2): 
+         * After calculate_carbonate_system() computes the proper CO2 flux
+         * using carbonate equilibrium, we need to apply it to DIC.
          * =======================================================================*/
         if (!p->skip_carbonate_reactions) {
             calculate_carbonate_system(branch, i, temp, depth, sal, pis_vel[i]);
+            
+            /* Apply CO2 air-water flux to DIC (computed in calculate_carbonate_system)
+             * co2_flux is NEGATIVE when supersaturated (CO2 escaping to atmosphere)
+             * co2_flux is POSITIVE when undersaturated (CO2 entering from atmosphere)
+             * 
+             * NOTE: This is applied AFTER the DIC sources (respiration) were added,
+             * so the sequence is: DIC += (sources) + (co2_flux) in each timestep.
+             */
+            if (dic) {
+                double co2_flux = branch->reaction_rates[CGEM_REACTION_CO2_EX][i];
+                dic[i] = CGEM_MAX(0.0, dic[i] + co2_flux * dt);
+            }
         }
     }
     
@@ -1053,17 +1137,30 @@ int Biogeo_GHG_Branch(Branch *branch, double dt) {
         }
         
         /* =====================================================================
-         * N2O CALCULATION (Yield-based from core rates)
-         * N2O is just a fraction of the N processed by nitrification/denitrification
-         * Reference: Garnier et al. (2007), Marescaux et al. (2019)
+         * N2O CALCULATION - SCIENTIFICALLY CORRECT (December 2025 Audit Fix)
          * 
-         * DECEMBER 2025 FIX: All rates now in µmol/L/s to match model internal units.
-         * The ×1000 factor was removed from ghg_module.c to fix unit mismatch.
+         * PREVIOUS HACK REMOVED: The hardcoded "n2o_upstream_scale = 3.5" was
+         * a magic multiplier with no physical basis. It forced N2O to be higher
+         * upstream regardless of the actual N cycling rates.
+         * 
+         * PROPER APPROACH: N2O is a yield fraction of N cycling rates.
+         * The spatial gradient should emerge naturally from:
+         *   1. Higher NH4 inputs from lateral loads (agriculture, sewage)
+         *   2. Higher denitrification rates where TOC and NO3 are available
+         *   3. Lateral N2O inputs from rice paddies (added via lateral_sources)
+         * 
+         * If the N2O gradient is too weak, the solution is to:
+         *   - Add N2O to lateral_sources.csv (rice paddy drainage)
+         *   - Increase NH4 lateral inputs (which drives nitrification)
+         *   - NOT use arbitrary spatial multipliers!
+         * 
+         * Reference: Garnier et al. (2007), Marescaux et al. (2019)
          * ===================================================================== */
-        /* N2O from nitrification: yield × nit_rate [µmol N/L/s] */
+        
+        /* N2O from nitrification: yield × nit_rate (NO spatial hack!) */
         double n2o_from_nit = core_nit_rate * p->N2O_yield_nit;
         
-        /* N2O from denitrification: yield × denit_rate [µmol N/L/s] */
+        /* N2O from denitrification: yield × denit_rate */
         double n2o_from_denit = core_denit_rate * p->N2O_yield_denit;
         
         /* N2O/CH4 air-water exchange
@@ -1124,60 +1221,30 @@ int Biogeo_GHG_Branch(Branch *branch, double dt) {
             /* =================================================================
              * PASSIVE MODE (SAFE): Only update N2O/CH4, DO NOT touch O2/NH4/NO3
              * This prevents double-counting with the core biogeochemistry module
+             * 
+             * DECEMBER 2025 SCIENTIFIC FIX:
+             * Removed salinity-based benthic GHG scaling. The spatial gradient
+             * should come from:
+             *   - Lateral CH4/N2O inputs (rice paddies, aquaculture)
+             *   - Local production rates (which depend on substrate availability)
+             * NOT from arbitrary salinity-based multipliers.
              * ================================================================= */
             
-            /* =============================================================
-             * SALINITY-BASED BENTHIC GHG FLUX (December 2025 Fix v3)
-             * 
-             * Using STEP FUNCTION: only apply high benthic flux in truly
-             * fresh water (S < 2 PSU). This preserves the conservative
-             * mixing signal from ocean boundaries.
-             * ============================================================= */
-            double ocean_scale = (p->benthic_ocean_scale > 0.0) ? p->benthic_ocean_scale : 0.3;
-            double upstream_scale = (p->benthic_upstream_scale > 0.0) ? p->benthic_upstream_scale : 1.5;
-            
-            double S_threshold = 2.0;
-            double benthic_scale;
-            
-            /* Safety: ensure sal is valid */
-            double safe_sal = (sal >= 0.0 && sal == sal) ? sal : 0.0;
-            
-            if (safe_sal > S_threshold) {
-                benthic_scale = ocean_scale;
-            } else {
-                benthic_scale = upstream_scale;
-            }
-            
-            /* =============================================================
-             * N2O: production + benthic flux - air-water exchange
-             * 
-             * BENTHIC N2O FLUX (December 2025 Audit Fix)
-             * N2O is produced in sediments via coupled nitrification-denitrification.
+            /* N2O: production from N cycling + benthic flux - air-water exchange
+             * Benthic N2O flux from coupled nitrification-denitrification in sediments
              * Literature: 10-300 nmol N2O/m²/day (Seitzinger & Kroeze 1998)
-             * 
-             * Unit conversion: nmol/m²/day → µmol/L/s
-             *   nmol/m²/day × 1e-3 µmol/nmol / depth [m] / 1e3 L/m³ / 86400 s/day
-             *   = nmol/m²/day / depth / 86400e6 [µmol/L/s]
-             * ============================================================= */
-            double benthic_n2o_rate = g_ghg_config.benthic_N2O_flux * benthic_scale / depth / (RIVE_SECONDS_PER_DAY * 1e6);
+             */
+            double benthic_n2o_rate = g_ghg_config.benthic_N2O_flux / depth / (RIVE_SECONDS_PER_DAY * 1e6);
             double dN2O = n2o_from_nit + n2o_from_denit + benthic_n2o_rate - n2o_flux;
             n2o[i] = CGEM_MAX(0.0, n2o[i] + dN2O * dt);
             
-            /* Update CH4: benthic production - oxidation - air-water exchange - ebullition 
-             * NOTE: CH4_prod from crive_calc_ghg_system already includes benthic_CH4_flux
-             * But we need to scale it spatially. Since ghg_state.CH4_prod was calculated
-             * with uniform benthic flux, we need to add the spatial correction:
-             * 
-             * correction = (benthic_scale - 1.0) × base_benthic_CH4_flux_rate
+            /* CH4: benthic production - oxidation - air-water exchange - ebullition 
+             * NOTE: CH4_prod from crive_calc_ghg_system already includes benthic flux
              */
-            double base_ch4_benthic_rate = g_ghg_config.benthic_CH4_flux / depth / 1000.0 / RIVE_SECONDS_PER_DAY;
-            double ch4_benthic_correction = (benthic_scale - 1.0) * base_ch4_benthic_rate;
-            
-            double dCH4 = ghg_state.CH4_prod + ch4_benthic_correction - ghg_state.CH4_ox - ghg_state.CH4_flux - ghg_state.CH4_ebul;
+            double dCH4 = ghg_state.CH4_prod - ghg_state.CH4_ox - ghg_state.CH4_flux - ghg_state.CH4_ebul;
             ch4[i] = CGEM_MAX(0.0, ch4[i] + dCH4 * dt);
             
-            /* NO2 in passive mode: just track intermediate (no feedback) */
-            /* NO2 dynamics are diagnostic only - they don't affect NO3 budget */
+            /* NO2 in passive mode: diagnostic only - no feedback */
             
         } else {
             /* =================================================================

@@ -70,6 +70,11 @@ void init_species_bc(Branch *b, int num_species, double Q_river) {
         b->conc_down[CGEM_SPECIES_PO4] = 1.0;
         b->conc_down[CGEM_SPECIES_O2] = 220.0;
         b->conc_down[CGEM_SPECIES_TOC] = 80.0;
+        
+        /* 2-Pool TOC defaults (will be overwritten for specific BCs) */
+        b->conc_down[CGEM_SPECIES_TOC_LABILE] = 10.0;
+        b->conc_down[CGEM_SPECIES_TOC_REFRACTORY] = 70.0;
+        
         b->conc_down[CGEM_SPECIES_SPM] = 15.0;
         b->conc_down[CGEM_SPECIES_DIC] = 1800.0;
         b->conc_down[CGEM_SPECIES_AT] = 1800.0;
@@ -91,6 +96,12 @@ void init_species_bc(Branch *b, int num_species, double Q_river) {
             b->conc_down[CGEM_SPECIES_PO4] = 0.5;           /* Phosphate [µM] - low */
             b->conc_down[CGEM_SPECIES_O2] = 260.0;          /* Oxygen [µM] - 8+ mg/L saturated */
             b->conc_down[CGEM_SPECIES_TOC] = 100.0;         /* TOC [µM C] - 1.3-2.3 mgC/L */
+            
+            /* 2-POOL TOC MODEL (December 2025 Scientific Fix)
+             * Ocean: Mostly refractory marine DOC with minimal labile fraction */
+            b->conc_down[CGEM_SPECIES_TOC_LABILE] = 5.0;      /* Labile TOC [µM C] - minimal at ocean */
+            b->conc_down[CGEM_SPECIES_TOC_REFRACTORY] = 95.0; /* Refractory TOC [µM C] - marine humics */
+            
             b->conc_down[CGEM_SPECIES_SPM] = 10.0;          /* SPM [mg/L] - 8-35 at mouth */
             /* Carbonate chemistry - adjusted for moderate pCO2 at mouth (~1000 µatm)
              * Typical Mekong mouth: pCO2 ~500-1500 µatm due to mixing
@@ -127,6 +138,20 @@ void init_species_bc(Branch *b, int num_species, double Q_river) {
 
         /* Organic matter - INCREASED based on field data (120-217 µM) */
         b->conc_up[CGEM_SPECIES_TOC] = 170.0;           /* TOC [µM C] - average of upstream observations */
+        
+        /* ===============================================================
+         * 2-POOL TOC MODEL (December 2025 Scientific Fix)
+         * 
+         * Total TOC = TOC_LABILE + TOC_REFRACTORY
+         * 
+         * River upstream:
+         *   - TOC_LABILE (~15% of total): Fresh phytoplankton, sewage, aquaculture
+         *   - TOC_REFRACTORY (~85%): Tonle Sap humics, terrestrial DOC
+         * 
+         * Reference: Middelburg (1989), Hopkinson & Vallino (2005)
+         * =============================================================== */
+        b->conc_up[CGEM_SPECIES_TOC_LABILE] = 25.0;      /* Labile TOC [µM C] - ~15% of total */
+        b->conc_up[CGEM_SPECIES_TOC_REFRACTORY] = 145.0; /* Refractory TOC [µM C] - ~85% of total */
 
         /* Suspended matter - INCREASED based on field data (11-38 mg/L upstream) */
         b->conc_up[CGEM_SPECIES_SPM] = 30.0;            /* SPM [mg/L] - 30 mg/L for proper ETM formation */

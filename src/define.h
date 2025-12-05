@@ -128,6 +128,30 @@ typedef enum {
 #define CGEM_SPECIES_CH4      29  /* Methane [µmol C/L] - GHG from methanogenesis */
 
 /* ===========================================================================
+ * 2-POOL TOC MODEL (30-31) - SCIENTIFIC FIX FOR SALINITY SWITCH HACK
+ * 
+ * The original single TOC pool with salinity-dependent kox_scale was a hack
+ * that fails predictively. The proper approach is to model two pools:
+ * 
+ * TOC_LABILE: Fast-degrading OC (k ~ 0.1-0.3 /day)
+ *   - Sources: Fresh phytoplankton, sewage, aquaculture waste
+ *   - Dominates in freshwater (rivers, urban discharge)
+ *   - Ocean boundary: low concentration (marine is mostly refractory)
+ *   
+ * TOC_REFRACTORY: Slow-degrading OC (k ~ 0.005-0.02 /day)
+ *   - Sources: Terrestrial humics, mangrove leachates, Tonle Sap DOC
+ *   - Dominates in Mekong (>90% of TOC is refractory)
+ *   - Ocean boundary: marine humics + aged terrestrial
+ *
+ * The OBSERVED gradient (TOC nearly conservative, 165→187 µmol/L) emerges
+ * naturally from mixing these pools - no salinity-based hacks needed!
+ *
+ * Reference: Middelburg (1989), Hopkinson & Vallino (2005), Amon & Benner (1996)
+ * =========================================================================== */
+#define CGEM_SPECIES_TOC_LABILE     30  /* Labile TOC [µmol C/L] - fast decay */
+#define CGEM_SPECIES_TOC_REFRACTORY 31  /* Refractory TOC [µmol C/L] - slow decay */
+
+/* ===========================================================================
  * REACTION INDICES
  * =========================================================================== */
 
@@ -192,8 +216,12 @@ typedef enum {
 #define CGEM_REACTION_N2O_BENTHIC     51  /* N2O benthic flux */
 #define CGEM_REACTION_ANAMMOX         52  /* Anaerobic ammonium oxidation */
 
-#define CGEM_NUM_SPECIES 30       /* Updated for GHG species */
-#define CGEM_NUM_REACTIONS 53     /* Updated for GHG reactions */
+/* 2-Pool TOC reactions */
+#define CGEM_REACTION_TOC_LAB_DEG     53  /* Labile TOC degradation */
+#define CGEM_REACTION_TOC_REF_DEG     54  /* Refractory TOC degradation */
+
+#define CGEM_NUM_SPECIES 32       /* Updated for 2-pool TOC species */
+#define CGEM_NUM_REACTIONS 55     /* Updated for 2-pool TOC reactions */
 
 /* ===========================================================================
  * SPECIES TRANSPORT FLAGS
@@ -235,7 +263,10 @@ static const int CGEM_SPECIES_TRANSPORT_FLAG[CGEM_NUM_SPECIES] = {
     /* GHG species */
     1,  /* NO2 - nitrite - transport */
     1,  /* N2O - nitrous oxide - transport */
-    1   /* CH4 - methane - transport */
+    1,  /* CH4 - methane - transport */
+    /* 2-Pool TOC species (SCIENTIFIC FIX) */
+    1,  /* TOC_LABILE - labile TOC - transport */
+    1   /* TOC_REFRACTORY - refractory TOC - transport */
 };
 
 /* ===========================================================================

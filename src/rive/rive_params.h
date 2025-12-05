@@ -46,6 +46,50 @@ typedef struct {
     double kox, kdenit, knit;
     double ktox, ko2, ko2_nit, kno3, knh4, kino2;
     
+    /* ===========================================================================
+     * 2-POOL TOC MODEL (SCIENTIFIC FIX - December 2025 Audit)
+     * 
+     * Replaces the salinity-based kox scaling hack with proper mechanistic model.
+     * 
+     * TOC_LABILE: Fast-degrading fraction (fresh phytoplankton, sewage)
+     *   - kox_labile ~ 0.1-0.3 /day at 20°C (literature: Hopkinson 2005)
+     *   - River boundary: ~20 µmol/L (10-15% of total)
+     *   - Ocean boundary: ~5 µmol/L
+     *   
+     * TOC_REFRACTORY: Slow-degrading fraction (terrestrial humics, aged DOC)
+     *   - kox_refractory ~ 0.005-0.02 /day at 20°C (Middelburg 1989)
+     *   - River boundary: ~130 µmol/L (85-90% of total)
+     *   - Ocean boundary: ~160 µmol/L
+     *
+     * Reference: Middelburg (1989), Hopkinson & Vallino (2005), Amon & Benner (1996)
+     * ===========================================================================*/
+    double kox_labile;            /* Labile TOC decay rate [1/day] (default 0.15) */
+    double kox_refractory;        /* Refractory TOC decay rate [1/day] (default 0.008) */
+    
+    /* ===========================================================================
+     * DECOUPLED BENTHIC FLUXES (SCIENTIFIC FIX - December 2025 Audit)
+     * 
+     * PROBLEM: Previous code coupled benthic O2 and CO2 1:1 (RQ=1).
+     * In tropical estuaries with anaerobic sediments, RQ > 1 because:
+     *   - Sulfate reduction produces CO2 without consuming O2
+     *   - Denitrification produces CO2 with less O2 cost
+     *   - Methanogenesis produces CO2 and CH4 without O2
+     * 
+     * SOLUTION: Separate SOD and DIC flux parameters
+     *   benthic_SOD: Sediment Oxygen Demand [mmol O2/m²/day]
+     *   benthic_DIC_flux: DIC (CO2) release from sediments [mmol C/m²/day]
+     *   RQ_benthic = benthic_DIC_flux / benthic_SOD (typically 1.0-3.0)
+     *
+     * For aerobic-dominated sediments: RQ ~ 1.0
+     * For anaerobic sediments (sulfate reduction): RQ ~ 1.5-2.0
+     * For highly reduced sediments: RQ ~ 2.0-3.0
+     *
+     * Reference: Cai (2011), Borges & Abril (2011), Middelburg et al. (2005)
+     * ===========================================================================*/
+    double benthic_SOD;           /* Sediment O2 demand [mmol O2/m²/day] (default = benthic_resp_20C) */
+    double benthic_DIC_flux;      /* Sediment DIC release [mmol C/m²/day] (default = SOD * RQ) */
+    double RQ_benthic;            /* Respiratory quotient for benthic [mol CO2/mol O2] (default 1.5) */
+    
     /* Stoichiometry */
     double redn, redp, redsi;
     

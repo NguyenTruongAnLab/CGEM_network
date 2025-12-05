@@ -93,6 +93,14 @@ static int parse_species_name(const char *name) {
     if (string_ieq(name, "NITROUSOXIDE")) return CGEM_SPECIES_N2O;
     if (string_ieq(name, "METHANE")) return CGEM_SPECIES_CH4;
     
+    /* 2-Pool TOC model (30-31) - SCIENTIFIC FIX December 2025 */
+    if (string_ieq(name, "TOC_LABILE")) return CGEM_SPECIES_TOC_LABILE;
+    if (string_ieq(name, "TOC_REFRACTORY")) return CGEM_SPECIES_TOC_REFRACTORY;
+    if (string_ieq(name, "TOC_LAB")) return CGEM_SPECIES_TOC_LABILE;
+    if (string_ieq(name, "TOC_REF")) return CGEM_SPECIES_TOC_REFRACTORY;
+    if (string_ieq(name, "LABILE_TOC")) return CGEM_SPECIES_TOC_LABILE;
+    if (string_ieq(name, "REFRACTORY_TOC")) return CGEM_SPECIES_TOC_REFRACTORY;
+    
     return -1;
 }
 

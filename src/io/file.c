@@ -49,7 +49,9 @@ static const char* SPECIES_NAMES[CGEM_NUM_SPECIES] = {
     /* RIVE substrates */
     "dss",
     /* GHG species */
-    "no2", "n2o", "ch4"
+    "no2", "n2o", "ch4",
+    /* 2-Pool TOC model (December 2025 Scientific Fix) */
+    "toc_labile", "toc_refractory"
 };
 
 /* Reaction names - must match CGEM_REACTION_* order in define.h */

@@ -203,7 +203,7 @@ Create spatial CH₄ source map based on:
 
 ## 5. What the Model DOES Capture Well
 
-Despite limitations, the model successfully reproduces:
+Despite limitations, the model successfully reproduces in Co_Chien branch:
 
 1. **Salinity intrusion length and gradient** (R² > 0.9)
 2. **Tidal variations** in water level and velocity
@@ -216,12 +216,6 @@ Despite limitations, the model successfully reproduces:
 ---
 
 ## 6. Conclusion
-
-The C-GEM model in its current form is **suitable for**:
-- Salinity intrusion studies
-- Nutrient transport modeling (NO₃, PO₄)
-- pH and carbonate chemistry (first-order)
-- Relative spatial comparisons
 
 The model is **NOT YET suitable for**:
 - Quantitative O₂/pCO₂ predictions (requires decoupled benthic fluxes)
