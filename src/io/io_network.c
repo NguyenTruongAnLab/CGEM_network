@@ -41,6 +41,9 @@ static int string_ieq(const char *a, const char *b) {
     return *a == '\0' && *b == '\0';
 }
 
+/* Normalize GHG concentration units: input files use nmol/L, model uses µmol/L */
+
+
 /**
  * Parse species name string to species index (case-insensitive)
  * Uses canonical names matching CGEM_SPECIES_* constants in define.h
@@ -87,6 +90,8 @@ static int parse_species_name(const char *name) {
     if (string_ieq(name, "NO2")) return CGEM_SPECIES_NO2;
     if (string_ieq(name, "N2O")) return CGEM_SPECIES_N2O;
     if (string_ieq(name, "CH4")) return CGEM_SPECIES_CH4;
+    if (string_ieq(name, "NITROUSOXIDE")) return CGEM_SPECIES_N2O;
+    if (string_ieq(name, "METHANE")) return CGEM_SPECIES_CH4;
     
     return -1;
 }
@@ -222,13 +227,9 @@ static int load_all_species_forcing(const char *full_path, Node *node, double dt
             if (sp >= 0 && sp < CGEM_NUM_SPECIES && 
                 node->species_forcing_time[sp] && node->species_forcing_value[sp]) {
                 node->species_forcing_time[sp][row_idx] = time_val;
-                
-                /* Unit conversion for GHG species: CSV uses nmol/L, model uses µmol/L */
-                double val = col_vals[c];
-                if (sp == CGEM_SPECIES_N2O || sp == CGEM_SPECIES_CH4) {
-                    val *= 0.001;  /* nmol/L → µmol/L */
-                }
-                node->species_forcing_value[sp][row_idx] = val;
+
+                /* Expect input already in µmol/L for all species (GHG included) */
+                node->species_forcing_value[sp][row_idx] = col_vals[c];
             }
         }
         row_idx++;
@@ -752,6 +753,7 @@ int LoadBoundaries(const char *path, Network *net) {
                                       &node->species_forcing_value[species_idx],
                                       &node->species_forcing_len[species_idx],
                                   86400.0) == 0) {
+                    /* Inputs must already be in µmol/L (no automatic conversion) */
                     printf("Loaded %zu forcing points for node %d (SPECIES: %s)\n", 
                            node->species_forcing_len[species_idx], node_id, species_str);
                 }
@@ -856,7 +858,7 @@ int LoadLateralSources(Network *net, const char *case_dir) {
         int segment_idx;
         double dist_km, area_km2, Q_lat;
         double nh4_conc = 0, no3_conc = 0, po4_conc = 0, toc_conc = 0, dic_conc = 0, spm_conc = 0;
-        double ch4_conc = 0, n2o_conc = 0, at_conc = 0;  /* NEW: GHG species (December 2025) */
+        double ch4_conc = 0, n2o_conc = 0, at_conc = 0;  /* Units: µmol/L for all species */
         
         int parsed = 0;
         
@@ -864,7 +866,9 @@ int LoadLateralSources(Network *net, const char *case_dir) {
             /* NEW FORMAT (v2): Branch,Segment_Index,Distance_km,Area_km2,Runoff_C,Is_Polder_Zone,
              * Q_lat_base_m3_s,NH4_conc_base_mg_L,NO3_conc_base_mg_L,PO4_conc_base_mg_L,
              * TOC_conc_base_mg_L,DIC_conc_base_mg_L,SPM_conc_base_mg_L,
-             * CH4_conc_base_nM,N2O_conc_base_nM,AT_conc_base_ueq_L (December 2025 extension) */
+             * CH4_conc_base_umol_L,N2O_conc_base_umol_L,AT_conc_base_ueq_L (canonical units)
+             * NOTE: All species concentrations must be provided in µmol/L (GHG included).
+             */
             double runoff_c;
             char is_polder[16];
             
@@ -947,16 +951,13 @@ int LoadLateralSources(Network *net, const char *case_dir) {
             /* DIC: mg C/L → µmol C/L */
             b->lateral_conc[CGEM_SPECIES_DIC][grid_idx] = dic_conc * 83.3;
             
-            /* === GHG species (December 2025) === */
-            /* CRITICAL FIX: Model works in µM, but CSV has nmol/L
-             * Convert nmol/L → µmol/L by dividing by 1000
-             */
+            /* === GHG species === */
             if (ch4_conc > 0) {
-                b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] = ch4_conc * 0.001;  /* nmol/L → µmol/L */
+                b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] = ch4_conc;  /* Expect µmol/L input */
             }
-            
+
             if (n2o_conc > 0) {
-                b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] = n2o_conc * 0.001;  /* nmol/L → µmol/L */
+                b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] = n2o_conc;  /* Expect µmol/L input */
             }
             
             /* AT (Total Alkalinity): Already in µeq/L in CSV - store directly */
@@ -1344,13 +1345,13 @@ int LoadPointSources(Network *net, const char *case_dir) {
         int population;
         double Q_m3_s;
         double nh4_mg_L = 0, no3_mg_L = 0, po4_mg_L = 0, toc_mg_L = 0, dic_mg_L = 0, spm_mg_L = 0;
-        double ch4_nmol_L = 0, n2o_nmol_L = 0;
+        double ch4_umol_L = 0, n2o_umol_L = 0;  /* Inputs must be µmol/L */
         
         /* Parse: Name,Branch,Segment_Index,Distance_km,Population,Treatment,Q_m3_s,NH4,NO3,PO4,TOC,DIC,SPM,CH4,N2O */
         int parsed = sscanf(line, "%63[^,],%63[^,],%d,%lf,%d,%31[^,],%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf",
-                           name, branch_name, &segment_idx, &dist_km, &population, treatment,
-                           &Q_m3_s, &nh4_mg_L, &no3_mg_L, &po4_mg_L, &toc_mg_L, &dic_mg_L, &spm_mg_L,
-                           &ch4_nmol_L, &n2o_nmol_L);
+                   name, branch_name, &segment_idx, &dist_km, &population, treatment,
+                   &Q_m3_s, &nh4_mg_L, &no3_mg_L, &po4_mg_L, &toc_mg_L, &dic_mg_L, &spm_mg_L,
+                   &ch4_umol_L, &n2o_umol_L);
         
         if (parsed < 7) {
             fprintf(stderr, "Warning: Failed to parse point_sources.csv line %d\n", line_num);
@@ -1411,18 +1412,17 @@ int LoadPointSources(Network *net, const char *case_dir) {
                     w_lateral * b->lateral_conc[CGEM_SPECIES_DIC][grid_idx] + 
                     w_point * (dic_mg_L * 83.3);
                 
-                /* CH4: input in nmol/L, convert to µmol/L (divide by 1000) */
-                if (ch4_nmol_L > 0) {
+                /* CH4/N2O: expect µmol/L inputs; no automatic conversion */
+                if (ch4_umol_L > 0) {
                     b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] = 
                         w_lateral * b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] + 
-                        w_point * (ch4_nmol_L * 0.001);  /* nmol/L → µmol/L */
+                        w_point * ch4_umol_L;
                 }
                 
-                /* N2O: input in nmol/L, convert to µmol/L (divide by 1000) */
-                if (n2o_nmol_L > 0) {
+                if (n2o_umol_L > 0) {
                     b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] = 
                         w_lateral * b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] + 
-                        w_point * (n2o_nmol_L * 0.001);  /* nmol/L → µmol/L */
+                        w_point * n2o_umol_L;
                 }
             } else {
                 /* No existing lateral load - set directly */
@@ -1431,9 +1431,9 @@ int LoadPointSources(Network *net, const char *case_dir) {
                 b->lateral_conc[CGEM_SPECIES_PO4][grid_idx] = po4_mg_L * 32.3;
                 b->lateral_conc[CGEM_SPECIES_TOC][grid_idx] = toc_mg_L * 83.3;
                 b->lateral_conc[CGEM_SPECIES_DIC][grid_idx] = dic_mg_L * 83.3;
-                /* GHG: Convert nmol/L → µmol/L */
-                if (ch4_nmol_L > 0) b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] = ch4_nmol_L * 0.001;
-                if (n2o_nmol_L > 0) b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] = n2o_nmol_L * 0.001;
+                /* GHG: Inputs must be µmol/L */
+                if (ch4_umol_L > 0) b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] = ch4_umol_L;
+                if (n2o_umol_L > 0) b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] = n2o_umol_L;
             }
         }
         

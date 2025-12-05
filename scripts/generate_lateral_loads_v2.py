@@ -33,6 +33,16 @@ OUTPUTS:
 2. lateral_seasonal_factors.csv - Monthly Q and concentration multipliers
 3. point_sources.csv          - City sewage (optional)
 
+UNIT POLICY (GHG): All CH4 and N2O concentrations emitted by this script are in µmol/L.
+The C-GEM core expects µmol/L for all species. Ensure any custom inputs follow
+this convention to avoid 1000× magnitude errors.
+
+=== CRITICAL FIX (December 2025 Audit) ===
+Previously, CH4/N2O were output in nmol/L while the C code expected µmol/L,
+causing 1000× over-injection of GHGs. This script now outputs µmol/L directly:
+  - CH4: Typical range 0.05-1.5 µmol/L (50-1500 nmol/L)
+  - N2O: Typical range 0.01-0.2 µmol/L (10-200 nmol/L)
+
 SCIENTIFIC BASIS:
 =================
 - Export Coefficients: Garnier et al. (2005), Kroeze et al. (2002)
@@ -119,9 +129,9 @@ JAXA_EMISSIONS = {
         "DIC": 18.0,    # mg C/L → 1500 µM after ×83.3 conversion (reduced for realistic pCO2)
         "AT": 1400.0,   # Alkalinity [µeq/L] - reduced to give AT < DIC for high pCO2
         "SPM": 150.0,   # Construction sediment
-        "CH4": 500.0,   # ENABLED Dec 2025: Urban sewer CH4 [nmol/L]
+        "CH4": 0.05,    # FIXED Dec 2025: 50 nmol/L = 0.05 µmol/L (urban)
                         # Ref: Beaulieu et al. (2011), Wang et al. (2017)
-        "N2O": 50.0,    # ENABLED Dec 2025: Urban nitrification N2O [nmol/L]
+        "N2O": 0.05,    # FIXED Dec 2025: 50 nmol/L → 0.05 µmol/L
                         # Ref: Beaulieu et al. (2011) - urban 20-100 nmol/L
         "Runoff_C": 0.85,
     },
@@ -143,10 +153,10 @@ JAXA_EMISSIONS = {
         "DIC": 25.0,    # mg C/L → 2080 µM (reduced from 80 - was 6600 µM!)
         "AT": 1200.0,   # [µeq/L] - lower than DIC for high pCO2 (rice paddies supersaturated)
         "SPM": 100.0,   # Tillage erosion, resuspension
-        "CH4": 1500.0,  # ENABLED Dec 2025: Rice paddy drainage CH4 [nmol/L]
+        "CH4": 0.25,    # FIXED Dec 2025: 250 nmol/L = 0.25 µmol/L (rice paddies)
                         # Ref: Borges & Abril (2011) 500-5000 nmol/L, using mid-range
                         # This is THE MAJOR upstream CH4 source!
-        "N2O": 80.0,    # ENABLED Dec 2025: Agricultural N2O [nmol/L]
+        "N2O": 0.08,    # FIXED Dec 2025: 80 nmol/L → 0.08 µmol/L
                         # Ref: Mekong agricultural areas 30-175 nmol/L (Garnier 2007)
         "Runoff_C": 0.40,  # Bunded paddies retain water
     },
@@ -165,9 +175,9 @@ JAXA_EMISSIONS = {
         "DIC": 30.0,    # mg C/L → 2500 µM (reduced from 100 - was 8300 µM!)
         "AT": 2000.0,   # Lime [µeq/L] - high but still < DIC×83.3 for pCO2 >1000
         "SPM": 200.0,   # Pond sediment resuspension
-        "CH4": 1200.0,  # ENABLED Dec 2025: Aquaculture pond CH4 [nmol/L]
+        "CH4": 0.20,    # FIXED Dec 2025: 200 nmol/L = 0.20 µmol/L (aquaculture)
                         # Ref: Yang et al. (2019) pond drainage 500-2000 nmol/L
-        "N2O": 60.0,    # ENABLED Dec 2025: Pond nitrification N2O [nmol/L]
+        "N2O": 0.06,    # FIXED Dec 2025: 60 nmol/L → 0.06 µmol/L
                         # Ref: Hu et al. (2012) aquaculture 30-100 nmol/L
         "Runoff_C": 0.70,  # Direct discharge during harvest
     },
@@ -186,9 +196,9 @@ JAXA_EMISSIONS = {
         "DIC": 35.0,    # mg C/L → 2900 µM (reduced from 120 - was 10000 µM!)
         "AT": 2200.0,   # Carbonate-rich [µeq/L] - balanced with DIC for moderate pCO2
         "SPM": 60.0,    # Fine sediment, some trapping
-        "CH4": 300.0,   # ENABLED Dec 2025: Mangrove sediment CH4 [nmol/L]
+        "CH4": 0.10,    # FIXED Dec 2025: 100 nmol/L = 0.10 µmol/L (mangrove)
                         # Ref: Maher et al. (2013) mangrove creek 100-500 nmol/L
-        "N2O": 15.0,    # ENABLED Dec 2025: Low N2O (denitrification sink) [nmol/L]
+        "N2O": 0.015,   # FIXED Dec 2025: 15 nmol/L → 0.015 µmol/L
                         # Ref: Alongi (2014) - mangroves are N2O sinks
         "Runoff_C": 0.90,  # Tidal flushing
     },
@@ -204,9 +214,9 @@ JAXA_EMISSIONS = {
         "DIC": 15.0,    # mg C/L → 1250 µM (reduced from 30 - was 2500 µM)
         "AT": 1000.0,   # Natural [µeq/L] - lower for moderate pCO2
         "SPM": 80.0,    # Exposed soil erosion
-        "CH4": 100.0,   # ENABLED Dec 2025: Orchard soil CH4 [nmol/L]
+        "CH4": 0.03,    # FIXED Dec 2025: 30 nmol/L = 0.03 µmol/L (fruit orchards)
                         # Lower than rice (aerobic soils)
-        "N2O": 40.0,    # ENABLED Dec 2025: Fertilizer-derived N2O [nmol/L]
+        "N2O": 0.04,    # FIXED Dec 2025: 40 nmol/L → 0.04 µmol/L
                         # Ref: Fertilized soils 20-80 nmol/L
         "Runoff_C": 0.30,  # Tree cover reduces runoff
     },
@@ -222,9 +232,9 @@ JAXA_EMISSIONS = {
         "DIC": 12.0,    # mg C/L → 1000 µM (reduced from 20)
         "AT": 800.0,    # Natural background [µeq/L]
         "SPM": 25.0,    # Low erosion
-        "CH4": 50.0,    # ENABLED Dec 2025: Forest soil background CH4 [nmol/L]
+        "CH4": 0.01,    # FIXED Dec 2025: 10 nmol/L = 0.01 µmol/L (forest)
                         # Ref: Natural background ~20-100 nmol/L
-        "N2O": 10.0,    # ENABLED Dec 2025: Natural soil N2O [nmol/L]
+        "N2O": 0.01,    # FIXED Dec 2025: 10 nmol/L → 0.01 µmol/L
                         # Ref: Natural soils 5-20 nmol/L
         "Runoff_C": 0.15,  # High infiltration
     },
@@ -296,7 +306,7 @@ CLIMATE_PRESETS = {
 
 def calculate_seasonal_factors(
     rainfall_mm: List[float],
-    dry_months: List[int] = None,
+    dry_months: Optional[List[int]] = None,
     wash_off_exponent: float = 0.25,
     dilution_threshold: float = 5.0,
 ) -> pd.DataFrame:
@@ -596,9 +606,9 @@ def calculate_base_loads(
             "TOC_conc_base_mg_L": round(conc_mix["TOC"], 2),
             "DIC_conc_base_mg_L": round(conc_mix["DIC"], 2),
             "SPM_conc_base_mg_L": round(conc_mix["SPM"], 2),
-            # NEW: GHG species (nmol/L for CH4/N2O, µeq/L for AT)
-            "CH4_conc_base_nM": round(conc_mix["CH4"], 1),
-            "N2O_conc_base_nM": round(conc_mix["N2O"], 1),
+            # GHG species: NOW IN µmol/L (FIXED Dec 2025 - was nmol/L)
+            "CH4_conc_base_umol_L": round(conc_mix["CH4"], 4),  # µmol/L, not nmol/L!
+            "N2O_conc_base_umol_L": round(conc_mix["N2O"], 4),  # µmol/L, not nmol/L!
             "AT_conc_base_ueq_L": round(conc_mix["AT"], 0),
         })
     
@@ -685,7 +695,7 @@ TREATMENT_REMOVAL = {
 
 
 def generate_point_sources(
-    point_source_dict: dict = None,
+    point_source_dict: Optional[dict] = None,
     per_capita_water_L_day: float = 150.0,
 ) -> pd.DataFrame:
     """
@@ -724,11 +734,12 @@ def generate_point_sources(
         for sp, sewage_conc in SEWAGE_CONCENTRATIONS.items():
             conc[sp] = sewage_conc * (1 - removal.get(sp, 0))
         
-        # Convert CH4 and N2O from mg/L to nmol/L
-        # CH4: MW = 16 g/mol, so mg/L → mmol/L = mg/L / 16, → nmol/L = × 1e6
+        # Convert CH4 and N2O from mg/L to µmol/L (not nmol/L!)
+        # CH4: MW = 16 g/mol, so mg/L → mmol/L = mg/L / 16, → µmol/L = × 1e3
         # N2O: MW = 44 g/mol
-        ch4_nmol_L = conc.get("CH4", 0) / 16.0 * 1e6  # Convert to nmol/L
-        n2o_nmol_L = conc.get("N2O", 0) / 44.0 * 1e6  # Convert to nmol/L
+        # FIXED Dec 2025: Now outputting µmol/L to match C code expectations
+        ch4_umol_L = conc.get("CH4", 0) / 16.0 * 1e3  # mg/L → µmol/L
+        n2o_umol_L = conc.get("N2O", 0) / 44.0 * 1e3  # mg/L → µmol/L
         
         segment_idx = int(data["distance_km"] * 1000 / DX_M)
         
@@ -746,9 +757,9 @@ def generate_point_sources(
             "TOC_mg_L": round(conc["TOC"], 1),
             "DIC_mg_L": round(conc.get("DIC", 0), 1),
             "SPM_mg_L": round(conc["SPM"], 1),
-            # NEW: GHG columns
-            "CH4_nmol_L": round(ch4_nmol_L, 1),
-            "N2O_nmol_L": round(n2o_nmol_L, 1),
+            # GHG columns: NOW IN µmol/L (FIXED Dec 2025)
+            "CH4_umol_L": round(ch4_umol_L, 4),
+            "N2O_umol_L": round(n2o_umol_L, 4),
         })
     
     return pd.DataFrame(records)
@@ -761,7 +772,7 @@ def generate_point_sources(
 def generate_all_files(
     case_dir: Path,
     climate: str = "Mekong",
-    custom_rainfall: List[float] = None,
+    custom_rainfall: Optional[List[float]] = None,
     duration_days: int = 365,
     include_point_sources: bool = True,
     base_runoff_rate: float = 0.002,

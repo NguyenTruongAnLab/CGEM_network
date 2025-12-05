@@ -39,24 +39,28 @@ kpo42 = 0.5
 # =============================================================================
 # ORGANIC MATTER DECOMPOSITION RATES
 # =============================================================================
-# December 2025 Validation Findings:
+# December 2025 Validation Audit Findings:
 #
-# TOC bias = -150 µM (model too low) indicates OVER-consumption of TOC.
+# TOC bias = -70 µM (model too low) indicates OVER-consumption of TOC.
 # This happens because:
-#   1. kox=0.05 is too high for refractory mangrove/forest DOC
-#   2. Mekong TOC is dominated by refractory humic substances
-#   3. Only a small fraction (<10%) is rapidly degradable
+#   1. kox=0.05 was tuned for labile sewage DOM, not refractory mangrove/forest DOC
+#   2. Mekong TOC is dominated by refractory humic substances from Tonle Sap
+#   3. Only a small fraction (~10%) is rapidly degradable
 #
 # Literature for tropical estuaries with mangrove inputs:
-#   - Refractory DOM: k = 0.001-0.01 /day (Middelburg 1989)
+#   - Labile DOM: k = 0.1-0.5 /day (fresh phytoplankton, sewage)
 #   - Semi-labile: k = 0.01-0.05 /day
-#   - Mekong mix: weighted average ~0.01 /day
+#   - Refractory DOM: k = 0.001-0.01 /day (Middelburg 1989)
+#   - Mekong mix: weighted average ~0.008 /day (mostly refractory)
 #
-# Setting kox = 0.01 to preserve TOC while allowing enough respiration
-# for O2 dynamics. The excess O2 in model (+20-30 µM) suggests insufficient
-# respiration, but TOC loss is the bigger problem.
+# PHASE 3 FIX: kox = 0.008 (reduced from 0.01)
+# This preserves TOC while allowing adequate respiration for O2/pCO2 dynamics.
+# Combined with increased lateral TOC inputs (Phase 2), this should resolve
+# the -70 µM TOC bias.
 #
-kox = 0.01
+# Reference: Middelburg (1989), Hopkinson & Vallino (2005)
+#
+kox = 0.008
 kdenit = 0.03
 knit = 0.05
 
@@ -133,44 +137,54 @@ N2O_yield_denit = 0.01
 # 4. Groundwater seepage
 #
 # Reference: Borges & Abril (2011), Maher et al. (2013)
-# Tropical estuary benthic flux: 10-100 µmol/m²/day (NOT 100-1000!)
-# CORRECTED Dec 2025: 800→50 - previous value caused massive CH4 accumulation
-# With 50 µmol/m²/day and depth=10m: 0.5 µM/day = 500 nmol/L/day input
-benthic_CH4_flux = 50.0
+# Tropical estuary benthic flux: 5-50 µmol/m²/day (Abril et al. 2007)
+#
+# CORRECTED Dec 2025 (Phase 2):
+# - Previous 800→50: Still caused massive CH4 accumulation
+# - Model CH4 should be ~0.04-0.24 µmol/L (40-240 nmol/L observed)
+# - With depth=10m, 10 µmol/m²/day → 1 µmol/L/day steady-state input
+# - Need benthic flux of ~5 µmol/m²/day for realistic concentrations
+#
+# Also note: Lateral loads add CH4 at ~1.26 µmol/L which is the dominant source!
+benthic_CH4_flux = 5.0
 
 # N2O benthic flux (from sediment nitrification-denitrification coupling)
 # Reference: Seitzinger & Kroeze (1998)
 # Estuarine sediments: 1-10 nmol/m²/day
-# CORRECTED Dec 2025: 35→5 - previous value was too high
-benthic_N2O_flux = 5.0
+benthic_N2O_flux = 2.0
 
 # =============================================================================
-# PHYSICS SWITCHES - VALIDATED MODE
+# PHYSICS SWITCHES - VALIDATED MODE (PHASE 3 AUDIT FIX)
 # =============================================================================
 # These switches control which biogeochemical processes are active.
 # Use calibration to determine optimal settings for your system.
 #
 # simplified_mode = 1: Use simplified C-RIVE (faster, good for calibration)
-# ghg_passive_mode = 1: GHG transport only, no water column production
+# ghg_passive_mode = 1: SAFE MODE - GHG dynamics without O2 feedback
+#                       Dec 2025 Critical Fix: Active mode (=0) causes O2 collapse
+#                       because O2 consumption is double-counted between 
+#                       Biogeo_Branch and Biogeo_GHG_Branch
 # skip_bacteria = 1: Skip bacterial dynamics (use simpler kinetics)
 # skip_multipool_oc = 1: Single TOC pool (no HD1/HD2/HD3 fractionation)
-# skip_ghg_dynamics = 1: TRANSPORT MODE - CH4/N2O from boundary conditions only
-#                        (Set to 0 to enable GHG production/consumption)
-#                        Dec 2025: Set to 1 because GHG module causes massive
-#                        accumulation even with reduced benthic fluxes.
-#                        Transport mode works well with proper boundary values.
-# skip_p_adsorption = 1: Skip P-SPM adsorption (set to 0 to enable, Stage 2)
-# skip_carbonate_reactions = 1: TRANSPORT MODE - pCO2/pH from boundary conditions only
-#                               (Set to 0 for full carbonate equilibrium calculation)
+# skip_ghg_dynamics = 0: Enable GHG module for CH4/N2O dynamics
+# skip_p_adsorption = 0: ENABLED - P-SPM adsorption for realistic PO4 peaks
+# skip_carbonate_reactions = 0: ENABLED - Full carbonate equilibrium for pCO2/pH
 #
+# === VALIDATION TARGET (March 2025 Mekong Data) ===
+# - Salinity: R² > 0.9 (current: achieved)
+# - O2: 150-220 µmol/L (must NOT collapse to zero!)
+# - TOC: bias < ±30 µM
+# - CH4: 40-240 nmol/L = 0.04-0.24 µmol/L
+# - N2O: 7-190 nmol/L = 0.007-0.19 µmol/L
+#
+# AUDIT FIX: Enable GHG dynamics with K600_ESTUARINE method (see biogeo.c)
 simplified_mode = 1
 ghg_passive_mode = 1
 skip_bacteria = 1
 skip_multipool_oc = 1
-skip_ghg_dynamics = 1
-skip_p_adsorption = 1
-skip_carbonate_reactions = 1
-ghg_passive_mode = 1
+skip_ghg_dynamics = 0
+skip_p_adsorption = 0
+skip_carbonate_reactions = 0
 
 # =============================================================================
 # P-ADSORPTION PARAMETERS (Stage 2 calibration)

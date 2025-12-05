@@ -12,6 +12,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <ctype.h>
+
+/* Simple case-insensitive substring check (portable) */
+static int contains_case_insensitive(const char *haystack, const char *needle) {
+    if (!haystack || !needle || !*needle) return 0;
+    size_t nlen = strlen(needle);
+    for (const char *p = haystack; *p; ++p) {
+        size_t i = 0;
+        while (p[i] && i < nlen && tolower((unsigned char)p[i]) == tolower((unsigned char)needle[i])) {
+            ++i;
+        }
+        if (i == nlen) return 1;
+    }
+    return 0;
+}
 
 /* Forward declarations for functions defined in other modules */
 void InitializeSedimentParameters(Branch *branch);
@@ -685,6 +700,61 @@ int initializeNetwork(Network *net, CaseConfig *config) {
     }
     if (config->tidal_amplitude > 0) {
         net->tidal_amplitude = config->tidal_amplitude;
+    }
+
+    /* ================================================================
+     * SALT-SHOCK PREVENTION (Phase 1 Audit Fix - Dec 2025)
+     * 
+     * The Savenije formula uses: x_max = a * ln(1 + 1/β)
+     * where β = (K * a * Q) / (A0 * D0)
+     * 
+     * If Q is too small, β → 0 and x_max → infinity, placing salt
+     * 200+ km upstream instantly. This causes:
+     *   1. Unrealistic initial salinity distribution
+     *   2. TOC over-oxidation (salt inhibits some bacteria)
+     *   3. Model instability during first tidal cycle
+     * 
+     * Solution: Enforce minimum Q based on estuary size class.
+     * ================================================================*/
+    
+    /* Step 0a-b: Guard against unrealistically low Q_river */
+    if (net->Q_river <= 0.0) {
+        net->Q_river = 100.0;  /* generic fallback for small estuaries */
+    }
+    
+    /* Calculate minimum Q from estuary geometry (if available) */
+    double max_mouth_area = 0.0;
+    for (size_t b = 0; b < net->num_branches; ++b) {
+        Branch *br = net->branches[b];
+        if (br && br->down_node_type == NODE_LEVEL_BC) {
+            double A0 = br->depth_m * br->width_down_m;
+            if (A0 > max_mouth_area) max_mouth_area = A0;
+        }
+    }
+    
+    /* Rule of thumb: Q_min = A0 × 0.01 m/s (minimum residual velocity) */
+    double Q_min_geometry = max_mouth_area * 0.01;
+    if (Q_min_geometry < 100.0) Q_min_geometry = 100.0;
+    
+    /* Override for known large deltas */
+    if (contains_case_insensitive(config->case_name, "mekong") && net->Q_river < 2000.0) {
+        fprintf(stderr,
+                "Warning: RiverDischarge=%.1f m³/s is too low for Mekong; using 3000 m³/s to prevent salt-shock during warmup.\n",
+                net->Q_river);
+        net->Q_river = 3000.0;
+        config->Q_river = net->Q_river;
+    } else if (contains_case_insensitive(config->case_name, "ganges") && net->Q_river < 3000.0) {
+        fprintf(stderr,
+                "Warning: RiverDischarge=%.1f m³/s is too low for Ganges; using 5000 m³/s.\n",
+                net->Q_river);
+        net->Q_river = 5000.0;
+        config->Q_river = net->Q_river;
+    } else if (net->Q_river < Q_min_geometry) {
+        fprintf(stderr,
+                "Warning: RiverDischarge=%.1f m³/s below geometry minimum %.1f m³/s; adjusting.\n",
+                net->Q_river, Q_min_geometry);
+        net->Q_river = Q_min_geometry;
+        config->Q_river = net->Q_river;
     }
 
     /* Step 0b: Set branch node types FIRST - needed for correct BC initialization */

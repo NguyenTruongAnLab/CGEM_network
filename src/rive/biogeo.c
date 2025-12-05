@@ -930,8 +930,20 @@ int Biogeo_GHG_Branch(Branch *branch, double dt) {
         /* N2O from denitrification: yield × denit_rate [µmol N/L/s] */
         double n2o_from_denit = core_denit_rate * p->N2O_yield_denit;
         
-        /* N2O air-water exchange */
-        double k600 = crive_calc_k600(velocity, depth, K600_STRAHLER, 6, 0.0);
+        /* N2O/CH4 air-water exchange
+         * 
+         * AUDIT FIX (December 2025): Use K600_ESTUARINE method for tidal estuaries.
+         * The previous K600_STRAHLER (O'Connor & Dobbins 1958) formula gave k600 
+         * values 50-500× too low at estuarine velocities (~0.01 m/s), causing
+         * inadequate GHG evasion and unrealistic CH4 accumulation.
+         * 
+         * K600_ESTUARINE uses Abril et al. (2009) formula which accounts for
+         * tidal current-driven turbulence in large estuaries.
+         * 
+         * Reference: Abril, G. et al. (2009) Turbidity limits gas exchange in 
+         * a large macrotidal estuary. Estuarine, Coastal and Shelf Science.
+         */
+        double k600 = crive_calc_k600(velocity, depth, K600_ESTUARINE, 6, p->wind_speed);
         double n2o_sat = crive_calc_n2o_sat(temp, sal);
         double n2o_flux = crive_calc_n2o_flux(n2o[i], n2o_sat, depth, k600, temp);
         

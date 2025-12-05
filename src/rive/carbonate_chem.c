@@ -456,8 +456,13 @@ int crive_calc_carbonate_system(CarbonateState *state, double temp,
     /* Calculate pCO2 [µatm]
      * pCO2 = CO2 / k0 (Henry's law)
      * Need to convert units properly */
-    double rho = crive_calc_water_density(temp, salinity, 0.0);
-    state->pCO2 = state->CO2 / (state->k0 * rho * 1e-6);
+    /* Convert CO2 [µmol/L] → [mol/kg], then apply Henry's law (k0 in mol/kg/atm) */
+    double rho_g_m3 = crive_calc_water_density(temp, salinity, 0.0);  /* g/m³ */
+    double rho_kg_L = rho_g_m3 * 1e-6;  /* kg/L (1000 g = 1 kg, 1000 L = 1 m³) */
+    if (rho_kg_L < 1e-9) rho_kg_L = 1.0;  /* avoid divide-by-zero */
+
+    double co2_mol_per_kg = (state->CO2 * 1e-6) / rho_kg_L;  /* µmol/L -> mol/kg */
+    state->pCO2 = (co2_mol_per_kg / state->k0) * 1e6;        /* → µatm */
     if (state->pCO2 < 0.0) state->pCO2 = 0.0;
     
     /* Calculate Schmidt number */

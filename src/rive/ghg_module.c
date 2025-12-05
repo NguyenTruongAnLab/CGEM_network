@@ -200,34 +200,44 @@ double crive_calc_n2o_from_denitrification(double denit_rate, double yield) {
  * ===========================================================================*/
 
 double crive_calc_ch4_sat(double temp, double salinity, double CH4_atm) {
-    /* CH4 saturation using Yamamoto et al. (1976) solubility
+    /* CH4 saturation using Henry's law with temperature dependence
      * 
-     * ln(beta) = A1 + A2*(100/T) + A3*ln(T/100) + S*(B1 + B2*(T/100) + B3*(T/100)²)
+     * CRITICAL BUG FIX (December 2025):
+     * The previous Yamamoto (1976) coefficients were incorrect and gave
+     * CH4_sat values 1 million times too high, causing the model to think
+     * the water was vastly undersaturated and adding CH4 from the atmosphere.
      * 
-     * beta in mol/L/atm
+     * Correct approach: Use Sander (2015) Henry's law constant with
+     * van't Hoff temperature dependence.
+     * 
+     * H_cp(CH4) at 25°C = 1.4×10⁻³ mol/L/atm (Sander 2015, Table 5)
+     * Temperature dependence: d(ln H)/d(1/T) ≈ -1900 K
+     * 
+     * Reference: Sander, R. (2015) Compilation of Henry's law constants.
+     *            Atmos. Chem. Phys., 15, 4399-4981.
      */
+    
+    /* Henry's law constant at reference temperature */
+    const double H0 = 1.4e-3;      /* mol/L/atm at 25°C */
+    const double dH_R = 1900.0;    /* K (≈ -ΔsolvH/R) */
+    const double T_ref = 298.15;   /* K (25°C) */
+    
     double T_K = temp + CRIVE_T_KELVIN_GHG;
-    double T100 = T_K / 100.0;
     
-    /* Yamamoto et al. (1976) coefficients for CH4 */
-    const double A1 = -415.2807;
-    const double A2 = 596.8104;
-    const double A3 = 379.2599;
-    const double A4 = -62.0757;
-    const double B1 = -0.059160;
-    const double B2 = 0.032174;
-    const double B3 = -0.0048198;
+    /* van't Hoff temperature correction */
+    double H_T = H0 * exp(-dH_R * (1.0/T_K - 1.0/T_ref));
     
-    double ln_beta = A1 + A2 * (100.0 / T_K) + A3 * log(T100) + A4 * T100;
-    ln_beta += salinity * (B1 + B2 * T100 + B3 * T100 * T100);
+    /* Salinity correction (Weisenburg & Guinasso 1979 form)
+     * Reduces solubility by ~3% per 10 PSU */
+    double sal_factor = exp(-salinity * 0.003);
+    H_T *= sal_factor;
     
-    double beta = exp(ln_beta);  /* mol/L/atm */
-    
-    /* CH4 saturation at atmospheric equilibrium [µmol/L] */
+    /* CH4 saturation at atmospheric equilibrium [µmol/L] 
+     * CH4_atm is in ppb = 10⁻⁹ atm */
     double CH4_atm_atm = CH4_atm * 1e-9;  /* ppb to atm */
-    double Csat = beta * CH4_atm_atm * 1e6;  /* mol/L/atm * atm * 1e6 = µmol/L */
+    double Csat = H_T * CH4_atm_atm * 1e6;  /* mol/L * atm * 1e6 = µmol/L */
     
-    return Csat;
+    return Csat;  /* Typical value: ~2-3 nmol/L = 0.002-0.003 µmol/L */
 }
 
 double crive_calc_ch4_schmidt(double temp) {
@@ -271,6 +281,12 @@ double crive_calc_ch4_production(double TOC_benthic, double depth, double temp,
      * - Inverse of O2 concentration (inhibition)
      * 
      * Returns production as flux into water column [µmol/L/s]
+     * 
+     * UNIT FIX (December 2025):
+     * - benthic_CH4_flux is in [µmol/m²/day]
+     * - Divide by depth [m] to get [µmol/m³/day]
+     * - Divide by 1000 to convert m³ → L: [µmol/L/day]
+     * - Divide by 86400 to convert day → s: [µmol/L/s]
      */
     if (!config) return 0.0;
     if (depth < 0.01) depth = 0.01;
@@ -284,12 +300,15 @@ double crive_calc_ch4_production(double TOC_benthic, double depth, double temp,
     /* Base production rate from benthic OC [µmol CH4/m²/day] */
     double prod_areal = config->CH4_prod_rate * TOC_benthic * temp_factor * o2_inhib;
     
-    /* Convert to volumetric rate [µmol/L/s] */
-    /* prod_areal [µmol/m²/day] / depth [m] / 86400 [s/day] * 1000 [L/m³] */
-    double prod_vol = prod_areal / depth / SECONDS_PER_DAY;
+    /* Convert to volumetric rate [µmol/L/s]
+     * [µmol/m²/day] / [m] / 1000 [L/m³] / 86400 [s/day] = [µmol/L/s]
+     */
+    double prod_vol = prod_areal / depth / 1000.0 / SECONDS_PER_DAY;
     
-    /* Add sediment flux if configured */
-    prod_vol += config->benthic_CH4_flux / depth / SECONDS_PER_DAY * temp_factor;
+    /* Add sediment flux if configured 
+     * benthic_CH4_flux [µmol/m²/day] → [µmol/L/s]
+     */
+    prod_vol += config->benthic_CH4_flux / depth / 1000.0 / SECONDS_PER_DAY * temp_factor;
     
     return prod_vol;
 }

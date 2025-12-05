@@ -455,8 +455,34 @@ int solve_network_step(Network *net, double current_time_seconds) {
             
             double residual_Q = sum_Q_in - sum_Q_out;
             
-            /* If there's a Q imbalance, distribute it to outflow branches */
-            if (fabs(residual_Q) > 1.0 && sum_A_out > 0.0 && num_outflow > 0) {
+            /* ================================================================
+             * SLACK TIDE PROTECTION (Phase 1 Audit Fix - Dec 2025)
+             * 
+             * Near slack tide, sum_A_out can approach zero causing velocity
+             * spikes (division by near-zero). This triggers instability in:
+             *   1. GHG species that are sensitive to velocity-driven mixing
+             *   2. Salinity gradients near the salt wedge tip
+             * 
+             * Solution: Use dynamic threshold that scales with total area
+             * and skip velocity adjustment when flow is nearly stagnant.
+             * ================================================================*/
+            double total_junction_area = sum_A_out + 1e-6;  /* Total area entering junction */
+            for (int c2 = 0; c2 < node->num_connections; ++c2) {
+                Branch *b2 = net->branches[node->connected_branches[c2]];
+                if (b2) {
+                    int dir2 = node->connection_dir[c2];
+                    int idx2 = (dir2 == 1) ? 1 : b2->M;
+                    total_junction_area += b2->totalArea[idx2];
+                }
+            }
+            
+            /* Adaptive threshold: 0.1% of total junction cross-section */
+            double area_thresh = fmax(1e-3 * total_junction_area, 10.0);  /* At least 10 m² */
+            
+            /* Skip velocity correction if outflow area is below threshold (slack tide) */
+            int slack_tide_condition = (sum_A_out < area_thresh);
+            
+            if (fabs(residual_Q) > 1.0 && !slack_tide_condition && num_outflow > 0) {
                 /* Required additional velocity to balance Q */
                 double dU_required = residual_Q / sum_A_out;
                 
