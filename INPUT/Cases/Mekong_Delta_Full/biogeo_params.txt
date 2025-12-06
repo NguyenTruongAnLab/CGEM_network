@@ -407,3 +407,66 @@ skip_carbonate_reactions = 0
 # Reference: Froelich (1988), House et al. (1995)
 kpads = 0.05
 pac = 0.005
+
+# =============================================================================
+# ACTIVE SEDIMENT LAYER (SOC Pool) - December 2025 Audit Priority #1
+# =============================================================================
+# THIS IS THE MOST IMPORTANT UPGRADE FOR SCENARIO ANALYSIS!
+#
+# WITHOUT SOC (enable_soc = 0): Fixed benthic fluxes
+#   - If you reduce pollution by 50%, sediment still releases same fluxes
+#   - WRONG for scenario analysis!
+#
+# WITH SOC (enable_soc = 1): Dynamic benthic fluxes
+#   - SOC pool receives POC deposition (dead algae, organic settling)
+#   - SOC slowly decays (k ~ 0.003/day → 1-year turnover)
+#   - Benthic fluxes (SOD, NH4, PO4, DIC, CH4, N2O) scale with SOC pool
+#   - Captures "legacy load" effect - historical pollution persists
+#   - CORRECT for scenario analysis!
+#
+# VALIDATION STATUS (December 2025):
+# ===================================
+# The SOC module is NEW and not yet validated against field data.
+# For current validation runs, use enable_soc = 0 (fixed benthic fluxes).
+# Once validated, switch to enable_soc = 1 for scenario analysis.
+#
+# Reference: Chapra (2008), DiToro (2001), Soetaert et al. (1996)
+# =============================================================================
+enable_soc = 0
+
+# SOC Pool Kinetics
+# k_soc_20C: Mineralization rate at 20°C [1/day]
+#   - 0.001 = slow (clean sediment, multi-year turnover)
+#   - 0.003 = moderate (typical estuarine, ~1-year turnover)
+#   - 0.010 = fast (organic-rich, few-month turnover)
+k_soc_20C = 0.003
+
+# Temperature effect on SOC decay (Q10)
+soc_Q10 = 2.0
+
+# Initial SOC pool [g C/m²]
+#   - Oligotrophic: 100-300
+#   - Mesotrophic: 300-700
+#   - Eutrophic: 500-2000
+# Mekong is mesotrophic-eutrophic (high sediment OC)
+soc_init = 600.0
+
+# Maximum SOC capacity [g C/m²] (prevents runaway accumulation)
+soc_max = 5000.0
+
+# Burial rate: permanent removal to deep sediment [1/day]
+# 0.0001 = ~3.5% per year (typical)
+k_burial = 0.0001
+
+# Anaerobic fraction of mineralization
+# Higher at low O2 in bottom water
+# 0.3 = 30% anaerobic in well-oxygenated waters
+soc_f_anaerobic = 0.35
+
+# CH4 yield from anaerobic OC decay [mol CH4 / mol C]
+# Only the anaerobic fraction produces CH4
+soc_ch4_yield = 0.5
+
+# N2O yield from sediment N cycling [mol N2O / mol N mineralized]
+# Coupled nitrification-denitrification in sediment oxic-anoxic boundary
+soc_n2o_yield = 0.02

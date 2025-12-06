@@ -218,6 +218,30 @@ typedef struct {
     double theta_nit;             /* Arrhenius temp coefficient for nitrification */
     double theta_denit;           /* Arrhenius temp coefficient for denitrification */
     
+    /* ===========================================================================
+     * ACTIVE SEDIMENT LAYER (SOC Pool) - December 2025 Audit Priority #1
+     * 
+     * This feature makes benthic fluxes DYNAMIC instead of fixed!
+     * SOC pool receives POC deposition and releases benthic fluxes proportional
+     * to accumulated organic carbon. This captures "legacy load" effects.
+     * 
+     * Without this: If you reduce pollution by 50%, sediment still releases
+     * the same fluxes forever - WRONG for scenario analysis!
+     * 
+     * With SOC: Benthic fluxes decrease as sediment pool depletes - CORRECT!
+     * 
+     * Reference: Chapra (2008), DiToro (2001), Soetaert et al. (1996)
+     * ===========================================================================*/
+    int enable_soc;               /* 1 = Enable dynamic SOC, 0 = fixed benthic fluxes */
+    double k_soc_20C;             /* SOC mineralization rate at 20°C [1/day] (default 0.003) */
+    double soc_Q10;               /* Q10 for SOC decay (default 2.0) */
+    double soc_init;              /* Initial SOC pool [g C/m²] (default 500) */
+    double soc_max;               /* Maximum SOC capacity [g C/m²] (default 5000) */
+    double k_burial;              /* SOC burial rate [1/day] (default 0.0001) */
+    double soc_f_anaerobic;       /* Anaerobic fraction of mineralization (default 0.3) */
+    double soc_ch4_yield;         /* CH4 yield from anaerobic decay [mol/mol C] (default 0.5) */
+    double soc_n2o_yield;         /* N2O yield from sediment N cycling (default 0.02) */
+    
 } BiogeoParams;
 
 /* Global params accessor */

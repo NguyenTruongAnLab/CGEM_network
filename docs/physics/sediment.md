@@ -7,6 +7,7 @@ The sediment module simulates suspended particulate matter (SPM) dynamics includ
 - Erosion and deposition based on shear stress
 - Salinity-dependent flocculation (ETM formation)
 - Light attenuation effects on phytoplankton
+- **Active Sediment Layer (SOC)** - Dynamic benthic fluxes from sediment organic carbon (v1.3.0)
 
 ## Governing Equation
 
@@ -68,6 +69,95 @@ Where:
 | $w_{s,0}$ | 0.5 | 0.3 | mm/s |
 | $f_{max}$ | 8 | 5 | - |
 | $S_{scale}$ | 2 | 3 | PSU |
+
+---
+
+## Active Sediment Layer (SOC Pool) - v1.3.0
+
+### Why SOC Matters for Scenario Analysis
+
+**Without SOC** (`enable_soc=0`): Benthic fluxes are fixed parameters. If you simulate a 50% reduction in upstream pollution, the sediment still releases the same fluxes forever. **This is WRONG for scenario analysis.**
+
+**With SOC** (`enable_soc=1`): Benthic fluxes are proportional to the accumulated sediment organic carbon pool. Pollution reduction → less POC deposition → SOC pool depletes → benthic fluxes decrease over time. **This captures the "legacy load" effect correctly.**
+
+### SOC Pool Dynamics
+
+The SOC pool [g C/m²] evolves according to:
+
+$$\frac{dSOC}{dt} = F_{dep} - R_{min} - R_{burial}$$
+
+Where:
+- $F_{dep}$ = POC deposition flux [g C/m²/day]
+- $R_{min}$ = Mineralization rate [g C/m²/day]
+- $R_{burial}$ = Permanent burial rate [g C/m²/day]
+
+### POC Deposition Sources
+
+Total deposition is the sum of three sources:
+
+1. **Dead phytoplankton settling**:
+$$F_{phy} = \text{phy\_death} \times f_{settle} \times H \times 0.012$$
+
+2. **SPM-bound POC settling**:
+$$F_{SPM} = SPM \times w_s \times \text{poc\_ratio} \times 86400 \times 0.001$$
+
+3. **Labile TOC settling** (particulate fraction):
+$$F_{TOC} = TOC \times f_{labile} \times f_{part} \times 0.012 \times w_{s,poc} \times 86400$$
+
+### Mineralization
+
+Temperature-dependent first-order decay:
+
+$$R_{min} = k_{soc}(T) \times SOC$$
+
+$$k_{soc}(T) = k_{soc,20} \times Q_{10}^{(T-20)/10}$$
+
+### Benthic Fluxes from SOC
+
+Mineralization produces benthic fluxes proportional to SOC pool:
+
+| Flux | Formula | Unit |
+|------|---------|------|
+| **SOD** | $R_{min} \times (1 - f_{anaerobic}) / 12$ | mmol O₂/m²/day |
+| **NH₄** | $SOD \times N:C_{Redfield}$ | mmol N/m²/day |
+| **PO₄** | $SOD \times P:C_{Redfield}$ | mmol P/m²/day |
+| **DIC** | $R_{min} \times RQ / 12$ | mmol C/m²/day |
+| **CH₄** | $R_{min} \times f_{anaerobic} \times y_{CH4} / 12 \times 1000$ | µmol/m²/day |
+| **N₂O** | $F_{NH4} \times y_{N2O} \times 10^6$ | nmol/m²/day |
+
+### SOC Parameters
+
+Configure in `biogeo_params.txt`:
+
+| Parameter | Symbol | Default | Range | Unit | Description |
+|-----------|--------|---------|-------|------|-------------|
+| `enable_soc` | - | 0 | 0-1 | - | Enable dynamic SOC |
+| `k_soc_20C` | $k_{soc,20}$ | 0.003 | 0.001-0.01 | 1/day | Decay rate at 20°C |
+| `soc_Q10` | $Q_{10}$ | 2.0 | 1.5-3.0 | - | Temperature coefficient |
+| `soc_init` | $SOC_0$ | 500 | 100-2000 | g C/m² | Initial pool |
+| `soc_max` | $SOC_{max}$ | 5000 | 1000-10000 | g C/m² | Maximum capacity |
+| `k_burial` | $k_b$ | 0.0001 | 0-0.001 | 1/day | Burial rate |
+| `soc_f_anaerobic` | $f_{an}$ | 0.3 | 0.1-0.5 | - | Anaerobic fraction |
+| `soc_ch4_yield` | $y_{CH4}$ | 0.5 | 0.3-0.6 | mol/mol | CH₄ yield |
+| `soc_n2o_yield` | $y_{N2O}$ | 0.02 | 0.01-0.05 | mol/mol | N₂O yield |
+
+### When to Use SOC
+
+| Scenario | Recommendation |
+|----------|----------------|
+| **Baseline calibration** | `enable_soc=0` (fixed fluxes, fewer parameters) |
+| **Pollution reduction scenarios** | `enable_soc=1` (captures legacy effects) |
+| **Climate change scenarios** | `enable_soc=1` (temperature affects decay) |
+| **Long-term projections** | `enable_soc=1` (sediment pool evolves) |
+
+### References
+
+- Chapra, S.C. (2008). *Surface Water-Quality Modeling*, Chapter 24. McGraw-Hill.
+- DiToro, D.M. (2001). *Sediment Flux Modeling*. Wiley.
+- Soetaert, K., et al. (1996). *Est. Coast. Shelf Sci.*, 43, 371-403.
+- Middelburg, J.J. (1989). *Geochim. Cosmochim. Acta*, 53, 1577-1581.
+
+---
 
 ## Estuarine Turbidity Maximum (ETM)
 

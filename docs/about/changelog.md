@@ -5,6 +5,72 @@ All notable changes to C-GEM Network will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2025-12-06
+
+### Added
+
+- **Active Sediment Layer (SOC Pool)** - Dynamic benthic fluxes for scenario analysis:
+  - New `sediment_diagenesis.c/h` module implementing single-layer sediment organic carbon pool
+  - POC deposition from dead phytoplankton, SPM-bound organic carbon, and settling TOC
+  - Temperature-dependent mineralization with Q10 correction
+  - Dynamic benthic fluxes proportional to SOC pool (SOD, NH4, PO4, DIC, CH4, N2O)
+  - Burial to permanent storage
+  - **Key benefit**: When `enable_soc=1`, pollution reduction scenarios correctly show decreasing benthic fluxes over time (vs. fixed fluxes that never change)
+
+- **New parameters in `biogeo_params.txt`**:
+  - `enable_soc` - Toggle dynamic SOC (0=fixed fluxes, 1=dynamic)
+  - `k_soc_20C` - SOC mineralization rate [1/day]
+  - `soc_Q10` - Temperature coefficient
+  - `soc_init` - Initial SOC pool [g C/m²]
+  - `soc_max` - Maximum SOC capacity [g C/m²]
+  - `k_burial` - Permanent burial rate [1/day]
+  - `soc_f_anaerobic` - Anaerobic fraction
+  - `soc_ch4_yield` - CH4 yield from anaerobic decay
+  - `soc_n2o_yield` - N2O yield from sediment N cycling
+
+- **New reaction indices** for SOC-related processes:
+  - `CGEM_REACTION_SOC_DEPOSITION` - POC settling to sediment
+  - `CGEM_REACTION_SOC_MINERAL` - SOC mineralization
+  - `CGEM_REACTION_SOC_BURIAL` - Permanent burial
+  - `CGEM_REACTION_SOC_SOD` - Dynamic sediment oxygen demand
+  - `CGEM_REACTION_SOC_NH4/PO4/DIC/CH4/N2O` - Dynamic benthic nutrient/GHG fluxes
+
+### Changed
+
+- **Conditional benthic flux calculation** in `biogeo.c`:
+  - When `enable_soc=0`: Uses fixed benthic fluxes with spatial scaling (backward compatible)
+  - When `enable_soc=1`: Fixed benthic rates set to zero, fluxes calculated by SOC module
+  - Prevents double-counting of benthic processes
+
+### Technical Details
+
+The SOC module implements simplified early diagenesis:
+
+```
+dSOC/dt = Deposition - k_soc(T) × SOC - k_burial × SOC
+
+Deposition = phy_death × f_settle × depth × 0.012 
+           + SPM × ws × poc_ratio × 86400 × 0.001
+           + TOC_labile × f_particulate × ws_poc × 86400 × 0.012
+
+Fluxes (scaled by SOC × k_soc):
+  - SOD = mineralization × (1 - f_anaerobic) [mmol O2/m²/day]
+  - NH4 = SOD × N:C_ratio [mmol N/m²/day]  
+  - PO4 = SOD × P:C_ratio [mmol P/m²/day]
+  - DIC = mineralization × RQ [mmol C/m²/day]
+  - CH4 = mineralization × f_anaerobic × ch4_yield [µmol/m²/day]
+  - N2O = NH4_flux × n2o_yield [nmol/m²/day]
+```
+
+**Validation Status**: The SOC module is implemented but `enable_soc=0` by default for backward compatibility. Enable for scenario analysis after baseline calibration.
+
+**References**: 
+- Chapra (2008) Surface Water-Quality Modeling, Chapter 24
+- DiToro (2001) Sediment Flux Modeling
+- Soetaert et al. (1996) Est. Coast. Shelf Science
+
+---
+
 ## [1.2.0] - 2025-12-03
 
 ### Added

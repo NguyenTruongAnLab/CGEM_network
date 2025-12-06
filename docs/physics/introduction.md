@@ -75,6 +75,7 @@ C-GEM integrates **C-RIVE** (Unified RIVE v1.0), the state-of-the-art ANSI C imp
 | CH4 dynamics | Production, oxidation, ebullition | Rarely included |
 | Carbonate chemistry | Full DIC-TA-pH-pCO2 system | Often simplified |
 | Phosphorus | Adsorption-desorption equilibrium | Fixed partitioning |
+| **Sediment diagenesis** | **Active SOC pool (v1.3.0)** | **Fixed benthic fluxes** |
 
 ### 3. Research-Oriented Design
 
@@ -185,6 +186,7 @@ C-GEM builds on decades of estuarine biogeochemistry research:
 | **Openness** | Fully open source, transparent equations |
 | **GHG** | Complete CO2/CH4/N2O module, rare in 1D models |
 | **Networks** | Native multi-branch topology, essential for deltas |
+| **Sediment** | Active SOC pool for scenario analysis (v1.3.0) |
 
 C-GEM doesn't replace TELEMAC or Delft3D—it complements them by providing a **research-grade biogeochemical framework** for the questions those models weren't designed to answer efficiently.
 

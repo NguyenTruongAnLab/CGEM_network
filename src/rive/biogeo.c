@@ -16,6 +16,7 @@
 #include "oxygen.h"
 #include "carbonate_chem.h"
 #include "ghg_module.h"
+#include "sediment_diagenesis.h"  /* Active Sediment Layer (SOC) */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -563,102 +564,86 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
         /* =======================================================================
          * DECOUPLED BENTHIC FLUXES (SCIENTIFIC FIX - December 2025 Audit)
          * 
-         * CRITICAL: Previous code coupled benthic O2 and CO2 with RQ=1.
-         * This is WRONG for tropical estuaries where anaerobic respiration
-         * (sulfate reduction, methanogenesis) produces CO2 without consuming O2.
+         * CRITICAL: When enable_soc=1, benthic fluxes are calculated DYNAMICALLY
+         * by the soc_update_branch() function based on the accumulated sediment
+         * organic carbon pool. This replaces the fixed benthic fluxes below.
          * 
-         * NEW APPROACH: Separate parameters for SOD and DIC flux
-         *   benthic_SOD: Sediment Oxygen Demand [mmol O2/m²/day]
-         *   benthic_DIC_flux: DIC release [mmol C/m²/day] 
-         *   RQ_benthic = DIC_flux / SOD (typically 1.0-3.0)
+         * When enable_soc=0 (default), use the fixed benthic flux approach:
+         * - benthic_SOD: Sediment Oxygen Demand [mmol O2/m²/day]
+         * - benthic_DIC_flux: DIC release [mmol C/m²/day] 
+         * - RQ_benthic = DIC_flux / SOD (typically 1.0-3.0)
          *
-         * The RQ > 1 accounts for:
-         *   - Sulfate reduction: produces CO2, H2S (no O2 consumption in water)
-         *   - Denitrification: produces CO2 with less O2 cost (uses NO3)
-         *   - Methanogenesis: produces CO2 + CH4 (no O2)
-         *
-         * For Mekong with high organic sediments: RQ ~ 1.5-2.0
-         * For purely aerobic sediments: RQ ~ 1.0
-         *
-         * DECEMBER 2025 AUDIT FIX v4: Re-added spatial scaling!
-         * The 2-pool TOC model alone is NOT sufficient to create the observed
-         * O2 sag and pCO2 gradient. We need spatially-varying benthic flux.
-         * 
-         * The scaling is based on POSITION (not salinity) for scientific correctness:
-         * - Near mouth: Sandy sediments, low organic deposition → low SOD
-         * - Upstream: Fine muds, high organic deposition → high SOD
-         * 
-         * We use salinity as a PROXY for position since it correlates with
-         * sediment type in estuaries (high S = coarse, low S = fine).
+         * The RQ > 1 accounts for anaerobic respiration (sulfate reduction,
+         * methanogenesis) that produces CO2 without consuming O2.
          *
          * Reference: Cai (2011), Borges & Abril (2011), Middelburg et al. (2005)
          * =======================================================================*/
         
-        /* Get benthic parameters - use decoupled if specified, else RQ scaling */
-        double benthic_SOD_base, benthic_DIC_base;
-        double RQ = (p->RQ_benthic > 0.0) ? p->RQ_benthic : 1.5;
+        /* Initialize benthic rates to zero */
+        double benthic_o2_rate = 0.0;
+        double benthic_co2_rate = 0.0;
         
-        if (p->benthic_SOD > 0.0) {
-            /* User specified explicit SOD - use it */
-            benthic_SOD_base = p->benthic_SOD;
-        } else {
-            /* Backward compat: use benthic_resp_20C as SOD */
-            benthic_SOD_base = p->benthic_resp_20C;
+        /* Only calculate fixed benthic fluxes if SOC module is DISABLED */
+        if (!p->enable_soc) {
+            /* Get benthic parameters - use decoupled if specified, else RQ scaling */
+            double benthic_SOD_base, benthic_DIC_base;
+            double RQ = (p->RQ_benthic > 0.0) ? p->RQ_benthic : 1.5;
+            
+            if (p->benthic_SOD > 0.0) {
+                /* User specified explicit SOD - use it */
+                benthic_SOD_base = p->benthic_SOD;
+            } else {
+                /* Backward compat: use benthic_resp_20C as SOD */
+                benthic_SOD_base = p->benthic_resp_20C;
+            }
+            
+            if (p->benthic_DIC_flux > 0.0) {
+                /* User specified explicit DIC flux - use it */
+                benthic_DIC_base = p->benthic_DIC_flux;
+            } else {
+                /* Apply RQ to SOD to get DIC flux */
+                benthic_DIC_base = benthic_SOD_base * RQ;
+            }
+            
+            /* =======================================================================
+             * SPATIALLY-VARYING BENTHIC FLUX (December 2025 Audit v4)
+             * 
+             * Use salinity as proxy for sediment type:
+             *   S > S_high: Sandy ocean mouth → scale = benthic_ocean_scale
+             *   S < S_low:  Fine muddy upstream → scale = benthic_upstream_scale  
+             *   In between: Linear interpolation
+             * =======================================================================*/
+            double ocean_scale = (p->benthic_ocean_scale > 0.0) ? p->benthic_ocean_scale : 0.2;
+            double upstream_scale = (p->benthic_upstream_scale > 0.0) ? p->benthic_upstream_scale : 3.0;
+            double S_high = (p->benthic_S_high > 0.0) ? p->benthic_S_high : 15.0;
+            double S_low = (p->benthic_S_low > 0.0) ? p->benthic_S_low : 2.0;
+            
+            /* Calculate benthic scale factor based on salinity */
+            double benthic_scale;
+            double safe_sal_clamp = CGEM_CLAMP(safe_sal, S_low, S_high);
+            
+            if (safe_sal >= S_high) {
+                benthic_scale = ocean_scale;
+            } else if (safe_sal <= S_low) {
+                benthic_scale = upstream_scale;
+            } else {
+                /* Linear interpolation */
+                double frac = (S_high - safe_sal_clamp) / (S_high - S_low);
+                benthic_scale = ocean_scale + frac * (upstream_scale - ocean_scale);
+            }
+            
+            /* Apply spatial scaling to base rates */
+            double benthic_SOD_scaled = benthic_SOD_base * benthic_scale;
+            double benthic_DIC_scaled = benthic_DIC_base * benthic_scale;
+            
+            /* Temperature correction (Q10) */
+            double temp_factor = pow(p->benthic_Q10, (temp - 20.0) / 10.0);
+            
+            /* Calculate benthic rates [µmol/L/s] */
+            benthic_o2_rate = benthic_SOD_scaled * temp_factor / depth / RIVE_SECONDS_PER_DAY;
+            benthic_co2_rate = benthic_DIC_scaled * temp_factor / depth / RIVE_SECONDS_PER_DAY;
         }
-        
-        if (p->benthic_DIC_flux > 0.0) {
-            /* User specified explicit DIC flux - use it */
-            benthic_DIC_base = p->benthic_DIC_flux;
-        } else {
-            /* Apply RQ to SOD to get DIC flux */
-            benthic_DIC_base = benthic_SOD_base * RQ;
-        }
-        
-        /* =======================================================================
-         * SPATIALLY-VARYING BENTHIC FLUX (December 2025 Audit v4)
-         * 
-         * Use salinity as proxy for sediment type:
-         *   S > S_high: Sandy ocean mouth → scale = benthic_ocean_scale
-         *   S < S_low:  Fine muddy upstream → scale = benthic_upstream_scale  
-         *   In between: Linear interpolation
-         * 
-         * Default thresholds (calibrated for Mekong):
-         *   S_high = 15 PSU (about km 20-30 from mouth)
-         *   S_low = 2 PSU (about km 50+ from mouth)
-         * 
-         * This delays high benthic flux until the freshwater zone, allowing
-         * O2 and TOC to follow more conservative mixing in the first 30 km.
-         * =======================================================================*/
-        double ocean_scale = (p->benthic_ocean_scale > 0.0) ? p->benthic_ocean_scale : 0.2;
-        double upstream_scale = (p->benthic_upstream_scale > 0.0) ? p->benthic_upstream_scale : 3.0;
-        double S_high = (p->benthic_S_high > 0.0) ? p->benthic_S_high : 15.0;
-        double S_low = (p->benthic_S_low > 0.0) ? p->benthic_S_low : 2.0;
-        
-        /* Calculate benthic scale factor based on salinity */
-        double benthic_scale;
-        double safe_sal_clamp = CGEM_CLAMP(safe_sal, S_low, S_high);
-        
-        if (safe_sal >= S_high) {
-            benthic_scale = ocean_scale;
-        } else if (safe_sal <= S_low) {
-            benthic_scale = upstream_scale;
-        } else {
-            /* Linear interpolation */
-            double frac = (S_high - safe_sal_clamp) / (S_high - S_low);
-            benthic_scale = ocean_scale + frac * (upstream_scale - ocean_scale);
-        }
-        
-        /* Apply spatial scaling to base rates */
-        double benthic_SOD_scaled = benthic_SOD_base * benthic_scale;
-        double benthic_DIC_scaled = benthic_DIC_base * benthic_scale;
-        
-        /* Temperature correction (Q10) */
-        double temp_factor = pow(p->benthic_Q10, (temp - 20.0) / 10.0);
-        
-        /* Calculate benthic rates [µmol/L/s] 
-         * Unit: [mmol/m²/day] / [m] / [s/day] = [mmol/m³/s] = [µmol/L/s] */
-        double benthic_o2_rate = benthic_SOD_scaled * temp_factor / depth / RIVE_SECONDS_PER_DAY;
-        double benthic_co2_rate = benthic_DIC_scaled * temp_factor / depth / RIVE_SECONDS_PER_DAY;
+        /* When enable_soc=1, benthic fluxes handled by soc_update_branch() */
         
         /* =======================================================================
          * OXYGEN BALANCE (SCIENTIFIC - December 2025 Audit Fix)

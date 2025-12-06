@@ -196,6 +196,20 @@ int LoadBiogeoParams(const char *path) {
     g_biogeo_params.theta_nit = 1.047;         /* Nitrification temp coefficient */
     g_biogeo_params.theta_denit = 1.047;       /* Denitrification temp coefficient */
     
+    /* ===========================================================================
+     * ACTIVE SEDIMENT LAYER (SOC Pool) - December 2025 Audit Priority #1
+     * Makes benthic fluxes DYNAMIC based on accumulated sediment organic carbon
+     * ===========================================================================*/
+    g_biogeo_params.enable_soc = 0;            /* OFF by default (use fixed fluxes) */
+    g_biogeo_params.k_soc_20C = 0.003;         /* SOC decay rate [1/day] */
+    g_biogeo_params.soc_Q10 = 2.0;             /* Q10 for SOC decay */
+    g_biogeo_params.soc_init = 500.0;          /* Initial SOC [g C/m²] */
+    g_biogeo_params.soc_max = 5000.0;          /* Max SOC capacity [g C/m²] */
+    g_biogeo_params.k_burial = 0.0001;         /* SOC burial rate [1/day] */
+    g_biogeo_params.soc_f_anaerobic = 0.30;    /* Anaerobic fraction */
+    g_biogeo_params.soc_ch4_yield = 0.5;       /* CH4 yield from anaerobic decay */
+    g_biogeo_params.soc_n2o_yield = 0.02;      /* N2O yield from sediment N cycling */
+    
     /* Initialize GHG config */
     if (!g_ghg_config_initialized) {
         crive_ghg_init_config(&g_ghg_config);
@@ -339,6 +353,16 @@ int LoadBiogeoParams(const char *path) {
         else if (strcmp(key, "theta_ox") == 0) g_biogeo_params.theta_ox = v;
         else if (strcmp(key, "theta_nit") == 0) g_biogeo_params.theta_nit = v;
         else if (strcmp(key, "theta_denit") == 0) g_biogeo_params.theta_denit = v;
+        /* Active Sediment Layer (SOC Pool) - December 2025 Audit */
+        else if (strcmp(key, "enable_soc") == 0) g_biogeo_params.enable_soc = (int)v;
+        else if (strcmp(key, "k_soc_20C") == 0) g_biogeo_params.k_soc_20C = v;
+        else if (strcmp(key, "soc_Q10") == 0) g_biogeo_params.soc_Q10 = v;
+        else if (strcmp(key, "soc_init") == 0) g_biogeo_params.soc_init = v;
+        else if (strcmp(key, "soc_max") == 0) g_biogeo_params.soc_max = v;
+        else if (strcmp(key, "k_burial") == 0) g_biogeo_params.k_burial = v;
+        else if (strcmp(key, "soc_f_anaerobic") == 0) g_biogeo_params.soc_f_anaerobic = v;
+        else if (strcmp(key, "soc_ch4_yield") == 0) g_biogeo_params.soc_ch4_yield = v;
+        else if (strcmp(key, "soc_n2o_yield") == 0) g_biogeo_params.soc_n2o_yield = v;
     }
     
     fclose(fp);

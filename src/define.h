@@ -220,8 +220,19 @@ typedef enum {
 #define CGEM_REACTION_TOC_LAB_DEG     53  /* Labile TOC degradation */
 #define CGEM_REACTION_TOC_REF_DEG     54  /* Refractory TOC degradation */
 
+/* Active Sediment Layer (SOC) reactions - December 2025 Audit */
+#define CGEM_REACTION_SOC_DEPOSITION  55  /* POC deposition to sediment [g C/m²/day] */
+#define CGEM_REACTION_SOC_MINERAL     56  /* SOC mineralization [g C/m²/day] */
+#define CGEM_REACTION_SOC_BURIAL      57  /* SOC burial [g C/m²/day] */
+#define CGEM_REACTION_SOC_SOD         58  /* Dynamic SOD from SOC [mmol O2/m²/day] */
+#define CGEM_REACTION_SOC_NH4         59  /* Dynamic NH4 flux from SOC [mmol N/m²/day] */
+#define CGEM_REACTION_SOC_PO4         60  /* Dynamic PO4 flux from SOC [mmol P/m²/day] */
+#define CGEM_REACTION_SOC_DIC         61  /* Dynamic DIC flux from SOC [mmol C/m²/day] */
+#define CGEM_REACTION_SOC_CH4         62  /* Dynamic CH4 flux from SOC [µmol/m²/day] */
+#define CGEM_REACTION_SOC_N2O         63  /* Dynamic N2O flux from SOC [nmol/m²/day] */
+
 #define CGEM_NUM_SPECIES 32       /* Updated for 2-pool TOC species */
-#define CGEM_NUM_REACTIONS 55     /* Updated for 2-pool TOC reactions */
+#define CGEM_NUM_REACTIONS 64     /* Updated for SOC reactions */
 
 /* ===========================================================================
  * SPECIES TRANSPORT FLAGS
