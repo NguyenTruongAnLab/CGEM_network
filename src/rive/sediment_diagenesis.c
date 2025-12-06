@@ -13,6 +13,13 @@
  * accumulated in sediments that continues to affect water quality even
  * after pollution is reduced.
  * 
+ * CRITICAL FIXES (December 2025 Audit):
+ * 1. Unit Conversion Error: Changed conversion factor from 1000.0 to 1.0
+ *    The previous code multiplied fluxes by 1000x due to incorrect unit
+ *    conversion (1 mmol/m³ = 1 µmol/L, factors cancel).
+ * 2. Phantom Activation: Changed enable_soc default to 0 (OFF) and added
+ *    synchronization with global BiogeoParams to respect user settings.
+ * 
  * Reference:
  * - Chapra (2008) Surface Water-Quality Modeling, Chapter 24
  * - DiToro (2001) Sediment Flux Modeling
@@ -96,8 +103,12 @@ void soc_init_config(SOCConfig *config) {
      */
     config->n2o_yield_sediment = 0.02;  /* 2% */
     
-    /* Control flags */
-    config->enable_soc = 1;       /* Enabled by default */
+    /* Control flags - Default to 0 (OFF) to prevent phantom activation
+     * CRITICAL FIX (December 2025 Audit): Previously defaulted to 1, causing
+     * sediment module to run even when biogeo_params.txt set enable_soc=0.
+     * Now defaults to OFF; will be synced with biogeo_params in soc_update_branch()
+     */
+    config->enable_soc = 0;       /* Disabled by default - sync with biogeo_params */
     config->loaded = 1;
     
     g_soc_initialized = 1;
@@ -316,13 +327,32 @@ void soc_calc_fluxes(SOCState *state, double soc_current, double deposition,
 int soc_update_branch(Branch *branch, double dt) {
     if (!branch || branch->M <= 0) return -1;
     
+    /* CRITICAL FIX (December 2025 Audit): Sync enable_soc with global params
+     * The SOC module has its own config which was defaulting to enable_soc=1,
+     * ignoring the user's setting in biogeo_params.txt. This caused "phantom
+     * activation" where the module ran even when disabled, injecting fluxes.
+     */
+    BiogeoParams *p = rive_get_params();
     SOCConfig *config = soc_get_config();
+    
+    /* Sync config with global parameters */
+    if (p) {
+        config->enable_soc = p->enable_soc;
+        config->k_soc_20C = p->k_soc_20C;
+        config->soc_Q10 = p->soc_Q10;
+        config->soc_init = p->soc_init;
+        config->soc_max = p->soc_max;
+        config->k_burial = p->k_burial;
+        config->f_anaerobic = p->soc_f_anaerobic;
+        config->ch4_yield = p->soc_ch4_yield;
+        config->n2o_yield_sediment = p->soc_n2o_yield;
+    }
+    
     if (!config || !config->enable_soc) {
         /* SOC disabled - use fixed benthic fluxes (backward compatible) */
         return 0;
     }
     
-    BiogeoParams *p = rive_get_params();
     int M = branch->M;
     double temp = branch->water_temp;
     double dt_day = dt / SECONDS_PER_DAY;
@@ -377,11 +407,25 @@ int soc_update_branch(Branch *branch, double dt) {
         /* =====================================================================
          * APPLY BENTHIC FLUXES TO WATER COLUMN
          * 
-         * Convert from [mmol/m²/day] to [µmol/L/s]:
-         *   flux [mmol/m²/day] / depth [m] / 86400 [s/day] × 1000 [µmol/mmol]
-         *   = flux / depth / 86.4 [µmol/L/s]
+         * CRITICAL UNIT FIX (December 2025 Audit)
+         * 
+         * Flux: [mmol/m²/day]
+         * Target: [µmol/L/s]
+         * 
+         * Step 1: Volumetric flux [mmol/m³/day] = Flux [mmol/m²/day] / Depth [m]
+         * Step 2: Convert mmol/m³ to µmol/L:
+         *         1 mmol = 1000 µmol
+         *         1 m³ = 1000 L
+         *         => 1 mmol/m³ = 1000 µmol / 1000 L = 1 µmol/L
+         *         (The factors of 1000 cancel out!)
+         * Step 3: Convert /day to /s: divide by 86400
+         * 
+         * Rate [µmol/L/s] = Flux [mmol/m²/day] / Depth [m] / 86400 [s/day]
+         * 
+         * OLD CODE WAS: 1000.0 / (depth * SECONDS_PER_DAY)  <-- WRONG (1000x too high!)
+         * NEW CODE IS:  1.0    / (depth * SECONDS_PER_DAY)  <-- CORRECT
          * =====================================================================*/
-        double convert = 1000.0 / (depth * SECONDS_PER_DAY);  /* mmol/m²/day → µmol/L/s */
+        double convert = 1.0 / (depth * SECONDS_PER_DAY);  /* mmol/m²/day → µmol/L/s */
         
         /* O2: Consume due to SOD (negative flux from sediment perspective) */
         if (o2) {
