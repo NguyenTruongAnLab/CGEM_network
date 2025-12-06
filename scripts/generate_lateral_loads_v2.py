@@ -145,18 +145,22 @@ JAXA_EMISSIONS = {
     # - Borges & Abril (2011): Rice paddy drainage 500-5000 nmol/L CH4
     # - Yang et al. (2018): SE Asian rice paddies 300-2000 nmol/L
     # - MRC (2018): Mekong floodplain CH4 emissions
+    #
+    # DECEMBER 2025 AUDIT FIX v3: DOUBLED CH4/NH4 values!
+    # Validation showed CH4 PBIAS -41% to -55%, NH4 PBIAS -67%
+    # Need stronger lateral sources from agriculture
     "Rice": {
-        "NH4": 8.0,     # Urea fertilizer breakdown (increased - major N source)
+        "NH4": 12.0,    # Urea fertilizer breakdown - INCREASED from 8 (AUDIT FIX v3)
         "NO3": 10.0,    # Nitrified fertilizer (increased for N2O production)
-        "PO4": 1.5,     # Phosphate fertilizer (increased)
-        "TOC": 5.0,     # mg C/L (5 × 83.3 = 417 µmol/L) - rice paddy DOC
-        "DIC": 25.0,    # mg C/L → 2080 µM (reduced from 80 - was 6600 µM!)
-        "AT": 1200.0,   # [µeq/L] - lower than DIC for high pCO2 (rice paddies supersaturated)
+        "PO4": 2.0,     # Phosphate fertilizer - INCREASED from 1.5
+        "TOC": 6.0,     # mg C/L (6 × 83.3 = 500 µmol/L) - INCREASED
+        "DIC": 25.0,    # mg C/L → 2080 µM
+        "AT": 1200.0,   # [µeq/L]
         "SPM": 100.0,   # Tillage erosion, resuspension
-        "CH4": 0.25,    # FIXED Dec 2025: 250 nmol/L = 0.25 µmol/L (rice paddies)
-                        # Ref: Borges & Abril (2011) 500-5000 nmol/L, using mid-range
+        "CH4": 0.50,    # AUDIT FIX v3: 500 nmol/L = 0.50 µmol/L (DOUBLED from 0.25)
+                        # Ref: Borges & Abril (2011) 500-5000 nmol/L, using upper-mid
                         # This is THE MAJOR upstream CH4 source!
-        "N2O": 0.08,    # FIXED Dec 2025: 80 nmol/L → 0.08 µmol/L
+        "N2O": 0.10,    # AUDIT FIX v3: 100 nmol/L → 0.10 µmol/L (increased from 0.08)
                         # Ref: Mekong agricultural areas 30-175 nmol/L (Garnier 2007)
         "Runoff_C": 0.40,  # Bunded paddies retain water
     },
@@ -166,17 +170,19 @@ JAXA_EMISSIONS = {
     # =========================================================================
     # Aquaculture ponds in Mekong Delta are major pollution sources
     # Reference: Páez-Osuna (2001), Boyd & Tucker (1998)
+    #
+    # DECEMBER 2025 AUDIT FIX v3: Increased values based on validation
     "Aqua": {
-        "NH4": 12.0,    # Fish excretion, uneaten feed (increased)
+        "NH4": 18.0,    # Fish excretion, uneaten feed - INCREASED from 12 (AUDIT FIX v3)
         "NO3": 4.0,     # Some nitrification in ponds
-        "PO4": 3.0,     # Feed phosphorus (increased)
-        "TOC": 6.0,     # mg C/L (6 × 83.3 = 500 µmol/L) - aquaculture effluent
-        "DIC": 30.0,    # mg C/L → 2500 µM (reduced from 100 - was 8300 µM!)
-        "AT": 2000.0,   # Lime [µeq/L] - high but still < DIC×83.3 for pCO2 >1000
+        "PO4": 4.0,     # Feed phosphorus - INCREASED from 3 (AUDIT FIX v3)
+        "TOC": 8.0,     # mg C/L (8 × 83.3 = 666 µmol/L) - INCREASED (AUDIT FIX v3)
+        "DIC": 30.0,    # mg C/L → 2500 µM
+        "AT": 2000.0,   # Lime [µeq/L]
         "SPM": 200.0,   # Pond sediment resuspension
-        "CH4": 0.20,    # FIXED Dec 2025: 200 nmol/L = 0.20 µmol/L (aquaculture)
+        "CH4": 0.40,    # AUDIT FIX v3: 400 nmol/L = 0.40 µmol/L - DOUBLED from 0.20
                         # Ref: Yang et al. (2019) pond drainage 500-2000 nmol/L
-        "N2O": 0.06,    # FIXED Dec 2025: 60 nmol/L → 0.06 µmol/L
+        "N2O": 0.10,    # AUDIT FIX v3: 100 nmol/L → 0.10 µmol/L - increased from 0.06
                         # Ref: Hu et al. (2012) aquaculture 30-100 nmol/L
         "Runoff_C": 0.70,  # Direct discharge during harvest
     },

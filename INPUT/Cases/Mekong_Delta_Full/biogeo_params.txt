@@ -347,12 +347,13 @@ benthic_CH4_flux = 300.0
 # 1. Benthic N2O flux as the main source (especially upstream)
 # 2. Salinity-based scaling (3.5x enhancement upstream)
 #
-# Target: With base 150 nmol/m²/day and upstream scale 3.5:
-#   - Ocean (S>25): 150 × 0.3 = 45 nmol/m²/day → ~6-8 nmol/L
-#   - Upstream (S<5): 150 × 2.0 = 300 nmol/m²/day → ~15-25 nmol/L
+# Target: With base 250 nmol/m²/day and spatial scaling:
+#   - Ocean (S>25): 250 × 0.3 = 75 nmol/m²/day → ~8-12 nmol/L
+#   - Upstream (S<5): 250 × 1.5 = 375 nmol/m²/day → ~18-28 nmol/L
 #
-# Combined with salinity scaling in biogeo.c, this should create the gradient.
-benthic_N2O_flux = 150.0
+# DECEMBER 2025 AUDIT FIX v3: Increased from 150 to 250 to address ~50% underestimation
+# Validation showed PBIAS of -42% to -61%, suggesting need for higher benthic flux
+benthic_N2O_flux = 250.0
 
 # =============================================================================
 # PHYSICS SWITCHES - VALIDATED MODE (PHASE 3 AUDIT FIX)
@@ -426,9 +427,9 @@ pac = 0.005
 #
 # VALIDATION STATUS (December 2025):
 # ===================================
-# The SOC module is NEW and not yet validated against field data.
-# For current validation runs, use enable_soc = 0 (fixed benthic fluxes).
-# Once validated, switch to enable_soc = 1 for scenario analysis.
+# SOC module DISABLED - causes O2 collapse (PBIAS -90%) and GHG explosion.
+# The SOC decay rate and flux yields need careful calibration before use.
+# For current validation, use enable_soc = 0 (fixed benthic fluxes).
 #
 # Reference: Chapra (2008), DiToro (2001), Soetaert et al. (1996)
 # =============================================================================

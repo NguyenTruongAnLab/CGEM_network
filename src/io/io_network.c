@@ -1391,69 +1391,83 @@ int LoadPointSources(Network *net, const char *case_dir) {
         if (grid_idx < 1) grid_idx = 1;
         if (grid_idx > b->M) grid_idx = b->M;
         
-        /* Add point source flow to lateral flow array */
-        if (b->lateral_flow) {
-            b->lateral_flow[grid_idx] += Q_m3_s;
-        }
+        /* DECEMBER 2025 FIX: Spread point source over multiple cells
+         * This prevents unrealistic spikes in NH4/PO4 at city discharge points.
+         * The point source is distributed over ±2 cells (5 cells total) with
+         * a triangular weighting (50% center, 20% adjacent, 5% edges).
+         * This mimics plume mixing in the immediate vicinity of the discharge.
+         */
+        const int SPREAD_CELLS = 2;
+        double spread_weights[] = {0.05, 0.20, 0.50, 0.20, 0.05};  /* Triangular distribution */
         
-        /* Add point source concentrations (weighted by flow if combined with lateral) */
-        if (b->lateral_conc && Q_m3_s > 1e-10) {
-            /* Get existing lateral flow at this cell */
-            double existing_Q = b->lateral_flow[grid_idx] - Q_m3_s;  /* Subtract point source Q we just added */
-            double total_Q_cell = b->lateral_flow[grid_idx];
+        for (int offset = -SPREAD_CELLS; offset <= SPREAD_CELLS; ++offset) {
+            int i = grid_idx + offset;
+            if (i < 1 || i > b->M) continue;
             
-            if (existing_Q > 1e-10) {
-                /* Mix point source with existing lateral load (flow-weighted average) */
-                double w_point = Q_m3_s / total_Q_cell;
-                double w_lateral = existing_Q / total_Q_cell;
+            double weight = spread_weights[offset + SPREAD_CELLS];
+            double Q_cell = Q_m3_s * weight;
+            
+            /* Add point source flow to lateral flow array */
+            if (b->lateral_flow) {
+                b->lateral_flow[i] += Q_cell;
+            }
+            
+            /* Add point source concentrations (weighted by flow if combined with lateral) */
+            if (b->lateral_conc && Q_cell > 1e-12) {
+                /* Get existing lateral flow at this cell (before adding point source) */
+                double existing_Q = (i == grid_idx) ? 
+                    (b->lateral_flow[i] - Q_cell) : 
+                    CGEM_MAX(0.0, b->lateral_flow[i] - Q_cell);
+                double total_Q_cell = b->lateral_flow[i];
                 
-                /* NH4: mg N/L -> umol N/L (x71.4) */
-                b->lateral_conc[CGEM_SPECIES_NH4][grid_idx] = 
-                    w_lateral * b->lateral_conc[CGEM_SPECIES_NH4][grid_idx] + 
-                    w_point * (nh4_mg_L * 71.4);
-                
-                /* NO3 */
-                b->lateral_conc[CGEM_SPECIES_NO3][grid_idx] = 
-                    w_lateral * b->lateral_conc[CGEM_SPECIES_NO3][grid_idx] + 
-                    w_point * (no3_mg_L * 71.4);
-                
-                /* PO4: mg P/L -> umol P/L (x32.3) */
-                b->lateral_conc[CGEM_SPECIES_PO4][grid_idx] = 
-                    w_lateral * b->lateral_conc[CGEM_SPECIES_PO4][grid_idx] + 
-                    w_point * (po4_mg_L * 32.3);
-                
-                /* TOC: mg C/L -> umol C/L (x83.3) */
-                b->lateral_conc[CGEM_SPECIES_TOC][grid_idx] = 
-                    w_lateral * b->lateral_conc[CGEM_SPECIES_TOC][grid_idx] + 
-                    w_point * (toc_mg_L * 83.3);
-                
-                /* DIC */
-                b->lateral_conc[CGEM_SPECIES_DIC][grid_idx] = 
-                    w_lateral * b->lateral_conc[CGEM_SPECIES_DIC][grid_idx] + 
-                    w_point * (dic_mg_L * 83.3);
-                
-                /* CH4/N2O: expect µmol/L inputs; no automatic conversion */
-                if (ch4_umol_L > 0) {
-                    b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] = 
-                        w_lateral * b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] + 
-                        w_point * ch4_umol_L;
+                if (total_Q_cell > 1e-10) {
+                    /* Mix point source with existing lateral load (flow-weighted average) */
+                    double w_point = Q_cell / total_Q_cell;
+                    double w_lateral = (total_Q_cell > Q_cell) ? (total_Q_cell - Q_cell) / total_Q_cell : 0.0;
+                    
+                    /* NH4: mg N/L -> umol N/L (x71.4) */
+                    b->lateral_conc[CGEM_SPECIES_NH4][i] = 
+                        w_lateral * b->lateral_conc[CGEM_SPECIES_NH4][i] + 
+                        w_point * (nh4_mg_L * 71.4);
+                    
+                    /* NO3 */
+                    b->lateral_conc[CGEM_SPECIES_NO3][i] = 
+                        w_lateral * b->lateral_conc[CGEM_SPECIES_NO3][i] + 
+                        w_point * (no3_mg_L * 71.4);
+                    
+                    /* PO4: mg P/L -> umol P/L (x32.3) */
+                    b->lateral_conc[CGEM_SPECIES_PO4][i] = 
+                        w_lateral * b->lateral_conc[CGEM_SPECIES_PO4][i] + 
+                        w_point * (po4_mg_L * 32.3);
+                    
+                    /* TOC: mg C/L -> umol C/L (x83.3) */
+                    b->lateral_conc[CGEM_SPECIES_TOC][i] = 
+                        w_lateral * b->lateral_conc[CGEM_SPECIES_TOC][i] + 
+                        w_point * (toc_mg_L * 83.3);
+                    
+                    /* DIC */
+                    b->lateral_conc[CGEM_SPECIES_DIC][i] = 
+                        w_lateral * b->lateral_conc[CGEM_SPECIES_DIC][i] + 
+                        w_point * (dic_mg_L * 83.3);
+                    
+                    /* CH4/N2O: expect µmol/L inputs; no automatic conversion */
+                    if (ch4_umol_L > 0) {
+                        b->lateral_conc[CGEM_SPECIES_CH4][i] = 
+                            w_lateral * b->lateral_conc[CGEM_SPECIES_CH4][i] + 
+                            w_point * ch4_umol_L;
+                    }
+                    
+                    if (n2o_umol_L > 0) {
+                        b->lateral_conc[CGEM_SPECIES_N2O][i] = 
+                            w_lateral * b->lateral_conc[CGEM_SPECIES_N2O][i] + 
+                            w_point * n2o_umol_L;
+                    }
+                    
+                    /* SPM: mg/L (no conversion needed) */
+                    b->lateral_conc[CGEM_SPECIES_SPM][i] = 
+                        w_lateral * b->lateral_conc[CGEM_SPECIES_SPM][i] + 
+                        w_point * spm_mg_L;
                 }
-                
-                if (n2o_umol_L > 0) {
-                    b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] = 
-                        w_lateral * b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] + 
-                        w_point * n2o_umol_L;
-                }
-            } else {
-                /* No existing lateral load - set directly */
-                b->lateral_conc[CGEM_SPECIES_NH4][grid_idx] = nh4_mg_L * 71.4;
-                b->lateral_conc[CGEM_SPECIES_NO3][grid_idx] = no3_mg_L * 71.4;
-                b->lateral_conc[CGEM_SPECIES_PO4][grid_idx] = po4_mg_L * 32.3;
-                b->lateral_conc[CGEM_SPECIES_TOC][grid_idx] = toc_mg_L * 83.3;
-                b->lateral_conc[CGEM_SPECIES_DIC][grid_idx] = dic_mg_L * 83.3;
-                /* GHG: Inputs must be µmol/L */
-                if (ch4_umol_L > 0) b->lateral_conc[CGEM_SPECIES_CH4][grid_idx] = ch4_umol_L;
-                if (n2o_umol_L > 0) b->lateral_conc[CGEM_SPECIES_N2O][grid_idx] = n2o_umol_L;
             }
         }
         
