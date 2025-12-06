@@ -75,35 +75,40 @@ void crive_ghg_init_config(GHGConfig *config) {
  * ===========================================================================*/
 
 double crive_calc_n2o_sat(double temp, double salinity) {
-    /* Weiss & Price (1980) formulation for N2O saturation
-     * From C-RIVE calc_N2O_sat() and init_N2O()
+    /* ===========================================================================
+     * N2O SATURATION CONCENTRATION - Weiss & Price (1980)
+     * ===========================================================================
      * 
-     * Coefficients for freshwater (salinity effect minimal):
-     * Csat = (a0 + a1*T + a2*T²) * 14 * 1e-6 [ngN/L]
+     * DECEMBER 2025 AUDIT FIX (Unit Consistency):
      * 
-     * C-RIVE uses: sat[0]=9.55, sat[1]=-0.38, sat[2]=0.00435
-     */
-    const double a0 = 9.55;
-    const double a1 = -0.38;
-    const double a2 = 0.00435;
+     * The model stores N2O in nmol/L (see ghg_module.h GHGState.N2O).
+     * This function MUST return saturation in nmol/L for flux calculations
+     * to have correct units.
+     * 
+     * DIMENSIONAL ANALYSIS:
+     * ---------------------
+     * Weiss & Price (1980) gives Bunsen solubility β [mol/(L·atm)]:
+     *   ln(β) = A1 + A2*(100/T) + A3*ln(T/100) + A4*(T/100)² 
+     *         + S*(B1 + B2*(T/100) + B3*(T/100)²)
+     * 
+     * At equilibrium with atmosphere:
+     *   C_sat [mol/L] = β [mol/(L·atm)] × p_N2O [atm]
+     *   
+     * where p_N2O = 335 ppb = 335 × 10⁻⁹ atm
+     * 
+     * Converting to nmol/L:
+     *   C_sat [nmol/L] = C_sat [mol/L] × 10⁹ [nmol/mol]
+     * 
+     * Typical value at 25°C, S=0: ~6.5-7.5 nmol/L (well-documented in literature)
+     * 
+     * Reference: Weiss, R.F., Price, B.A. (1980) Nitrous oxide solubility in water
+     *            and seawater. Marine Chemistry, 8, 347-359.
+     * ===========================================================================*/
     
-    double Csat = CRIVE_POLY2(a0, a1, a2, temp) * 14.0 * 1e-6;  /* ngN/L */
-    
-    /* Convert ngN/L to nmol/L
-     * 1 nmol N = 14 ng N
-     * So ngN/L / 14 = nmol/L
-     * But C-RIVE already multiplies by 14, so result is in ~nmol equivalent
-     * Actually: Csat in nmol/L = CRIVE value (which is in scaled units)
-     */
-    
-    /* For a cleaner implementation, use standard Weiss & Price:
-     * ln(Csat) = A1 + A2*(100/T) + A3*ln(T/100) + S*(B1 + B2*(T/100))
-     * with atmospheric N2O = 335 ppb
-     */
     double T_K = temp + CRIVE_T_KELVIN_GHG;
     double T100 = T_K / 100.0;
     
-    /* Weiss & Price (1980) coefficients for N2O */
+    /* Weiss & Price (1980) coefficients for N2O Bunsen solubility */
     const double A1_wp = -165.8806;
     const double A2_wp = 222.8743;
     const double A3_wp = 92.0792;
@@ -112,19 +117,22 @@ double crive_calc_n2o_sat(double temp, double salinity) {
     const double B2_wp = 0.031619;
     const double B3_wp = -0.0048472;
     
+    /* Calculate ln(β) where β is in mol/(L·atm) */
     double ln_beta = A1_wp + A2_wp * (100.0 / T_K) + A3_wp * log(T100) + A4_wp * T100 * T100;
     ln_beta += salinity * (B1_wp + B2_wp * T100 + B3_wp * T100 * T100);
     
-    double beta = exp(ln_beta);  /* mol/L/atm */
+    double beta = exp(ln_beta);  /* [mol/(L·atm)] */
     
-    /* N2O saturation at atmospheric equilibrium [µmol/L]
-     * DECEMBER 2025 FIX: Return µmol/L to match model internal units.
-     * Previously returned nmol/L which caused unit mismatch in flux calculation.
+    /* N2O saturation at atmospheric equilibrium [nmol/L]
+     * 
+     * C_sat = β × p_N2O × 10⁹
+     *       = [mol/(L·atm)] × [atm] × [nmol/mol]
+     *       = [nmol/L]
      */
     double N2O_atm_atm = CRIVE_N2O_ATM_PPB * 1e-9;  /* ppb to atm */
-    Csat = beta * N2O_atm_atm * 1e6;  /* mol/L/atm * atm * 1e6 = µmol/L */
+    double Csat_nmol = beta * N2O_atm_atm * 1e9;    /* [nmol/L] */
     
-    return Csat;
+    return Csat_nmol;  /* [nmol/L] - matches GHGState.N2O units */
 }
 
 double crive_calc_n2o_schmidt(double temp) {
@@ -144,59 +152,102 @@ double crive_calc_n2o_schmidt(double temp) {
 
 double crive_calc_n2o_flux(double N2O_conc, double N2O_sat, double depth,
                            double velocity, double Sc) {
-    /* Direct port from C-RIVE rea_degassing_N2O()
+    /* ===========================================================================
+     * N2O AIR-WATER FLUX - O'Connor & Dobbins (1958)
+     * ===========================================================================
      * 
-     * O'Connor-Dobbins (1958) gas transfer:
-     * kg [m/day] = 1.719 * sqrt((600 * v) / (Sc * h))
+     * DECEMBER 2025 AUDIT FIX - UNIT CONSISTENCY
+     * ------------------------------------------
      * 
-     * DECEMBER 2025 FIX: Proper unit conversion to µmol/L/s
-     * The original formula gives kg in m/day.
-     * Surface flux [µmol/m²/day] = kg [m/day] × (C - Csat) [µmol/L] × 1000 [L/m³]
-     * Rate [µmol/L/s] = Flux [µmol/m²/day] / depth [m] / 86400 [s/day]
-     */
+     * The model stores N2O in µmol/L (same as all other species).
+     * This function now accepts:
+     *   N2O_conc: [µmol/L] - current dissolved N2O (model internal units)
+     *   N2O_sat:  [nmol/L] - saturation from crive_calc_n2o_sat()
+     * 
+     * The function returns [µmol/L/s] to match biogeo.c internal units.
+     * 
+     * UNIT CONVERSION APPROACH:
+     * 1. Convert N2O_conc from µmol/L to nmol/L for ΔC calculation
+     * 2. Calculate flux in nmol/m²/day
+     * 3. Convert final result from nmol/L/s to µmol/L/s
+     * 
+     * Reference: O'Connor, D.J., Dobbins, W.E. (1958) Mechanism of reaeration
+     *            in natural streams. Trans. ASCE, 123, 641-684.
+     * ===========================================================================*/
+    
     if (depth < 0.01) depth = 0.01;
     if (Sc < 100.0) Sc = 100.0;
     
+    /* Convert model N2O concentration from µmol/L to nmol/L for flux calculation */
+    double N2O_conc_nmol = N2O_conc * 1000.0;  /* µmol/L → nmol/L */
+    
+    /* Gas transfer velocity [m/day] */
     double kg_m_day = 1.719 * sqrt((600.0 * fabs(velocity)) / (Sc * depth));
     
-    /* Convert kg from m/day to the rate in µmol/L/s */
-    /* Fwa [µmol/m²/day] = kg [m/day] × (C - Csat) [µmol/L] × 1000 [L/m³] */
-    /* Rate [µmol/L/s] = Fwa / depth / 86400 */
-    double Fwa_umol_m2_day = kg_m_day * (N2O_conc - N2O_sat) * 1000.0;
-    double rate_umol_L_s = Fwa_umol_m2_day / depth / 86400.0;
+    /* Flux [nmol/m²/day] = k_g [m/day] × ΔC [nmol/L] × 1000 [L/m³] */
+    double Fwa_nmol_m2_day = kg_m_day * (N2O_conc_nmol - N2O_sat) * 1000.0;
+    
+    /* Convert to volumetric rate [µmol/L/s] 
+     * nmol/m²/day → nmol/L/s: divide by depth and 86400
+     * nmol/L/s → µmol/L/s: divide by 1000
+     */
+    double rate_umol_L_s = Fwa_nmol_m2_day / depth / 86400.0 / 1000.0;
     
     return rate_umol_L_s;  /* [µmol/L/s] - positive = evasion */
 }
 
 double crive_calc_n2o_from_nitrification(double nitrif_rate, double yield) {
-    /* N2O production from nitrification
-     * From C-RIVE growth_bactn.c and Cébron et al. (2005)
+    /* ===========================================================================
+     * N2O PRODUCTION FROM NITRIFICATION
+     * ===========================================================================
      * 
-     * N2O_nit = yield * nitrification_rate
+     * DIMENSIONAL ANALYSIS (December 2025 Audit):
+     * -------------------------------------------
+     * N2O is produced as a byproduct of nitrification (NH4 → NO2 → NO3).
      * 
-     * Typical yield: 0.003-0.01 mol N2O-N / mol NH4-N oxidized
+     * Input units:
+     *   nitrif_rate: [µmol N/L/s] (from rive_calc_nitrification)
+     *   yield: [mol N2O-N / mol NH4-N] (dimensionless, typically 0.003-0.01)
      * 
-     * DECEMBER 2025 FIX: Keep in µmol/L/s to match model's internal units.
-     * The ×1000 conversion was causing unit mismatch with n2o[] array.
-     */
+     * Output unit:
+     *   N2O production rate: [nmol N/L/s]
+     * 
+     * Conversion:
+     *   rate [nmol/L/s] = nitrif_rate [µmol/L/s] × yield × 1000 [nmol/µmol]
+     * 
+     * Reference: Cébron, A. et al. (2005) Nitrification and nitrifying bacteria
+     *            in the lower Seine River. Appl. Environ. Microbiol.
+     * ===========================================================================*/
     if (nitrif_rate < 0.0) nitrif_rate = 0.0;
     
-    return yield * nitrif_rate;  /* µmol N/L/s - matches model internal unit */
+    /* Convert µmol/L/s to nmol/L/s */
+    return yield * nitrif_rate * 1000.0;  /* [nmol N/L/s] */
 }
 
 double crive_calc_n2o_from_denitrification(double denit_rate, double yield) {
-    /* N2O production from incomplete denitrification
-     * From C-RIVE and Garnier et al. (2007)
+    /* ===========================================================================
+     * N2O PRODUCTION FROM DENITRIFICATION
+     * ===========================================================================
      * 
-     * N2O_denit = yield * denitrification_rate
+     * DIMENSIONAL ANALYSIS (December 2025 Audit):
+     * -------------------------------------------
+     * N2O is produced as an intermediate in incomplete denitrification:
+     *   NO3 → NO2 → NO → N2O → N2
      * 
-     * Typical yield: 0.005-0.02 mol N2O / mol NO3 reduced
+     * Input units:
+     *   denit_rate: [µmol N/L/s] (from rive_calc_denitrification)
+     *   yield: [mol N2O / mol NO3] (dimensionless, typically 0.005-0.02)
      * 
-     * DECEMBER 2025 FIX: Keep in µmol/L/s to match model's internal units.
-     */
+     * Output unit:
+     *   N2O production rate: [nmol N/L/s]
+     * 
+     * Reference: Garnier, J. et al. (2007) N2O and NO emission from soils and
+     *            sediments in the Seine River watershed. Biogeochemistry.
+     * ===========================================================================*/
     if (denit_rate < 0.0) denit_rate = 0.0;
     
-    return yield * denit_rate;  /* µmol N/L/s - matches model internal unit */
+    /* Convert µmol/L/s to nmol/L/s */
+    return yield * denit_rate * 1000.0;  /* [nmol N/L/s] */
 }
 
 /* ===========================================================================

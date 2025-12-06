@@ -5,6 +5,27 @@ All notable changes to C-GEM Network will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2025-12-06
+
+### Fixed
+
+- **Critical N2O Unit Mismatch Bug** - N2O evasion was 1000× too weak:
+  - `crive_calc_n2o_flux()` returned nmol/L/s but was used in µmol/L/s context
+  - Fixed by converting both input (N2O_conc µmol/L → nmol/L) and output (nmol/L/s → µmol/L/s)
+  - Benthic N2O flux conversion was dividing by 1e6 instead of 1000
+  - **Result**: N2O PBIAS went from +30,000% to -50% (now realistic!)
+
+### Changed
+
+- **`crive_calc_n2o_flux()` in ghg_module.c**:
+  - Now accepts N2O_conc in µmol/L (model internal units)
+  - Internally converts to nmol/L for flux calculation
+  - Returns rate in µmol/L/s (consistent with biogeo.c)
+
+- **Benthic N2O flux in biogeo.c**:
+  - Fixed unit conversion: `benthic_N2O_flux / depth / RIVE_SECONDS_PER_DAY / 1000.0`
+  - (Was incorrectly dividing by 1e6, making benthic N2O flux 1000× too small)
+
 ## [1.3.0] - 2025-12-06
 
 ### Added

@@ -134,13 +134,20 @@ void crive_ghg_init_config(GHGConfig *config);
 
 /**
  * Calculate N2O saturation concentration
- * Weiss & Price (1980) formulation from C-RIVE calc_N2O_sat()
+ * Weiss & Price (1980) formulation
  * 
- * Csat = poly2(a0, a1, a2, T) * 14 * 1e-6 [ngN/L → nmol/L]
+ * Uses Bunsen solubility β [mol/(L·atm)] with atmospheric N2O = 335 ppb.
+ * C_sat = β × p_N2O × 10⁹ [nmol/L]
+ * 
+ * Typical values:
+ *   - At 25°C, S=0:  ~7 nmol/L
+ *   - At 25°C, S=35: ~5 nmol/L
+ * 
+ * Reference: Weiss, R.F., Price, B.A. (1980) Marine Chemistry, 8, 347-359.
  * 
  * @param temp Water temperature [°C]
- * @param salinity Salinity [PSU] (minimal effect in freshwater)
- * @return N2O saturation concentration [nmol/L]
+ * @param salinity Salinity [PSU]
+ * @return N2O saturation concentration [nmol/L] (matches GHGState.N2O units)
  */
 double crive_calc_n2o_sat(double temp, double salinity);
 
@@ -159,15 +166,18 @@ double crive_calc_n2o_schmidt(double temp);
  * Calculate N2O air-water flux
  * Direct port from C-RIVE rea_degassing_N2O()
  * 
- * Flux = kg * (C - Csat) / depth [nmol/L/s]
+ * Flux = kg * (C - Csat) / depth [µmol/L/s]
  * where kg = 1.719 * sqrt(600*v / (Sc*depth))
  * 
- * @param N2O_conc Current dissolved N2O [nmol/L]
- * @param N2O_sat N2O saturation concentration [nmol/L]
+ * DECEMBER 2025 AUDIT FIX: Now returns µmol/L/s (was nmol/L/s)
+ * to match biogeo.c internal units. The model stores N2O in µmol/L.
+ * 
+ * @param N2O_conc Current dissolved N2O [µmol/L] (model internal units)
+ * @param N2O_sat N2O saturation concentration [nmol/L] (from crive_calc_n2o_sat)
  * @param depth Water depth [m]
  * @param velocity Water velocity [m/s]
  * @param Sc Schmidt number [-]
- * @return N2O flux [nmol/L/s] (positive = evasion to atmosphere)
+ * @return N2O flux [µmol/L/s] (positive = evasion to atmosphere)
  */
 double crive_calc_n2o_flux(double N2O_conc, double N2O_sat, double depth,
                            double velocity, double Sc);

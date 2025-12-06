@@ -608,10 +608,21 @@ static int Biogeo_Branch_Simplified(Branch *branch, double dt, void *network_ptr
             /* =======================================================================
              * SPATIALLY-VARYING BENTHIC FLUX (December 2025 Audit v4)
              * 
-             * Use salinity as proxy for sediment type:
-             *   S > S_high: Sandy ocean mouth → scale = benthic_ocean_scale
-             *   S < S_low:  Fine muddy upstream → scale = benthic_upstream_scale  
-             *   In between: Linear interpolation
+             * SCIENTIFIC JUSTIFICATION:
+             * Using salinity as a proxy for sediment type is an empirical heuristic:
+             *   S > S_high: Sandy ocean mouth → low organic content → low flux
+             *   S < S_low:  Fine muddy upstream → high organic content → high flux
+             * 
+             * This approach is defensible (Abril et al. 2010, Cai 2011) but imperfect.
+             * 
+             * RECOMMENDED: For scenario analysis (e.g., pollution reduction),
+             * use enable_soc=1 which makes benthic fluxes DYNAMIC based on the
+             * accumulated sediment organic carbon pool. The static salinity-based
+             * scaling below is only appropriate for steady-state simulations.
+             * 
+             * Reference: 
+             *   Abril et al. (2010) Global Biogeochem. Cycles, 24, GB1020
+             *   Cai (2011) Ann. Rev. Mar. Sci., 3, 123-145
              * =======================================================================*/
             double ocean_scale = (p->benthic_ocean_scale > 0.0) ? p->benthic_ocean_scale : 0.2;
             double upstream_scale = (p->benthic_upstream_scale > 0.0) ? p->benthic_upstream_scale : 3.0;
@@ -1262,8 +1273,12 @@ int Biogeo_GHG_Branch(Branch *branch, double dt) {
             /* N2O: production from N cycling + benthic flux - air-water exchange
              * Benthic N2O flux from coupled nitrification-denitrification in sediments
              * Literature: 10-300 nmol N2O/m²/day (Seitzinger & Kroeze 1998)
+             * 
+             * Unit conversion:
+             *   benthic_N2O_flux [nmol/m²/day] / depth [m] / 86400 [s/day] / 1000 [nmol/µmol]
+             *   = [µmol/L/s]
              */
-            double benthic_n2o_rate = g_ghg_config.benthic_N2O_flux / depth / (RIVE_SECONDS_PER_DAY * 1e6);
+            double benthic_n2o_rate = g_ghg_config.benthic_N2O_flux / depth / RIVE_SECONDS_PER_DAY / 1000.0;
             double dN2O = n2o_from_nit + n2o_from_denit + benthic_n2o_rate - n2o_flux;
             n2o[i] = CGEM_MAX(0.0, n2o[i] + dN2O * dt);
             
@@ -1314,8 +1329,11 @@ int Biogeo_GHG_Branch(Branch *branch, double dt) {
             double dNO2 = nitrosation - nitratation - n2o_from_nit * 0.001;
             no2[i] = CGEM_MAX(0.0, no2[i] + dNO2 * dt);
             
-            /* Update N2O (with spatially-varying benthic flux) */
-            double benthic_n2o_rate = g_ghg_config.benthic_N2O_flux * benthic_scale / depth / (RIVE_SECONDS_PER_DAY * 1e6);
+            /* Update N2O (with spatially-varying benthic flux)
+             * Unit conversion: nmol/m²/day → µmol/L/s
+             * = [nmol/m²/day] / depth [m] / 86400 [s/day] / 1000 [nmol/µmol]
+             */
+            double benthic_n2o_rate = g_ghg_config.benthic_N2O_flux * benthic_scale / depth / RIVE_SECONDS_PER_DAY / 1000.0;
             double dN2O = n2o_from_nit + n2o_from_denit + benthic_n2o_rate - n2o_flux;
             n2o[i] = CGEM_MAX(0.0, n2o[i] + dN2O * dt);
             
